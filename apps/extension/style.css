@@ -3,3 +3,14 @@
 [hidden]{display:none!important}
 .embedded header{padding:10px 14px}.embedded .brand{font-size:24px}.embedded header .badge{display:none}.embedded main{padding:14px}.embedded .intro h1{font-size:25px;letter-spacing:-1px;margin:6px 0}.embedded .intro h1 br{display:none}.embedded .intro p{font-size:12px;margin:8px 0}.embedded .eyebrow{font-size:10px}.embedded .workspace{display:block}.embedded aside{display:block}.embedded .canvas-card,.embedded .panel{border-radius:16px;padding:12px}.embedded .canvas-card{margin-bottom:14px}.embedded .notice{font-size:12px;padding:10px;margin-bottom:12px}.embedded .toolbar{gap:6px}.embedded button,.embedded .file-button{font-size:12px;padding:8px 10px}.embedded #stage-wrap{min-height:130px;margin:12px 0}.embedded footer{padding:10px 0}.embedded #example{display:none}.embedded .panel h2{margin-bottom:6px}
 .object-box span{top:4px;left:4px;transform:none;width:max-content;max-width:220px;white-space:normal;overflow-wrap:anywhere;line-height:1.3;overflow:auto;text-align:left;pointer-events:none}
+.products-search-bar{display:flex;gap:6px;margin:10px 0}
+.products-search-bar input{flex:1;padding:7px 10px;font-size:13px}
+.products-search-bar button{padding:7px 12px;font-size:12px;white-space:nowrap}
+.products-container{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.product-card{display:flex;gap:10px;background:#fbf8f2;border:1px solid #24364e20;border-radius:12px;padding:10px;align-items:center}
+.product-thumb{width:60px;height:60px;object-fit:contain;background:#fff;border-radius:8px;border:1px solid #24364e15;flex-shrink:0}
+.product-info{flex:1;min-width:0}
+.product-title{font-size:12px;font-weight:650;line-height:1.3;margin-bottom:4px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.product-meta{font-size:11px;color:#5e6976;margin-bottom:6px}
+.buy-button{display:inline-block;font-size:11px;font-weight:650;text-decoration:none;padding:5px 9px;background:var(--mint);border:1px solid var(--ink);border-radius:6px;color:var(--ink);cursor:pointer}
+.buy-button:hover{filter:brightness(.95)}

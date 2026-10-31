@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { detectWithGemini } from './gemini.mjs';
 import { validateImage } from './image.mjs';
 import { createPairingHandler } from './pairing.mjs';
+import { searchChannel3 } from './channel3.mjs';
 export { validateImage } from './image.mjs';
 
 export const PORT = 4317;
@@ -13,7 +14,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const MAX_BODY = 12 * 1024 * 1024;
 
-export function createApp({ token, apiKey = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini } = {}) {
+export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3 } = {}) {
   const pairing = createPairingHandler(token);
   let inFlight = 0;
   let lastRequest = 0;
@@ -44,7 +45,34 @@ export function createApp({ token, apiKey = '', model = 'gemini-3.5-flash-lite',
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(`<!doctype html><title>BopIt local setup</title><style>body{font:18px system-ui;max-width:750px;margin:70px auto;background:#fff9ef;color:#24354d;padding:24px}code{display:block;overflow-wrap:anywhere;background:#e4f4ec;padding:20px;border-radius:16px}p{line-height:1.6}</style><h1>BopIt · local recognition server</h1><p>Gemini key: <strong>${apiKey ? 'configured (not yet verified)' : 'missing — add it to .env and restart the server'}</strong><br>Model: ${escape(model)}</p><h2>Pair your extension</h2><p>Copy this local pairing code into BopIt → Settings. This is not your Gemini API key. Keep it private.</p><code>${escape(token)}</code><p>The extension previews each image before you send it to Gemini. Images are processed in memory and are not saved by this server. Gemini’s own data terms apply.</p>`);
     }
-    if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, configured: Boolean(apiKey), model });
+    if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, configured: Boolean(apiKey), channel3Configured: Boolean(channel3Key), model });
+    if (req.method === 'POST' && req.url === '/api/products/search') {
+      const supplied = Buffer.from(String(req.headers['x-bopit-token'] || ''));
+      const expected = Buffer.from(token || '');
+      if ((!extensionOrigin && origin !== BASE) || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'Pair the extension using the local setup page first.' });
+      if (!channel3Key) return send(503, { code: 'KEY_MISSING', error: 'Add CHANNEL3_API_KEY to the server .env file, restart it, and try again.' });
+      if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required.' });
+      let size = 0;
+      try {
+        const chunks = [];
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > 64 * 1024) { send(413, { error: 'Search request too large.' }); req.destroy(); return; }
+          chunks.push(chunk);
+        }
+        const body = JSON.parse(Buffer.concat(chunks).toString());
+        const query = typeof body.query === 'string' ? body.query : body.attributes;
+        if (!query) return send(400, { code: 'INVALID_QUERY', error: 'Search query is required.' });
+        try {
+          const results = await searchProducts(query, { apiKey: channel3Key, limit: body.limit, filters: body.filters });
+          return send(200, results);
+        } catch (error) {
+          const status = error.status && error.status >= 400 && error.status < 600 ? error.status : (error.code === 'INVALID_QUERY' ? 400 : 502);
+          return send(status, { code: error.code || 'SEARCH_FAILED', error: error.message || 'Product discovery search failed.' });
+        }
+      } catch { if (!res.headersSent) send(400, { error: 'Invalid request.' }); }
+      return;
+    }
     if (req.method !== 'POST' || req.url !== '/api/detect') return send(404, { error: 'Not found.' });
     const supplied = Buffer.from(String(req.headers['x-bopit-token'] || ''));
     const expected = Buffer.from(token || '');
@@ -82,7 +110,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const tokenPath = resolve(dir, 'pairing-token');
   let token;
   try { token = (await readFile(tokenPath, 'utf8')).trim(); } catch { token = randomBytes(32).toString('hex'); await writeFile(tokenPath, token, { mode: 0o600 }); }
-  const app = createApp({ token, apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' });
+  const app = createApp({ token, apiKey: process.env.GEMINI_API_KEY, channel3Key: process.env.CHANNEL3_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' });
   app.on('error', error => { console.error(error.code === 'EADDRINUSE' ? 'Port 4317 is already in use. Stop the other BopIt server first.' : 'Server could not start.'); process.exitCode = 1; });
-  app.listen(PORT, '127.0.0.1', () => console.log(`BopIt setup: ${BASE}\nGemini key ${process.env.GEMINI_API_KEY ? 'configured; live call still needs verification' : 'missing; see README.md'}. No images or credentials are logged.`));
+  app.listen(PORT, '127.0.0.1', () => console.log(`BopIt setup: ${BASE}\nGemini key ${process.env.GEMINI_API_KEY ? 'configured; live call still needs verification' : 'missing; see README.md'}\nChannel3 key ${process.env.CHANNEL3_API_KEY ? 'configured' : 'missing; add CHANNEL3_API_KEY to .env'}. No images or credentials are logged.`));
 }

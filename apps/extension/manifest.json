@@ -10,5 +10,5 @@
   "commands": { "_execute_action": { "suggested_key": { "default": "Ctrl+Shift+Y", "mac": "Command+Shift+Y" } } },
   "options_page": "settings.html",
   "web_accessible_resources": [{ "resources": ["viewer.html"], "matches": ["https://*/*", "http://*/*"] }],
-  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:4317; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'" }
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:4317; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'" }
 }

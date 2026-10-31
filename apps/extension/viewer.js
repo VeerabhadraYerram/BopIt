@@ -62,6 +62,12 @@ function select(id) {
   $('#edit-label').value = object.label;
   for (const key of ['x', 'y', 'width', 'height']) $(`#edit-${key}`).value = (object.box[key] * 100).toFixed(1);
   $('#detail').focus({ preventScroll: true });
+  const queryParts = [object.visibleText, object.label].filter(Boolean);
+  const suggestedQuery = queryParts.join(' ').trim();
+  if (suggestedQuery && $('#product-query')) {
+    $('#product-query').value = suggestedQuery;
+    searchProducts(suggestedQuery);
+  }
 }
 async function loadFrame(record) {
   revision++; controller?.abort(); setBusy(false);
@@ -188,4 +194,101 @@ if (query.has('capture')) {
 } else if (query.has('error')) notice(query.get('error'), true);
 document.addEventListener('keydown', event => {
   if (embedded && event.key === 'Escape' && !event.defaultPrevented && !drawing && !['INPUT', 'TEXTAREA'].includes(event.target.tagName)) { controller?.abort(); chrome.runtime.sendMessage({ type: 'BOPIT_CLOSE_PANEL' }); }
+});
+
+async function searchProducts(queryText) {
+  const queryStr = (queryText || '').trim();
+  if (!queryStr) {
+    if ($('#products-notice')) $('#products-notice').textContent = 'Please enter a product name or category to search.';
+    return;
+  }
+  const { pairingToken } = await chrome.storage.local.get('pairingToken');
+  if (!pairingToken) {
+    if ($('#products-notice')) $('#products-notice').textContent = 'Connect first: open Settings and paste the pairing code from the local setup page.';
+    return;
+  }
+  if ($('#products-notice')) $('#products-notice').textContent = `Searching Channel3 for "${queryStr}"...`;
+  $('#products-container')?.replaceChildren();
+  if ($('#search-products-btn')) $('#search-products-btn').disabled = true;
+
+  try {
+    const response = await fetch('http://127.0.0.1:4317/api/products/search', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-bopit-token': pairingToken,
+      },
+      body: JSON.stringify({ query: queryStr, limit: 6 }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Failed to search products.');
+
+    const products = data.products || [];
+    if (!products.length) {
+      if ($('#products-notice')) $('#products-notice').textContent = `No Channel3 products found for "${queryStr}".`;
+      return;
+    }
+
+    if ($('#products-notice')) $('#products-notice').textContent = `Found ${products.length} product${products.length === 1 ? '' : 's'} on Channel3:`;
+    for (const product of products) {
+      const card = document.createElement('div');
+      card.className = 'product-card';
+
+      const img = document.createElement('img');
+      img.className = 'product-thumb';
+      img.src = product.imageUrl || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" fill="%23e4f4ec"><rect width="60" height="60"/></svg>';
+      img.alt = product.title || 'Product';
+      img.loading = 'lazy';
+
+      const info = document.createElement('div');
+      info.className = 'product-info';
+
+      const title = document.createElement('div');
+      title.className = 'product-title';
+      title.textContent = product.title;
+
+      const meta = document.createElement('div');
+      meta.className = 'product-meta';
+      const priceText = product.price != null ? `$${Number(product.price).toFixed(2)}` : 'Price unavailable';
+      const retailerText = product.retailer || product.brand || 'Retailer';
+      meta.textContent = `${priceText} · ${retailerText}`;
+
+      info.append(title, meta);
+      if (product.purchaseUrl) {
+        const link = document.createElement('a');
+        link.className = 'buy-button';
+        link.href = product.purchaseUrl;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'View & Buy ↗';
+        info.append(link);
+      }
+      card.append(img, info);
+      $('#products-container')?.append(card);
+    }
+  } catch (err) {
+    if ($('#products-notice')) {
+      $('#products-notice').textContent = err instanceof TypeError
+        ? 'Cannot reach the local server. Run npm start, then check Settings.'
+        : (err.message || 'Error searching Channel3.');
+    }
+  } finally {
+    if ($('#search-products-btn')) $('#search-products-btn').disabled = false;
+  }
+}
+
+$('#find-products-btn')?.addEventListener('click', () => {
+  const query = $('#product-query')?.value?.trim() || $('#label')?.textContent?.trim();
+  if (query) searchProducts(query);
+});
+$('#search-products-btn')?.addEventListener('click', () => {
+  const query = $('#product-query')?.value?.trim();
+  if (query) searchProducts(query);
+});
+$('#product-query')?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    const query = $('#product-query')?.value?.trim();
+    if (query) searchProducts(query);
+  }
 });
