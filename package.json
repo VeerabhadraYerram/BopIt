@@ -1,0 +1,14 @@
+{
+  "name": "bopit-recognition-prototype",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20.19" },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "build": "node scripts/build-extension.mjs",
+    "start": "node --env-file-if-exists=.env apps/recognition-server/server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs"
+  }
+}

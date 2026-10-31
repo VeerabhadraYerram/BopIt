@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "BopIt — Explore this moment",
+  "version": "0.2.0",
+  "description": "Local prototype: pause an authorized video, detect visible objects, and inspect the evidence. No product search yet.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://127.0.0.1:4317/*"],
+  "background": { "service_worker": "worker.js", "type": "module" },
+  "action": { "default_title": "BopIt: enable Explore on this video page" },
+  "commands": { "_execute_action": { "suggested_key": { "default": "Ctrl+Shift+Y", "mac": "Command+Shift+Y" } } },
+  "options_page": "settings.html",
+  "web_accessible_resources": [{ "resources": ["viewer.html"], "matches": ["https://*/*", "http://*/*"] }],
+  "content_security_policy": { "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:4317; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'" }
+}
