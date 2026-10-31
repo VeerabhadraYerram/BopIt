@@ -43,6 +43,7 @@ For a walkthrough of individual steps and troubleshooting, see below. This is lo
 - [Support and troubleshooting](#what-is-supported-and-what-is-not)
 - [Daily use, updates and uninstall](#daily-use-updates-and-uninstall)
 - [Architecture and privacy](#how-the-recognition-flow-works)
+- [Channel3 product discovery](#channel3-product-discovery)
 - [Developer checks](#developer-checks)
 
 ## What you need
@@ -50,6 +51,7 @@ For a walkthrough of individual steps and troubleshooting, see below. This is lo
 - Desktop Google Chrome.
 - Node.js **20.19 or later** (`node --version` in Terminal).
 - A Gemini API key with access to an image-capable, structured-output model. Start at [Google AI Studio](https://aistudio.google.com/apikey). Free quotas and account eligibility vary. [Pricing and data handling](https://ai.google.dev/gemini-api/docs/pricing).
+- A Channel3 API key for real product discovery. Register at [trychannel3.com](https://trychannel3.com/).
 
 This prototype has no runtime npm dependencies. No GPU, Python environment, model download or Chrome Web Store account is needed to try it locally.
 
@@ -75,6 +77,7 @@ Open `.env` locally in a text editor. Set `GEMINI_API_KEY` to your key. Do not p
 ```dotenv
 GEMINI_API_KEY=replace_with_your_own_key
 GEMINI_MODEL=gemini-3.5-flash-lite
+CHANNEL3_API_KEY=replace_with_your_channel3_key
 ```
 
 On Windows, use `Copy-Item .env.example .env` if the file does not exist; skip the Unix `chmod` command. If you used `npm run setup`, it already created the placeholder file with restricted permissions where supported. Do not overwrite an existing working `.env`.
@@ -130,6 +133,26 @@ The **Layout example** button shows a synthetic illustration and a clearly label
 
 The layout example is available in the standalone development inspector; it is hidden in the normal on-page panel. To inspect it, open Extension options → Manual connection / troubleshooting if you need setup help, or use the developer browser smoke test. Normal users can test an uploaded frame directly in the on-page panel.
 
+## Channel3 product discovery
+
+BopIt integrates the [Channel3 API](https://docs.trychannel3.com/) to retrieve real, purchasable products related to detected or searched objects.
+
+### Testing Channel3 via CLI
+To test product discovery directly from your terminal:
+
+```sh
+node --env-file=.env scripts/channel3-search.mjs "Sony WH-1000XM5 headphones"
+```
+
+This returns real in-stock items with titles, brands, prices, retailers (such as Macy's or 6ave), and direct purchase URLs.
+
+### Using Channel3 in the Chrome extension
+1. Make sure your local server is running (`npm start`) and paired.
+2. In the right panel of the BopIt viewer, look under **Channel3 discovery**.
+3. **Instant manual search:** Type any query into the search bar (e.g., `Sony WH-1000XM5 headphones`) and click **Search** or press **Enter**.
+4. **Auto-discovery from Gemini:** When Gemini detects visible objects, clicking on any object highlight automatically fills the search query and searches Channel3 for matching products.
+5. Click **View & Buy ↗** on any product card to open the retailer listing.
+
 ## 4. Fix a missed or inaccurate highlight
 
 - Click **Select an area**, then drag a rectangle around the item. This creates an explicitly manual region; click **Inspect this area more closely** to analyze it.
@@ -153,7 +176,8 @@ User-edited boxes/labels are tagged as manually corrected. They do not become mo
 | Detection | Generic objects, visible attributes and qualified scene interpretation. Boxes are predictions, not pixel-perfect masks or verified SKUs. |
 | Persistence | One temporary capture in extension session storage. A new capture replaces the previous one. Images stay in the inspector until it closes; no disk image storage on the server. |
 | Context | Visible frame observations and a separately labeled possible activity. No automatic transcript extraction, user intent inference, or watch-history collection. |
-| Search / checkout | Not implemented in this slice. |
+| Product search | Real-world product discovery via Channel3 (manual search & auto-suggestion from detected objects). |
+| Checkout | In progress by PayPal integration workstream. |
 
 ### Common problems
 
@@ -230,6 +254,10 @@ The live model adapter uses Google's documented [Generate Content image input](h
 - `apps/extension/`: packaged MV3 worker, explicitly injected page control, inspector and Settings. No remote executable code or provider key.
 - `apps/recognition-server/`: dependency-free Node HTTP service and Gemini adapter. One bounded request per explicit Analyze/Inspect action, 45-second provider timeout, two-request concurrency ceiling and one-second request spacing.
 - `packages/contracts/recognition.mjs`: structured-output schema, runtime validation and coordinate transforms.
+- `packages/contracts/discovery.mjs`: Channel3 product and offer normalization, search query builder.
+- `apps/recognition-server/channel3.mjs`: Server-side Channel3 search client with error mapping and timeouts.
+- `scripts/channel3-search.mjs`: CLI testing tool for Channel3 product queries.
+- `tests/discovery.test.mjs`: Channel3 normalization, query builder, error handling, and server endpoint test suite.
 - `dist/extension/`: generated unpacked package. Rebuild and click Reload in `chrome://extensions` after source edits.
 
 The standalone Node service keeps this recognition experiment easy to run. A broader commerce backend can reuse the model adapter and contracts after the recognition approach passes evaluation. No shopping service or extra website must be built to run this slice.
