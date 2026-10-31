@@ -39,6 +39,7 @@ For a walkthrough of individual steps and troubleshooting, see below. This is lo
 - [Configure and start the server](#1-start-the-local-server)
 - [Build, install and connect Chrome](#2-build-and-load-the-extension)
 - [Use BopIt on a paused video](#3-try-it-on-a-paused-video)
+- [Test PayPal Sandbox checkout](#paypal-sandbox-demo-checkout)
 - [Correct detections](#4-fix-a-missed-or-inaccurate-highlight)
 - [Support and troubleshooting](#what-is-supported-and-what-is-not)
 - [Daily use, updates and uninstall](#daily-use-updates-and-uninstall)
@@ -75,9 +76,11 @@ Open `.env` locally in a text editor. Set `GEMINI_API_KEY` to your key. Do not p
 ```dotenv
 GEMINI_API_KEY=replace_with_your_own_key
 GEMINI_MODEL=gemini-3.5-flash-lite
+PAYPAL_SANDBOX_CLIENT_ID=replace_with_sandbox_client_id
+PAYPAL_SANDBOX_CLIENT_SECRET=replace_with_sandbox_client_secret
 ```
 
-On Windows, use `Copy-Item .env.example .env` if the file does not exist; skip the Unix `chmod` command. If you used `npm run setup`, it already created the placeholder file with restricted permissions where supported. Do not overwrite an existing working `.env`.
+The PayPal values are optional for recognition. To test checkout, create a REST app in the PayPal Developer Dashboard's **Sandbox** environment and put its Sandbox client ID and secret in `.env`. Never put the secret in extension files, browser code, Git, screenshots, or chat. On Windows, use `Copy-Item .env.example .env` if the file does not exist; skip the Unix `chmod` command. If you used `npm run setup`, it already created the placeholder file with restricted permissions where supported. Do not overwrite an existing working `.env`.
 
 Then run:
 
@@ -153,7 +156,8 @@ User-edited boxes/labels are tagged as manually corrected. They do not become mo
 | Detection | Generic objects, visible attributes and qualified scene interpretation. Boxes are predictions, not pixel-perfect masks or verified SKUs. |
 | Persistence | One temporary capture in extension session storage. A new capture replaces the previous one. Images stay in the inspector until it closes; no disk image storage on the server. |
 | Context | Visible frame observations and a separately labeled possible activity. No automatic transcript extraction, user intent inference, or watch-history collection. |
-| Search / checkout | Not implemented in this slice. |
+| Search | Not implemented in this slice. |
+| Checkout | A separate fixed-price PayPal Sandbox demo product is available at `http://127.0.0.1:4317/demo/product`. It is not connected to recognition or Channel3 listings. |
 
 ### Common problems
 
@@ -165,6 +169,18 @@ User-edited boxes/labels are tagged as manually corrected. They do not become mo
 - **Image request too large:** use a smaller-resolution frame. The service accepts at most 8 MB encoded PNG bytes and 16 megapixels. It validates PNG dimensions, chunk checksums and bounded decoded size.
 - **Missed/merged item:** use manual region selection and crop refinement. No promise of exhaustive detection.
 - **Port already in use:** stop the other instance before running this one.
+
+## PayPal Sandbox demo checkout
+
+This repository includes one authorized demo item, the **BopIt Sandbox Demo Mug**, at a server-controlled **US$12.00**. It is solely for exercising the PayPal Sandbox flow; it does not make arbitrary Channel3 or third-party listings purchasable.
+
+1. Create a PayPal Developer account and a REST app in the Sandbox environment. Copy its Sandbox client ID and secret to `PAYPAL_SANDBOX_CLIENT_ID` and `PAYPAL_SANDBOX_CLIENT_SECRET` in `.env`. The credentials are read only by the local Node server.
+2. Restart the server with `npm start`.
+3. Visit `http://127.0.0.1:4317/demo/product` in a browser and click **Continue to PayPal Sandbox**. The server creates the fixed-price Orders API v2 order and sends the browser to the Sandbox approval page.
+4. Sign in there using a **Sandbox personal/buyer account** (not your live PayPal account), approve the demo order, and return to BopIt. BopIt captures server-side and confirms the completed order and capture with PayPal before displaying success.
+5. To test cancellation, use the PayPal Sandbox cancel/back option. The page reports cancellation and no capture. To test a decline or other failure, use PayPal's Sandbox buyer scenarios. An unconfirmed provider result stays **pending**; reload the return page to check PayPal again.
+
+No Sandbox credentials are needed to run recognition; checkout reports a configuration error until both server variables are set. The implementation uses in-memory local checkout state plus PayPal order ownership metadata and a stable capture idempotency key. It is a minimal local demo, not a production commerce system: there is no database, durable merchant catalog, inventory, shipping, refund flow, webhook reconciliation, live PayPal support, or Channel3 purchase path. A lost browser session cookie can prevent resuming that buyer's checkout; PayPal confirmation is still required before success is shown.
 
 ## Daily use, updates and uninstall
 
@@ -228,7 +244,7 @@ The live model adapter uses Google's documented [Generate Content image input](h
 ## Architecture and next accuracy gate
 
 - `apps/extension/`: packaged MV3 worker, explicitly injected page control, inspector and Settings. No remote executable code or provider key.
-- `apps/recognition-server/`: dependency-free Node HTTP service and Gemini adapter. One bounded request per explicit Analyze/Inspect action, 45-second provider timeout, two-request concurrency ceiling and one-second request spacing.
+- `apps/recognition-server/`: dependency-free Node HTTP service, Gemini adapter, and isolated fixed-product PayPal Sandbox demo checkout. The PayPal REST secret is read only from server environment variables; a captured payment is shown as successful only after PayPal order and capture verification.
 - `packages/contracts/recognition.mjs`: structured-output schema, runtime validation and coordinate transforms.
 - `dist/extension/`: generated unpacked package. Rebuild and click Reload in `chrome://extensions` after source edits.
 
@@ -236,7 +252,7 @@ The standalone Node service keeps this recognition experiment easy to run. A bro
 
 Before calling this accurate, build an annotated, authorized frame set and measure detection precision/recall, box overlap, selection success, correction rate, and latency. Compare models on the same held-out images. Add SAM or a specialist detector only after identifying a measured localization failure. See [recognition evaluation guide](docs/RECOGNITION_EVALUATION.md).
 
-See the [team workstream plan](TEAM_IMPLEMENTATION_PLAN.md) for the broader planned allocation; its commerce features are future scope, not implemented behavior. The previous master implementation document has been removed from the current repository. No public hosting or Chrome Web Store submission is included.
+See the [team workstream plan](TEAM_IMPLEMENTATION_PLAN.md) for the broader planned allocation; production-grade commerce features remain future scope. This local demo checkout does not implement authorized inventory, quote management, durable order storage, creator rewards, or arbitrary listing sales. The previous master implementation document has been removed from the current repository. No public hosting or Chrome Web Store submission is included.
 
 ## License
 

@@ -2,7 +2,7 @@
 
 **Date:** 29 October 2026
 **Current runnable implementation:** [README](README.md) and [extension run guide](docs/RUN_EXTENSION.md).
-**Purpose:** Historical allocation of the broader product into four independently buildable workstreams. The previous master specification has been removed from this repository. Numbered section and use-case references below describe that earlier planning baseline, not files required to run the prototype. Commerce and other future workstreams are not implemented by the recognition slice; use the README for current behavior.
+**Purpose:** Historical allocation of the broader product into four independently buildable workstreams. The previous master specification has been removed from this repository. Numbered section and use-case references below describe that earlier planning baseline, not files required to run the prototype. The repository now includes a fixed-product, local PayPal Sandbox checkout demonstration; broader commerce workstreams such as inventory, quotes, durable orders, refunds, and rewards are not implemented by the recognition slice. Use the README for current behavior and limitations.
 
 Replace Person 1–4 with team member names. These are development assignments, not new product roles.
 
