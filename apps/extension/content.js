@@ -12,7 +12,14 @@
   const status = document.createElement('p'); status.hidden = true; status.setAttribute('role', 'status');
   shadow.append(style, button, status); document.documentElement.append(host);
 
+  function restoreTimestamp() {
+    const video = pending?.video;
+    if (video?.isConnected && Number.isFinite(pending.timestamp) && Math.abs(video.currentTime - pending.timestamp) >= 0.02) {
+      video.currentTime = pending.timestamp;
+    }
+  }
   function hidePanel() {
+    restoreTimestamp();
     if (panel) panel.hidden = true;
     host.style.visibility = 'visible';
     if (selected?.isConnected) {
@@ -92,6 +99,7 @@
       const v = selected, r = v.getBoundingClientRect(), css = getComputedStyle(v);
       if (document.fullscreenElement || document.pictureInPictureElement || v.mediaKeys) { respond({ error: 'Exit fullscreen/Picture-in-Picture. Protected media is unsupported.' }); return; }
       const captureId = crypto.randomUUID();
+      const timestamp = v.currentTime;
       let directImage = null;
       try {
         const c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
@@ -108,9 +116,9 @@
           rect = { x: r.left + (r.width - v.videoWidth * scale) / 2, y: r.top + (r.height - v.videoHeight * scale) / 2, width: v.videoWidth * scale, height: v.videoHeight * scale };
         }
       }
-      pending = { captureId, timestamp: v.currentTime, rect: r.toJSON(), viewport: { width: innerWidth, height: innerHeight } };
+      pending = { captureId, timestamp, video: v, rect: r.toJSON(), viewport: { width: innerWidth, height: innerHeight } };
       host.style.visibility = 'hidden';
-      requestAnimationFrame(() => requestAnimationFrame(() => respond({ captureId, directImage, rect, viewport: pending.viewport, timestamp: v.currentTime })));
+      requestAnimationFrame(() => requestAnimationFrame(() => respond({ captureId, directImage, rect, viewport: pending.viewport, timestamp: pending.timestamp })));
       return true;
     }
     if (msg?.type === 'BOPIT_CONFIRM') {

@@ -58,7 +58,34 @@ try {
   await context.route('http://127.0.0.1:4317/api/detect', async route => {
     calls++;
     const body = route.request().postDataJSON();
-    await route.fulfill({ json: { ...validateDetections(rawResult()), captureId: body.captureId, mode: 'fixture', model: 'MOCKED API · browser test', elapsedMs: 50 } });
+    const detections = validateDetections(rawResult());
+    Object.assign(detections.objects[1], { brand: 'Canon', model: 'EF 50mm', color: 'black' });
+    await route.fulfill({ json: { ...detections, captureId: body.captureId, mode: 'fixture', model: 'MOCKED API · browser test', elapsedMs: 50 } });
+  });
+  const productQueries = [];
+  await context.route('http://127.0.0.1:4317/api/products/search', async route => {
+    const query = route.request().postDataJSON().query;
+    productQueries.push(query);
+    if (query === 'test-empty') return route.fulfill({ json: { ok: true, query, total: 0, products: [] } });
+    if (query === 'test-provider-failure') return route.fulfill({ status: 502, json: { code: 'PROVIDER_ERROR', error: 'Channel3 is unavailable.' } });
+    await route.fulfill({ json: { ok: true, query, total: 4, products: [
+      { id: 'camera-lens-1', title: 'Canon EF 50mm Camera Lens', brand: 'Canon', category: 'Camera lens',
+        price: 120, currency: 'USD', image: null, retailer: 'camera-store.example',
+        availability: 'InStock', condition: 'new', attributes: ['Focal length: 50 mm'],
+        purchaseUrl: 'https://camera-store.example/lens', offers: [], source: 'channel3' },
+      { id: 'camera-lens-2', title: 'Canon EF 35mm Camera Lens', brand: 'Canon', category: 'Camera lens',
+        price: 200, currency: 'EUR', image: null, retailer: 'camera-store.example',
+        availability: null, condition: null, attributes: [],
+        purchaseUrl: 'https://camera-store.example/lens-35', offers: [], source: 'channel3' },
+      { id: 'camera-lens-3', title: 'Third Party Camera Lens', brand: 'Third Party', category: 'Camera lens',
+        price: 80, currency: 'USD', image: null, retailer: 'other-store.example',
+        availability: 'InStock', condition: 'new', attributes: [],
+        purchaseUrl: 'https://other-store.example/lens', offers: [], source: 'channel3' },
+      { id: 'camera-lens-4', title: 'Unbranded Camera Lens', brand: null, category: 'Camera lens',
+        price: null, currency: null, image: null, retailer: null,
+        availability: null, condition: null, attributes: [],
+        purchaseUrl: '', offers: [], source: 'channel3' }
+    ] } });
   });
   await page.locator('#analyze').click();
   await page.waitForFunction(() => document.querySelector('#count').textContent === '2 items');
@@ -108,6 +135,7 @@ try {
   });
   await inspector.locator('#frame').waitFor({ state: 'visible' });
   await inspector.waitForFunction(() => document.querySelector('#notice').textContent.includes('Review the frame'));
+  assert.match(await inspector.locator('#timestamp').innerText(), /Captured at/);
   assert.equal(await inspector.locator('#frame').evaluate(img => img.naturalWidth), 640);
   assert.equal(await inspector.locator('#frame').evaluate(img => img.naturalHeight), 360);
   assert.match(await inspector.locator('#notice').innerText(), /Review the frame/);
@@ -120,6 +148,74 @@ try {
   await inspector.waitForFunction(() => document.querySelector('#count').textContent === '2 items');
   await inspector.locator('#objects button').first().click();
   assert.equal(await inspector.locator('#label').innerText(), 'Camera body');
+  await inspector.locator('#objects button').nth(1).click();
+  await inspector.locator('.product-card').waitFor();
+  assert.equal(await inspector.locator('.match-label').first().innerText(), 'Strong attribute match');
+  assert.equal(await inspector.locator('.product-title').innerText(), 'Canon EF 50mm Camera Lens');
+  assert.match(await inspector.locator('.product-price').first().innerText(), /USD.*120/);
+  assert.match(await inspector.locator('.product-meta').innerText(), /Canon.*camera-store\.example.*InStock/);
+  assert.equal(await inspector.locator('.buy-button').getAttribute('href'), 'https://camera-store.example/lens');
+  assert.match(productQueries.at(-1), /Canon EF 50mm/);
+  await inspector.locator('#discovery-mode').selectOption('similar');
+  await inspector.waitForFunction(() => document.querySelector('#products-notice').textContent.includes('candidates'));
+  assert.doesNotMatch(productQueries.at(-1), /Canon|EF/);
+  assert.equal(await inspector.locator('.match-label').first().innerText(), 'Category match');
+  assert.equal(await inspector.locator('#products-container').evaluate(element => getComputedStyle(element).gridTemplateColumns.split(' ').length), 1);
+  await inspector.locator('#discovery-mode').selectOption('cheaper');
+  await inspector.waitForFunction(() => document.querySelector('#product-sort').value === 'price-asc');
+  assert.doesNotMatch(productQueries.at(-1), /Canon|EF/);
+  await inspector.locator('#product-sort').selectOption('price-desc');
+  assert.equal(await inspector.locator('#product-sort').inputValue(), 'price-desc');
+  await inspector.locator('#discovery-mode').selectOption('exact');
+  await inspector.locator('.compare-product').nth(0).click();
+  await inspector.locator('.compare-product').nth(1).click();
+  await inspector.locator('.compare-product').nth(2).click();
+  assert.equal(await inspector.locator('#comparison-container tbody tr').count(), 6);
+  assert.match(await inspector.locator('#comparison-notice').innerText(), /Currencies are missing or differ/);
+  assert.equal(await inspector.locator('.compare-product').nth(3).isDisabled(), true);
+  await inspector.locator('.save-product').first().click();
+  await inspector.waitForFunction(() => document.querySelectorAll('#wishlist-container .wishlist-item').length === 1);
+  assert.equal((await worker.evaluate(() => chrome.storage.local.get('savedProducts'))).savedProducts.length, 1);
+  await inspector.locator('#brand-filter').selectOption({ label: 'Canon' });
+  assert.ok(await inspector.locator('.product-card').count() >= 1);
+  await inspector.locator('#budget-currency').selectOption('USD');
+  await inspector.locator('#budget-preset').selectOption('low');
+  assert.equal(await inspector.locator('.product-card').count(), 1);
+  assert.match(await inspector.locator('#budget-preset option:checked').innerText(), /up to USD/);
+  await inspector.locator('#budget-preset').selectOption('custom');
+  assert.equal(await inspector.locator('#budget-custom-controls').isVisible(), true);
+  await inspector.locator('#budget-filter').fill('100');
+  assert.equal(await inspector.locator('.product-card').count(), 0);
+  await inspector.locator('#brand-filter').selectOption('');
+  assert.equal(await inspector.locator('.product-card').count(), 1);
+  await inspector.locator('#budget-preset').selectOption('no-limit');
+  assert.equal(await inspector.locator('#budget-filter').inputValue(), '');
+  assert.equal(await inspector.locator('.product-card').count(), 4);
+  await inspector.locator('#budget-currency').selectOption('EUR');
+  await inspector.locator('#budget-preset').selectOption('low');
+  assert.equal(await inspector.locator('.product-card').count(), 1);
+  assert.match(await inspector.locator('.product-price').innerText(), /EUR.*200/);
+  await inspector.locator('#clear-comparison').click();
+  assert.equal(await inspector.locator('#comparison-panel').isVisible(), false);
+  await inspector.locator('#product-query').fill('test-empty');
+  await inspector.locator('#search-products-btn').click();
+  await inspector.waitForFunction(() => document.querySelector('#products-notice').textContent.includes('No Channel3 products'));
+  assert.equal(await inspector.locator('.product-card').count(), 0);
+  await inspector.locator('#product-query').fill('test-provider-failure');
+  await inspector.locator('#search-products-btn').click();
+  await inspector.waitForFunction(() => document.querySelector('#products-notice').textContent.includes('Channel3 is unavailable'));
+  await worker.evaluate(async () => {
+    const { savedProducts } = await chrome.storage.local.get('savedProducts');
+    await chrome.storage.local.set({ savedProducts: [...savedProducts, ...savedProducts] });
+  });
+  const reopened = await context.newPage();
+  await reopened.goto(`chrome-extension://${id}/viewer.html?embedded=1`);
+  await reopened.waitForFunction(() => document.querySelectorAll('#wishlist-container .wishlist-item').length === 1);
+  assert.equal((await worker.evaluate(() => chrome.storage.local.get('savedProducts'))).savedProducts.length, 1);
+  await reopened.locator('#wishlist-container .wishlist-item button').click();
+  await reopened.waitForFunction(() => document.querySelectorAll('#wishlist-container .wishlist-item').length === 0);
+  assert.equal((await worker.evaluate(() => chrome.storage.local.get('savedProducts'))).savedProducts.length, 0);
+  await reopened.close();
   await videoPage.screenshot({ path: 'test-results/on-page-results.png', fullPage: true });
   // An iframe on another page cannot retrieve this page's capture, even with its ID.
   const unauthorized = await context.newPage(); await unauthorized.goto(sourceUrl);
@@ -129,7 +225,10 @@ try {
   await foreign.locator('#notice').waitFor();
   await foreign.waitForFunction(() => document.querySelector('#notice').textContent.includes('belongs to another page'));
   await unauthorized.close();
+  await videoPage.locator('video').evaluate(video => { video.currentTime = Math.min(video.duration, video.currentTime + 0.1); });
+  await videoPage.waitForFunction(time => Math.abs(document.querySelector('video').currentTime - time) > 0.05, pausedTime);
   await inspector.locator('#return').click();
+  await videoPage.waitForFunction(time => Math.abs(document.querySelector('video').currentTime - time) < 0.02, pausedTime);
   await videoPage.locator('#bopit-results-panel').waitFor({ state: 'hidden' });
   assert.equal(await videoPage.locator('video').evaluate(video => video.paused), true);
   if (process.env.BOPIT_TEST_PAIRING === '1') {

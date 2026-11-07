@@ -63,9 +63,11 @@ This connects the extension to your computer's server. The Gemini key stays on t
 4. Click **Explore this moment** near the paused video.
 5. Review the frozen image in the panel on the same webpage. No model upload has happened yet.
 6. Click **Find objects with Gemini**.
-7. Click a highlight or its item-list entry to inspect the category, visible attributes and uncertainty.
+7. Click a highlight or its item-list entry to inspect the predicted category, visible color/material/brand/model evidence and uncertainty. Manual label or box corrections are marked as user corrections.
 8. If an object is missed, use **Select an area** and then **Inspect this area more closely**. For keyboard region selection, press N and edit the percentage coordinates.
-9. Close the panel with **×** or **Back to video**. Resume playback using the normal video controls.
+9. In **Channel3 discovery**, choose exact, visually similar, or cheaper alternatives; refine the text query and sort the provider results. Listing-evidence match classes are candidates, not verified products. Optionally filter by a budget plus currency or a returned brand; compare up to three products and save listings locally. Mixed currencies are never compared as equivalent and no exchange rate is applied.
+10. Compare only details supplied by Channel3. Retailer checkout prices may differ due to localization, taxes or exchange rates. Purchase links open the supplied external retailer offer; this prototype does not check out.
+11. Close the panel with **×** or **Back to video**. The video returns to its captured timestamp; resume playback using the normal video controls.
 
 If the video cannot be captured, use **Upload a frame** in the panel with an image you are permitted to analyze. Embedded cross-origin players and protected media are not supported generally; no website-wide compatibility claim is made.
 

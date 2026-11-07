@@ -77,7 +77,15 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   }
   if (message?.type === 'BOPIT_CLOSE_PANEL') {
     if (!sender.url?.startsWith(chrome.runtime.getURL('viewer.html')) || !sender.tab || !sender.frameId) return;
-    chrome.tabs.sendMessage(sender.tab.id, { type: 'BOPIT_HIDE_PANEL' }).then(() => respond({ ok: true })).catch(() => respond({ ok: false }));
+    storageReady.then(async () => {
+      const { currentCapture } = await chrome.storage.session.get('currentCapture');
+      const tab = await chrome.tabs.get(sender.tab.id);
+      if (message.captureId && (currentCapture?.captureId !== message.captureId || currentCapture?.source.tabId !== sender.tab.id || currentCapture?.source.documentUrl !== tab.url)) {
+        return { ok: false };
+      }
+      await chrome.tabs.sendMessage(sender.tab.id, { type: 'BOPIT_HIDE_PANEL' });
+      return { ok: true };
+    }).then(respond).catch(() => respond({ ok: false }));
     return true;
   }
   if (message?.type !== 'BOPIT_CAPTURE' || !sender.tab || sender.frameId !== 0) return;

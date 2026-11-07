@@ -15,11 +15,15 @@ export const detectionSchema = {
           label: string,
           box_2d: { type: 'array', items: { type: 'integer', minimum: 0, maximum: 1000 }, minItems: 4, maxItems: 4 },
           visibleAttributes: { type: 'array', items: string, maxItems: 8 },
+          color: string,
+          material: string,
+          brand: string,
+          model: string,
           visibleText: string,
           uncertainty: string,
           relationship: string
         },
-        required: ['label', 'box_2d', 'visibleAttributes', 'visibleText', 'uncertainty', 'relationship']
+        required: ['label', 'box_2d', 'visibleAttributes', 'color', 'material', 'brand', 'model', 'visibleText', 'uncertainty', 'relationship']
       }
     }
   },
@@ -54,9 +58,14 @@ export function validateDetections(raw) {
     const object = {
       id: `object-${objects.length + 1}`, label, box,
       visibleAttributes: item.visibleAttributes.map(v => short(v, 'attribute', 200)),
+      color: short(item.color ?? '', 'color', 100),
+      material: short(item.material ?? '', 'material', 100),
+      brand: short(item.brand ?? '', 'visible brand', 100),
+      model: short(item.model ?? '', 'visible model', 100),
       visibleText: short(item.visibleText, 'visible text'),
       uncertainty: short(item.uncertainty, 'uncertainty'),
-      relationship: short(item.relationship, 'relationship')
+      relationship: short(item.relationship, 'relationship'),
+      segmentation: null
     };
     // Suppress near-identical SAME-label predictions, not nested camera/lens boxes.
     if (!objects.some(o => o.label.toLowerCase() === label.toLowerCase() && iou(o.box, box) > 0.9)) objects.push(object);

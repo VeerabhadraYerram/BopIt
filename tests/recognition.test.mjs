@@ -14,7 +14,11 @@ test('duplicate suppression preserves overlapping camera and lens', () => {
   const result = validateDetections(raw); assert.equal(result.objects.length, 2); assert.equal(result.objects[1].label, 'Camera lens');
 });
 test('unknowns stay explicit and unsupported response shapes fail', () => {
-  assert.equal(validateDetections(rawResult()).objects[1].uncertainty, 'Mount unknown');
+  const detections = validateDetections(rawResult());
+  assert.equal(detections.objects[1].uncertainty, 'Mount unknown');
+  assert.equal(detections.objects[0].color, 'black');
+  assert.equal(detections.objects[0].material, '');
+  assert.equal(detections.objects[0].segmentation, null);
   const bad = rawResult(); bad.objects[0].label = ''; assert.throws(() => validateDetections(bad));
   assert.throws(() => validateDetections({ objects: [] }));
 });
@@ -37,6 +41,7 @@ test('Gemini adapter sends image/schema and validates successful output', async 
   assert.equal(result.objects.length, 2);
   const body = JSON.parse(sent.body); assert.equal(body.contents[0].parts[1].inlineData.data, 'test-image');
   assert.ok(body.generationConfig.responseSchema); assert.equal(body.generationConfig.responseSchema.additionalProperties, undefined); assert.equal(sent.headers['x-goog-api-key'], 'test-only-key');
+  assert.ok(body.generationConfig.responseSchema.properties.objects.items.required.includes('material'));
 });
 test('Gemini errors never expose upstream response bodies or accept truncated JSON', async () => {
   await assert.rejects(detectWithGemini('x', { apiKey: 'test', model: 'test', fetcher: async () => new Response('sensitive upstream details', { status: 403 }) }), error => !error.message.includes('sensitive'));

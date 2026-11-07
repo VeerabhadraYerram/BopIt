@@ -1,10 +1,10 @@
 # BopIt — explore objects in the video you’re watching
 
-**Chrome extension · local recognition prototype · not yet a Chrome Web Store release**
+**Chrome extension · local visual recognition and Channel3 discovery · not yet a Chrome Web Store release**
 
-Pause an authorized video in Chrome → activate BopIt → **Explore this moment** → review the captured frame → **Find objects with Gemini** → click highlights or inspect a smaller area.
+Pause an authorized video in Chrome → activate BopIt → **Explore this moment** → review the captured frame → **Find objects with Gemini** → select or correct an object → search Channel3 in exact, visually similar, or cheaper-alternative mode.
 
-This implements the first recognition experiment, not the commerce platform. It detects generic object categories and approximate locations. It does **not** verify exact products, brands, prices, compatibility, inventory, creator attribution or payments. No accuracy percentage has been established.
+This is a visual recognition and product-discovery prototype, not the commerce platform. It detects generic categories and approximate locations, then ranks Channel3 listings using available listing metadata and visible selection evidence. Text-based match labels are candidates, not verified product identity. Prices and external links are displayed only when Channel3 supplies them. The app does **not** verify compatibility, inventory beyond provider-supplied availability, creator attribution or payments. No recognition or similarity accuracy percentage has been established.
 
 Results appear in an on-page BopIt panel beside the video. Its packaged `chrome-extension://` frame keeps the interface and credentials isolated from the host website; it does not navigate the viewer to another tab/window. The local server only provides setup/connection approval and the recognition API.
 
@@ -123,7 +123,7 @@ Do not paste your Gemini key in Settings. An extension-bound, two-minute request
 8. Click **Inspect this area more closely** for a targeted second VLM request on a higher-detail crop. It may still be wrong; the app does not treat repeated model agreement as proof.
 9. Click **Back to video**, the panel's **×**, or Escape to close it. The original video remains paused at the chosen moment; resume with its normal controls. Escape while drawing exits drawing first; press it again to close the panel.
 
-If a video resumes after capture, the panel still refers to the frozen frame, not the current live playback. Reloading the source page or navigating away requires activating the toolbar again. Highlights currently appear on the panel's frozen preview; mapping them directly onto the original video and segmentation silhouettes are future work. On narrow layouts the floating panel may overlap part of the page and can be closed at any time.
+If a video resumes while the panel is open, detections still refer to the frozen frame. Closing the panel or choosing **Back to video** restores the captured timestamp when the original page is still available. Reloading the source page or navigating away requires activating the toolbar again. Highlights appear on the frozen preview; mapping them onto the original video is future work. On narrow layouts the floating panel may overlap part of the page and can be closed at any time.
 
 ### If video capture is unavailable
 
@@ -135,7 +135,7 @@ The layout example is available in the standalone development inspector; it is h
 
 ## Channel3 product discovery
 
-BopIt integrates the [Channel3 API](https://docs.trychannel3.com/) to retrieve real, purchasable products related to detected or searched objects.
+BopIt integrates the [Channel3 API](https://docs.trychannel3.com/) to retrieve product candidates related to detected or searched objects. Search credentials stay on the local server.
 
 ### Testing Channel3 via CLI
 To test product discovery directly from your terminal:
@@ -148,10 +148,13 @@ This returns real in-stock items with titles, brands, prices, retailers (such as
 
 ### Using Channel3 in the Chrome extension
 1. Make sure your local server is running (`npm start`) and paired.
-2. In the right panel of the BopIt viewer, look under **Channel3 discovery**.
-3. **Instant manual search:** Type any query into the search bar (e.g., `Sony WH-1000XM5 headphones`) and click **Search** or press **Enter**.
-4. **Auto-discovery from Gemini:** When Gemini detects visible objects, clicking on any object highlight automatically fills the search query and searches Channel3 for matching products.
-5. Click **View & Buy ↗** on any product card to open the retailer listing.
+2. Select an object in the BopIt viewer and open **Channel3 discovery**.
+3. Choose **Exact match**, **Visually similar**, or **Cheaper alternatives**. Exact mode includes a brand/model only when Gemini reports clearly visible evidence. Similar/cheaper modes omit those identity terms and use category and visible appearance.
+4. Refine the query yourself, then click **Search** or press **Enter**. Cheaper alternatives are sorted by the listed price by default; because the captured item's price is unknown, the app does not claim that a result is cheaper than that item.
+5. Use **Most relevant**, **Lowest price**, or **Highest price** to sort. A **Strong attribute match** requires at least two distinct selected attributes supported by listing text or metadata; category evidence alone cannot qualify. Other listings are labeled **Category match**, **Visually similar**, or **Weak match**. These labels are not verified product identity and no similarity percentages are generated.
+6. Optionally filter by maximum budget and currency, or by a brand present in the returned listings. Price filters require a currency and never convert amounts.
+7. Compare up to three products at once or save listings locally on this device. Mixed or missing currencies are explicitly marked as not directly comparable. Retailer checkout prices may differ due to localization, taxes or exchange rates; no live currency conversion is provided.
+8. Compare returned images, names, supplied brands, price/currency, retailer, supplied availability, listing attributes, match explanation, and external retailer offer link. Missing provider fields remain absent/unknown rather than being filled in.
 
 ## 4. Fix a missed or inaccurate highlight
 
@@ -173,10 +176,10 @@ User-edited boxes/labels are tagged as manually corrected. They do not become mo
 | Embedded cross-origin players | Not implemented; use the source page directly or an authorized uploaded image. |
 | Protected media | Unsupported. No protection bypass; an apparently blank frame is not automatically diagnosed as DRM. |
 | Fullscreen / PiP | Exit before capture. |
-| Detection | Generic objects, visible attributes and qualified scene interpretation. Boxes are predictions, not pixel-perfect masks or verified SKUs. |
+| Detection | Generic objects, visible category/color/material and readable brand/model evidence, with uncertainty. Boxes are predictions, not pixel-perfect masks or verified SKUs. |
 | Persistence | One temporary capture in extension session storage. A new capture replaces the previous one. Images stay in the inspector until it closes; no disk image storage on the server. |
 | Context | Visible frame observations and a separately labeled possible activity. No automatic transcript extraction, user intent inference, or watch-history collection. |
-| Product search | Real-world product discovery via Channel3 (manual search & auto-suggestion from detected objects). |
+| Product search | Channel3 product candidates with evidence-based match classes, exact/similar/cheaper modes, user refinement, metadata ranking, same-currency budget filter/sorting, three-item comparison, local wishlist, and provider-supplied external offers. No product identity, currency conversion, or cheaper-than-selected claim is verified. |
 | Checkout | In progress by PayPal integration workstream. |
 
 ### Common problems
@@ -254,7 +257,7 @@ The live model adapter uses Google's documented [Generate Content image input](h
 - `apps/extension/`: packaged MV3 worker, explicitly injected page control, inspector and Settings. No remote executable code or provider key.
 - `apps/recognition-server/`: dependency-free Node HTTP service and Gemini adapter. One bounded request per explicit Analyze/Inspect action, 45-second provider timeout, two-request concurrency ceiling and one-second request spacing.
 - `packages/contracts/recognition.mjs`: structured-output schema, runtime validation and coordinate transforms.
-- `packages/contracts/discovery.mjs`: Channel3 product and offer normalization, search query builder.
+- `packages/contracts/discovery.mjs`: Channel3 product and offer normalization, evidence-aware discovery queries, and deterministic metadata ranking.
 - `apps/recognition-server/channel3.mjs`: Server-side Channel3 search client with error mapping and timeouts.
 - `scripts/channel3-search.mjs`: CLI testing tool for Channel3 product queries.
 - `tests/discovery.test.mjs`: Channel3 normalization, query builder, error handling, and server endpoint test suite.
@@ -263,6 +266,10 @@ The live model adapter uses Google's documented [Generate Content image input](h
 The standalone Node service keeps this recognition experiment easy to run. A broader commerce backend can reuse the model adapter and contracts after the recognition approach passes evaluation. No shopping service or extra website must be built to run this slice.
 
 Before calling this accurate, build an annotated, authorized frame set and measure detection precision/recall, box overlap, selection success, correction rate, and latency. Compare models on the same held-out images. Add SAM or a specialist detector only after identifying a measured localization failure. See [recognition evaluation guide](docs/RECOGNITION_EVALUATION.md).
+
+### Segmentation (SAM) follow-up
+
+The current recognition contract exposes `segmentation: null` for each detection and the viewer draws only the validated Gemini bounding box. It does not fabricate a mask from that box. SAM is deferred: adding a model download/runtime or a separate hosted inference service would add substantial weight or infrastructure to this dependency-free, local-server prototype without measured evidence that box selection is inadequate. The next step is to benchmark a lightweight, server-side SAM-compatible endpoint or optional ONNX adapter on the annotated evaluation set, then extend the detection contract with a validated mask payload tied to the exact frozen frame/crop. Keep boxes as the fallback and enable masks only when real segmentation output is available.
 
 See the [team workstream plan](TEAM_IMPLEMENTATION_PLAN.md) for the broader planned allocation; its commerce features are future scope, not implemented behavior. The previous master implementation document has been removed from the current repository. No public hosting or Chrome Web Store submission is included.
 

@@ -11,6 +11,6 @@ export function makePng(width = 32, height = 32) {
   return `data:image/png;base64,${bytes.toString('base64')}`;
 }
 export const rawResult = () => ({ sceneObservation: 'Camera on a table', possibleActivity: 'Possible filming setup', warnings: [], objects: [
-  { label: 'Camera body', box_2d: [200, 100, 600, 500], visibleAttributes: ['black'], visibleText: '', uncertainty: 'Model unknown', relationship: 'Attached lens' },
-  { label: 'Camera lens', box_2d: [300, 400, 550, 650], visibleAttributes: [], visibleText: '', uncertainty: 'Mount unknown', relationship: 'Attached to camera' }
+  { label: 'Camera body', box_2d: [200, 100, 600, 500], visibleAttributes: ['black'], color: 'black', material: '', brand: '', model: '', visibleText: '', uncertainty: 'Model unknown', relationship: 'Attached lens' },
+  { label: 'Camera lens', box_2d: [300, 400, 550, 650], visibleAttributes: [], color: '', material: '', brand: '', model: '', visibleText: '', uncertainty: 'Mount unknown', relationship: 'Attached to camera' }
 ] });

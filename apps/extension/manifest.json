@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "BopIt — Explore this moment",
   "version": "0.2.0",
-  "description": "Local prototype: pause an authorized video, detect visible objects, and inspect the evidence. No product search yet.",
+  "description": "Explore visible objects in paused video and discover related Channel3 product listings.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["http://127.0.0.1:4317/*"],
   "background": { "service_worker": "worker.js", "type": "module" },
