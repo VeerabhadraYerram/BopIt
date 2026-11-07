@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeBox, validateDetections, mapCropBox } from '../packages/contracts/recognition.mjs';
+import { normalizeBox, normalizeContour, validateDetections, mapCropBox } from '../packages/contracts/recognition.mjs';
 import { validateImage } from '../apps/recognition-server/image.mjs';
 import { detectWithGemini } from '../apps/recognition-server/gemini.mjs';
 import { makePng, rawResult } from './helpers.mjs';
@@ -41,4 +41,11 @@ test('Gemini adapter sends image/schema and validates successful output', async 
 test('Gemini errors never expose upstream response bodies or accept truncated JSON', async () => {
   await assert.rejects(detectWithGemini('x', { apiKey: 'test', model: 'test', fetcher: async () => new Response('sensitive upstream details', { status: 403 }) }), error => !error.message.includes('sensitive'));
   await assert.rejects(detectWithGemini('x', { apiKey: 'test', model: 'test', fetcher: async () => new Response(JSON.stringify({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{}' }] } }] })) }), /did not finish/);
+});
+
+
+test('segmentation contours normalize within object bounds and degrade safely',()=>{
+ assert.deepEqual(normalizeContour([[0,0],[1000,0],[500,1000]]),[[0,0],[1,0],[.5,1]]);
+ for(const mask of [null,[],[[0,0],[1,1]],[[0,0],[1001,0],[0,1000]],[[0,0],[0,0],[0,0]]])assert.equal(normalizeContour(mask),null);
+ const raw=rawResult();raw.objects[0].mask=[[0,0],[1000,0],[500,1000]];raw.objects[1].mask='bad';const result=validateDetections(raw);assert.equal(result.objects.length,2);assert.equal(result.objects[0].contour.length,3);assert.equal(result.objects[1].contour,null);
 });

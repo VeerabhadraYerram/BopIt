@@ -4,6 +4,11 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 const root = fileURLToPath(new URL('../', import.meta.url));
 process.chdir(root);
+try { await access('node_modules/@huggingface/transformers/package.json'); } catch {
+  console.log('Installing the object-outline runtime…');
+  const installed = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ci'], { stdio: 'inherit' });
+  if (installed.status !== 0) process.exit(installed.status || 1);
+}
 try { await access('.env'); } catch { await copyFile('.env.example', '.env', 1); }
 await chmod('.env', 0o600);
 const built = spawnSync(process.execPath, ['scripts/build-extension.mjs'], { stdio: 'inherit' });

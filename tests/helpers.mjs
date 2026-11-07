@@ -14,3 +14,18 @@ export const rawResult = () => ({ sceneObservation: 'Camera on a table', possibl
   { label: 'Camera body', box_2d: [200, 100, 600, 500], visibleAttributes: ['black'], visibleText: '', uncertainty: 'Model unknown', relationship: 'Attached lens' },
   { label: 'Camera lens', box_2d: [300, 400, 550, 650], visibleAttributes: [], visibleText: '', uncertainty: 'Mount unknown', relationship: 'Attached to camera' }
 ] });
+
+export function rawProfile() {
+  return {
+    summary: 'Black camera body used for recording on a tripod. Brand and generation are not established.', category: 'Camera body',
+    identity: { brand: '', model: '', basis: 'No readable model identifier', status: 'unidentified' },
+    attributes: [
+      { group: 'Appearance', name: 'Colour', value: 'Black', source: 'visible', evidence: 'Dark camera housing in selected crop' },
+      { group: 'Function', name: 'Recording use', value: 'Used to record a video', source: 'caption', evidence: 'Nearby caption at 0:00 says this camera is used for recording' }
+    ],
+    spokenClaims: [{ claim: 'Used for recording', timestamp: '00:00', refersTo: 'Current camera body' }],
+    useInScene: 'Recording on a tripod', relationships: ['Lens attached to camera body'],
+    unknowns: ['Exact model', 'Dimensions', 'Weight', 'Lens mount'], contradictions: [],
+    queries: { exact: 'black camera body', look: 'black compact camera body', function: 'camera for video recording' }
+  };
+}

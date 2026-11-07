@@ -14,12 +14,13 @@ export const detectionSchema = {
         properties: {
           label: string,
           box_2d: { type: 'array', items: { type: 'integer', minimum: 0, maximum: 1000 }, minItems: 4, maxItems: 4 },
+          mask: { type: 'array', items: { type: 'array', items: { type: 'integer' }, minItems: 2, maxItems: 2 }, maxItems: 48 },
           visibleAttributes: { type: 'array', items: string, maxItems: 8 },
           visibleText: string,
           uncertainty: string,
           relationship: string
         },
-        required: ['label', 'box_2d', 'visibleAttributes', 'visibleText', 'uncertainty', 'relationship']
+        required: ['label', 'box_2d', 'mask', 'visibleAttributes', 'visibleText', 'uncertainty', 'relationship']
       }
     }
   },
@@ -31,6 +32,16 @@ export function normalizeBox(raw) {
   const [top, left, bottom, right] = raw;
   if (bottom <= top || right <= left) throw new Error('Empty or reversed model box');
   return { x: left / 1000, y: top / 1000, width: (right - left) / 1000, height: (bottom - top) / 1000 };
+}
+
+// Contours are relative to the object's box, not the full image. Invalid masks
+// degrade to an item marker; they never discard an otherwise useful detection.
+export function normalizeContour(raw) {
+  if (!Array.isArray(raw) || raw.length < 3 || raw.length > 48 || raw.some(p => !Array.isArray(p) || p.length !== 2 || p.some(v => !Number.isFinite(v) || v < 0 || v > 1000))) return null;
+  const points = raw.map(([x,y]) => [x / 1000, y / 1000]);
+  let area = 0;
+  for (let i = 0; i < points.length; i++) { const a = points[i], b = points[(i + 1) % points.length]; area += a[0] * b[1] - b[0] * a[1]; }
+  return Math.abs(area) > .002 ? points : null;
 }
 
 export function iou(a, b) {
@@ -52,7 +63,7 @@ export function validateDetections(raw) {
     if (!label) throw new Error('Missing object label');
     const box = normalizeBox(item.box_2d);
     const object = {
-      id: `object-${objects.length + 1}`, label, box,
+      id: `object-${objects.length + 1}`, label, box, contour: normalizeContour(item.mask),
       visibleAttributes: item.visibleAttributes.map(v => short(v, 'attribute', 200)),
       visibleText: short(item.visibleText, 'visible text'),
       uncertainty: short(item.uncertainty, 'uncertainty'),

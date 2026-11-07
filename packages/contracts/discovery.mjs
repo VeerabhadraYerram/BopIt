@@ -1,7 +1,7 @@
 // Shared contracts and normalizers for Channel3 product discovery in BopIt.
 
 export const DEFAULT_SEARCH_LIMIT = 10;
-export const MAX_SEARCH_LIMIT = 50;
+export const MAX_SEARCH_LIMIT = 30;
 
 /**
  * Normalizes a raw Channel3 offer into a consistent BopIt offer representation.
@@ -52,7 +52,8 @@ export function normalizeChannel3Offer(rawOffer) {
     availability,
     condition,
     purchaseUrl: url,
-    commissionRate: typeof rawOffer.max_commission_rate === 'number' ? rawOffer.max_commission_rate : null
+    commissionRate: typeof rawOffer.max_commission_rate === 'number' ? rawOffer.max_commission_rate : null,
+    dimensions: rawOffer.dimensions || null
   };
 }
 
@@ -133,6 +134,10 @@ export function normalizeChannel3Product(rawProduct) {
     condition: primaryOffer?.condition ?? 'new',
     purchaseUrl: primaryOffer?.purchaseUrl ?? '',
     offers,
+    structuredAttributes: rawProduct.structured_attributes && typeof rawProduct.structured_attributes === 'object' ? rawProduct.structured_attributes : {},
+    materials: Array.isArray(rawProduct.materials) ? rawProduct.materials : [],
+    keyFeatures: Array.isArray(rawProduct.key_features) ? rawProduct.key_features : [],
+    variants: rawProduct.variants || null,
     source: 'channel3'
   };
 }

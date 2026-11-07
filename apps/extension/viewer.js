@@ -1,11 +1,22 @@
 import { mapCropBox } from './contracts/recognition.mjs';
 import { clampLabel } from './label-layout.js';
+import { createInvestigator } from './investigation.js';
 const $ = selector => document.querySelector(selector);
 const embedded = new URLSearchParams(location.search).get('embedded') === '1';
-if (embedded) { document.body.classList.add('embedded'); $('#return').textContent = 'Back to video'; }
+if (embedded) { document.body.classList.add('embedded'); $('#return').textContent = 'Back to video'; } else document.querySelector('.frame-tools').open = true;
 let capture = null, objects = [], result = null, selectedId = null, drawing = false, start = null, busy = false, revision = 0, controller = null;
+let searchRevision = 0, searchController = null;
+const investigator = createInvestigator({ getCapture: () => capture, crop: box => cropImage(box).image, getSelected: () => objects.find(o => o.id === selectedId) });
+function publish(extra = {}) { if (embedded && capture?.source) chrome.runtime.sendMessage({ type: 'BOPIT_OVERLAY_STATE', captureId: capture.captureId, objects: objects.map(({id,label,box,contour,contours}) => ({id,label,box,contour,contours})), selectedId, ...extra }).catch(() => {}); }
+function cancelProductSearch() {
+  searchRevision++; searchController?.abort(); searchController = null;
+  investigator.cancel();
+  $('#products-container')?.replaceChildren();
+  if ($('#products-notice')) $('#products-notice').textContent = 'Choose an item or enter a query to find related products. Exact matches are not verified.';
+  if ($('#search-products-btn')) $('#search-products-btn').disabled = false;
+}
 function setBusy(value) {
-  busy = value;
+  busy = value; document.body.classList.toggle('is-scanning',value); $('#scan-skeleton').hidden = !value; $('#moment-gallery').setAttribute('aria-busy',String(value));
   for (const selector of ['#analyze', '#refine', '#draw', '#remove', '#correction button', '#correction input']) {
     document.querySelectorAll(selector).forEach(element => { element.disabled = value; });
   }
@@ -42,15 +53,24 @@ function render() {
     box.addEventListener('click', () => select(object.id)); $('#boxes').append(box);
     box.addEventListener('mouseenter', () => positionLabel(box));
     box.addEventListener('focus', () => positionLabel(box));
-    const li = document.createElement('li'), button = document.createElement('button'); button.textContent = `${object.label}${object.manual ? ' · manually corrected' : ''}`;
+    const li = document.createElement('li'), button = document.createElement('button');
+    const thumb = document.createElement('img'); thumb.alt = ''; thumb.src = cropImage(object.box).image;
+    const name = document.createElement('span'); name.textContent = `${object.label}${object.manual ? ' · edited' : ''}`; button.append(thumb, name);
     button.className = object.id === selectedId ? 'active' : ''; button.setAttribute('aria-pressed', String(object.id === selectedId));
-    button.addEventListener('click', () => select(object.id)); li.append(button); $('#objects').append(li);
+    button.addEventListener('click', () => select(object.id));
+    const index = document.createElement('small'); index.className = 'item-index'; index.textContent = String(objects.indexOf(object)+1).padStart(2,'0'); button.append(index);
+    button.addEventListener('mouseenter', () => publish({ hoveredId: object.id })); button.addEventListener('mouseleave', () => publish({ hoveredId: null }));
+    li.append(button); $('#objects').append(li);
   }
   $('#export').disabled = !result && !objects.length;
   document.querySelectorAll('.object-box.active').forEach(positionLabel);
+  publish();
 }
 function select(id) {
+  cancelProductSearch();
   selectedId = id; render();
+  document.body.dataset.view = 'detail'; $('#back-to-items').hidden = false; $('#selected-image').src = cropImage(objects.find(o=>o.id===id)?.box || full).image;
+  window.scrollTo({ top: 0, behavior: 'instant' });
   const object = objects.find(o => o.id === id);
   $('#detail').hidden = !object;
   if (!object) return;
@@ -62,41 +82,43 @@ function select(id) {
   $('#edit-label').value = object.label;
   for (const key of ['x', 'y', 'width', 'height']) $(`#edit-${key}`).value = (object.box[key] * 100).toFixed(1);
   $('#detail').focus({ preventScroll: true });
-  const queryParts = [object.visibleText, object.label].filter(Boolean);
-  const suggestedQuery = queryParts.join(' ').trim();
-  if (suggestedQuery && $('#product-query')) {
-    $('#product-query').value = suggestedQuery;
-    searchProducts(suggestedQuery);
-  }
+  investigator.select(object);
 }
 async function loadFrame(record) {
+  cancelProductSearch();
   revision++; controller?.abort(); setBusy(false);
   drawing = false; start = null; $('#stage').classList.remove('drawing'); $('#draw').textContent = 'Select an area'; $('#draft').hidden = true;
+  investigator.reset();
   capture = record; objects = []; result = null; selectedId = null; $('#detail').hidden = true;
-  const image = $('#frame'); image.src = record.image; image.hidden = false;
-  await image.decode(); sizeStage(); $('#empty').hidden = true;
+  const image = $('#frame'); image.loading = 'eager'; image.hidden = false;
+  await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = () => reject(new Error('Captured image could not load.')); image.src = record.image; });
+  sizeStage(); $('#empty').hidden = true;
   $('#mode').textContent = record.mode === 'layout-example' ? 'Layout fixture · no AI' : record.mode === 'visible-tab-crop' ? 'Video-region screenshot · not yet uploaded' : 'Local frame · not yet uploaded';
   $('#draw').disabled = false; $('#return').hidden = !record.source;
   $('#scene').textContent = 'Ready to inspect. No AI analysis yet.'; $('#activity').textContent = ''; $('#warnings').textContent = '';
+  const seconds = Math.floor(record.source?.timestamp || 0); $('#moment-time').textContent = record.source ? `Paused at ${Math.floor(seconds/60)}:${String(seconds%60).padStart(2,'0')}` : 'Your uploaded moment';
+  showAll();
   render(); notice('Review the frame. “Find objects with Gemini” sends this image for live analysis.');
 }
 function cropImage(box) {
   const image = $('#frame'), canvas = document.createElement('canvas');
-  const x = Math.floor(box.x * image.naturalWidth), y = Math.floor(box.y * image.naturalHeight);
-  canvas.width = Math.max(1, Math.min(image.naturalWidth - x, Math.round(box.width * image.naturalWidth)));
-  canvas.height = Math.max(1, Math.min(image.naturalHeight - y, Math.round(box.height * image.naturalHeight)));
+  const x = Math.max(0,Math.min(image.naturalWidth - 16,Math.floor(box.x * image.naturalWidth))), y = Math.max(0,Math.min(image.naturalHeight - 16,Math.floor(box.y * image.naturalHeight)));
+  canvas.width = Math.max(16, Math.min(image.naturalWidth - x, Math.round(box.width * image.naturalWidth)));
+  canvas.height = Math.max(16, Math.min(image.naturalHeight - y, Math.round(box.height * image.naturalHeight)));
   canvas.getContext('2d').drawImage(image, x, y, canvas.width, canvas.height, 0, 0, canvas.width, canvas.height);
   return { image: canvas.toDataURL('image/png'), crop: { x: x / image.naturalWidth, y: y / image.naturalHeight, width: canvas.width / image.naturalWidth, height: canvas.height / image.naturalHeight } };
 }
 async function analyze(area = full, replacingId = null) {
   if (!capture || busy) return;
+  cancelProductSearch();
   const { pairingToken } = await chrome.storage.local.get('pairingToken');
-  if (!pairingToken) { notice('Connect first: open Settings and paste the pairing code from the local setup page.', true); return; }
+  if (!pairingToken) { const message = 'Connect first: open Settings → Connect local server, then Explore again.'; notice(message, true); publish({ scanning: false, error: message }); return; }
   const cropped = cropImage(area);
   if (area.width * $('#frame').naturalWidth < 16 || area.height * $('#frame').naturalHeight < 16) { notice('Choose an area at least 16 pixels wide and tall.', true); return; }
   const current = ++revision;
   controller?.abort(); controller = new AbortController(); setBusy(true);
-  notice('Gemini is inspecting visible objects. This can take several seconds; no product identity is being verified.');
+  notice('Finding selectable objects in your moment…');
+  publish({ scanning: true });
   try {
     const response = await fetch('http://127.0.0.1:4317/api/detect', { method: 'POST', headers: { 'content-type': 'application/json', 'x-bopit-token': pairingToken }, body: JSON.stringify({ captureId: capture.captureId, image: cropped.image }), signal: controller.signal });
     const data = await response.json();
@@ -111,13 +133,25 @@ async function analyze(area = full, replacingId = null) {
     $('#scene').textContent = `${area === full ? '' : 'Inspected area: '}${data.sceneObservation || 'No clear scene observation.'}`;
     $('#activity').textContent = data.possibleActivity ? `Possible activity (inferred): ${data.possibleActivity}` : '';
     $('#warnings').textContent = data.warnings.join(' ');
-    selectedId = null; $('#detail').hidden = true; render();
-    notice(mapped.length ? 'Objects detected. Click a highlight or use the item list. Categories and readable text are predictions, not verified product identities.' : 'No reliably distinguishable objects returned. Existing highlights are preserved for an empty refinement. Try another moment or select an area.');
+    selectedId = null; $('#detail').hidden = true; showAll(); render();
+    if (mapped.length) refineMasks(current, objects);
+    notice(mapped.length ? `${objects.length} finds in this moment. Choose one to explore.` : 'No reliably distinguishable objects returned. Existing highlights are preserved for an empty refinement. Try another moment or select an area.');
   } catch (error) {
-    if (current === revision && error.name !== 'AbortError') notice(error instanceof TypeError ? 'Cannot reach the local server. Run npm start, then check Settings.' : error.message, true);
+    if (current === revision && error.name !== 'AbortError') { const message = error instanceof TypeError ? 'Cannot reach the local server. Run npm start, then check Settings.' : error.message; notice(message, true); publish({ scanning: false, error: message }); }
   } finally {
-    if (current === revision) setBusy(false);
+    if (current === revision) { setBusy(false); publish({ scanning: false }); }
   }
+}
+async function refineMasks(currentRevision, targets) {
+  $('#outline-status').textContent = 'Refining highlights…';
+  try {
+    const { pairingToken } = await chrome.storage.local.get('pairingToken');
+    const response = await fetch('http://127.0.0.1:4317/api/segment', { method: 'POST', headers: { 'content-type':'application/json','x-bopit-token':pairingToken }, body: JSON.stringify({ image:capture.image,regions:targets.map(({id,box})=>({id,box})) }) });
+    if(!response.ok)throw new Error('Outlines unavailable');
+    const data=await response.json();if(revision!==currentRevision)return;
+    for(const item of data.regions||[]) { const object=objects.find(o=>o.id===item.id);if(object)object.contours=item.contours; }
+    $('#outline-status').textContent = 'Select a find here or on the video.'; publish();
+  } catch { if(revision===currentRevision) $('#outline-status').textContent = 'Choose a card to explore this moment.'; }
 }
 $('#analyze').addEventListener('click', () => analyze());
 $('#refine').addEventListener('click', () => {
@@ -131,7 +165,7 @@ $('#correction').addEventListener('submit', event => {
   event.preventDefault(); const object = objects.find(o => o.id === selectedId); if (!object) return;
   const box = Object.fromEntries(['x', 'y', 'width', 'height'].map(k => [k, Number($(`#edit-${k}`).value) / 100]));
   if (Object.values(box).some(v => !Number.isFinite(v) || v < 0) || box.width <= 0 || box.height <= 0 || box.x + box.width > 1.00001 || box.y + box.height > 1.00001) { notice('The box must fit entirely inside the image.', true); return; }
-  object.box = box; object.label = $('#edit-label').value.trim() || object.label; object.manual = true;
+  object.box = box; object.contour = null; object.label = $('#edit-label').value.trim() || object.label; object.manual = true;
   select(object.id); notice('Manual correction applied locally. Inspect the area to ask Gemini for a new interpretation.');
 });
 $('#draw').addEventListener('click', () => {
@@ -177,7 +211,7 @@ $('#example').addEventListener('click', async () => {
   render(); notice('Layout fixture only. This highlight is hard-coded and is not evidence of recognition accuracy. Upload a real authorized frame or capture a video for evaluation.');
 });
 $('#export').addEventListener('click', () => {
-  const data = { schemaVersion: 1, captureId: capture.captureId, sourceMode: capture.mode, imageDimensions: { width: $('#frame').naturalWidth, height: $('#frame').naturalHeight }, model: result?.model || null, mode: result ? `${result.mode}-with-possible-manual-corrections` : 'manual-or-fixture', sceneObservation: result?.sceneObservation || '', possibleActivity: result?.possibleActivity || '', warnings: result?.warnings || [], objects };
+  const data = { schemaVersion: 1, captureId: capture.captureId, sourceMode: capture.mode, imageDimensions: { width: $('#frame').naturalWidth, height: $('#frame').naturalHeight }, model: result?.model || null, mode: result ? `${result.mode}-with-possible-manual-corrections` : 'manual-or-fixture', sceneObservation: result?.sceneObservation || '', possibleActivity: result?.possibleActivity || '', warnings: result?.warnings || [], objects, investigations: investigator.snapshot() };
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
   const a = document.createElement('a'); a.href = url; a.download = `bopit-${capture.captureId}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
@@ -186,109 +220,34 @@ $('#return').addEventListener('click', async () => {
   try { const tab = await chrome.tabs.get(capture.source.tabId); if (tab.url !== capture.source.documentUrl) throw new Error('The original tab navigated. Return to it manually.'); await chrome.tabs.update(tab.id, { active: true }); await chrome.windows.update(tab.windowId, { focused: true }); window.close(); }
   catch (error) { notice(error.message || 'Original tab unavailable. Return to it manually.', true); }
 });
+function showAll() {
+  selectedId = null; document.body.dataset.view = 'all'; $('#back-to-items').hidden = true;
+  window.scrollTo({ top: 0, behavior: 'instant' }); render();
+}
+$('#back-to-items').onclick = showAll;
+chrome.runtime.onMessage.addListener(message => {
+  if (message?.captureId !== capture?.captureId) return;
+  if (message.type === 'BOPIT_SELECT_OBJECT') select(message.id);
+  if (message.type === 'BOPIT_ADD_REGION') {
+    const b = message.box;
+    if (b && ['x','y','width','height'].every(k => Number.isFinite(b[k])) && b.x >= 0 && b.y >= 0 && b.width > .01 && b.height > .01 && b.x + b.width <= 1.00001 && b.y + b.height <= 1.00001) { addRegion(b); analyze(b, selectedId); }
+  }
+});
+
+document.querySelectorAll('[data-jump]').forEach(button => button.onclick = () => document.getElementById(button.dataset.jump).scrollIntoView({ block: 'start', behavior: 'smooth' }));
+
 const query = new URLSearchParams(location.search);
 if (query.has('capture')) {
   const response = await chrome.runtime.sendMessage({ type: 'BOPIT_GET_CAPTURE', captureId: query.get('capture') });
-  if (response?.capture) await loadFrame(response.capture);
+  if (response?.capture) { await loadFrame(response.capture); if (query.get('auto') === '1') await analyze(); }
   else notice(response?.error || 'This temporary capture expired or was replaced. Capture the moment again.', true);
 } else if (query.has('error')) notice(query.get('error'), true);
 document.addEventListener('keydown', event => {
   if (embedded && event.key === 'Escape' && !event.defaultPrevented && !drawing && !['INPUT', 'TEXTAREA'].includes(event.target.tagName)) { controller?.abort(); chrome.runtime.sendMessage({ type: 'BOPIT_CLOSE_PANEL' }); }
 });
 
-async function searchProducts(queryText) {
-  const queryStr = (queryText || '').trim();
-  if (!queryStr) {
-    if ($('#products-notice')) $('#products-notice').textContent = 'Please enter a product name or category to search.';
-    return;
-  }
-  const { pairingToken } = await chrome.storage.local.get('pairingToken');
-  if (!pairingToken) {
-    if ($('#products-notice')) $('#products-notice').textContent = 'Connect first: open Settings and paste the pairing code from the local setup page.';
-    return;
-  }
-  if ($('#products-notice')) $('#products-notice').textContent = `Searching Channel3 for "${queryStr}"...`;
-  $('#products-container')?.replaceChildren();
-  if ($('#search-products-btn')) $('#search-products-btn').disabled = true;
-
-  try {
-    const response = await fetch('http://127.0.0.1:4317/api/products/search', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-bopit-token': pairingToken,
-      },
-      body: JSON.stringify({ query: queryStr, limit: 6 }),
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Failed to search products.');
-
-    const products = data.products || [];
-    if (!products.length) {
-      if ($('#products-notice')) $('#products-notice').textContent = `No Channel3 products found for "${queryStr}".`;
-      return;
-    }
-
-    if ($('#products-notice')) $('#products-notice').textContent = `Found ${products.length} product${products.length === 1 ? '' : 's'} on Channel3:`;
-    for (const product of products) {
-      const card = document.createElement('div');
-      card.className = 'product-card';
-
-      const img = document.createElement('img');
-      img.className = 'product-thumb';
-      img.src = product.imageUrl || 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="60" height="60" fill="%23e4f4ec"><rect width="60" height="60"/></svg>';
-      img.alt = product.title || 'Product';
-      img.loading = 'lazy';
-
-      const info = document.createElement('div');
-      info.className = 'product-info';
-
-      const title = document.createElement('div');
-      title.className = 'product-title';
-      title.textContent = product.title;
-
-      const meta = document.createElement('div');
-      meta.className = 'product-meta';
-      const priceText = product.price != null ? `$${Number(product.price).toFixed(2)}` : 'Price unavailable';
-      const retailerText = product.retailer || product.brand || 'Retailer';
-      meta.textContent = `${priceText} · ${retailerText}`;
-
-      info.append(title, meta);
-      if (product.purchaseUrl) {
-        const link = document.createElement('a');
-        link.className = 'buy-button';
-        link.href = product.purchaseUrl;
-        link.target = '_blank';
-        link.rel = 'noopener noreferrer';
-        link.textContent = 'View & Buy ↗';
-        info.append(link);
-      }
-      card.append(img, info);
-      $('#products-container')?.append(card);
-    }
-  } catch (err) {
-    if ($('#products-notice')) {
-      $('#products-notice').textContent = err instanceof TypeError
-        ? 'Cannot reach the local server. Run npm start, then check Settings.'
-        : (err.message || 'Error searching Channel3.');
-    }
-  } finally {
-    if ($('#search-products-btn')) $('#search-products-btn').disabled = false;
-  }
-}
-
-$('#find-products-btn')?.addEventListener('click', () => {
-  const query = $('#product-query')?.value?.trim() || $('#label')?.textContent?.trim();
-  if (query) searchProducts(query);
-});
-$('#search-products-btn')?.addEventListener('click', () => {
-  const query = $('#product-query')?.value?.trim();
-  if (query) searchProducts(query);
-});
-$('#product-query')?.addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    const query = $('#product-query')?.value?.trim();
-    if (query) searchProducts(query);
-  }
-});
+async function searchProducts(queryText) { return investigator.searchManual(queryText); }
+$('#find-products-btn').addEventListener('click', () => { const object = objects.find(o => o.id === selectedId); if (object) investigator.select(object, true); });
+$('#search-products-btn').addEventListener('click', () => searchProducts($('#product-query').value));
+$('#product-query').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchProducts(e.target.value); } });
+$('#product-query').addEventListener('input', cancelProductSearch);

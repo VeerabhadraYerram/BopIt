@@ -58,3 +58,15 @@ test('automatic pairing requires local approval, binds origin/nonce and is singl
   const ready = await (await poll()).json(); assert.equal(ready.pairingToken, token);
   assert.equal((await poll()).status, 410);
 }));
+
+test('profile API authenticates and validates context before invoking multimodal provider',()=>withServer({apiKey:'test',inspect:async(_image,{context})=>({captions:context.cues.length})},async base=>{
+ const body={label:'Camera',image:makePng(),context:{timestamp:10,cues:[{start:9,end:11,text:'This camera'}]}};
+ assert.equal((await fetch(`${base}/api/profile`,{method:'POST',headers:{...headers,'x-bopit-token':'wrong'},body:JSON.stringify(body)})).status,401);
+ const good=await fetch(`${base}/api/profile`,{method:'POST',headers,body:JSON.stringify(body)});assert.equal(good.status,200);assert.equal((await good.json()).profile.captions,1);
+ const bad=await fetch(`${base}/api/profile`,{method:'POST',headers,body:JSON.stringify({...body,context:{youtubeUrl:'http://127.0.0.1/private'}})});assert.equal(bad.status,400);
+}));
+
+test('unavailable public video context falls back to frames and discloses the missing speech',()=>withServer({apiKey:'test',inspect:async(_image,{context})=>{if(context.youtubeUrl)throw new Error('Video unavailable');return {summary:'Frame only'};}},async base=>{
+ const result=await fetch(`${base}/api/profile`,{method:'POST',headers,body:JSON.stringify({label:'Camera',image:makePng(),context:{timestamp:1,youtubeUrl:'https://www.youtube.com/watch?v=abcdefghijk'}})});
+ assert.equal(result.status,200);const body=await result.json();assert.equal(body.contextUsed.youtubeRequested,false);assert.match(body.contextWarning,/unavailable/);
+}));

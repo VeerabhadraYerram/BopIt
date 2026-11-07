@@ -14,14 +14,13 @@ chrome.action.onClicked.addListener(async tab => {
   await storageReady;
   try {
     if (!tab.id || !/^https?:/.test(tab.url || '')) throw new Error('Open an ordinary video webpage first, or upload an image in the inspector.');
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content.js'] });
-    const state = await chrome.tabs.sendMessage(tab.id, { type: 'BOPIT_ARM' });
-    if (!state?.videos) await showInspector(tab, null, 'No accessible top-level video was found. Cross-origin embedded players are not supported yet. You can upload a permitted image instead.');
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['video-geometry.js', 'content.js'] });
+    await chrome.tabs.sendMessage(tab.id, { type: 'BOPIT_START' });
     await chrome.action.setBadgeText({ tabId: tab.id, text: '' });
   } catch {
     // Restricted Chrome pages cannot host injected UI. Never navigate the viewer away.
     await chrome.action.setBadgeText({ tabId: tab.id, text: '!' });
-    await chrome.action.setTitle({ tabId: tab.id, title: 'BopIt cannot run on this page. Open an ordinary video webpage, then activate it again.' });
+    await chrome.action.setTitle({ tabId: tab.id, title: 'BopIt cannot run on this page. Open an ordinary video webpage, pause the video, then click BopIt again.' });
   }
 });
 
@@ -56,7 +55,7 @@ async function capture(tab) {
   const finalTab = (await chrome.tabs.query({ active: true, windowId: tab.windowId }))[0];
   if (finalTab?.id !== tab.id || finalTab?.url !== tab.url) throw new Error('The source tab changed. Capture the moment again.');
   // The full viewport never leaves worker memory; only the video crop is stored.
-  const record = { captureId: frame.captureId, image, mode, source: { tabId: tab.id, documentUrl: tab.url, timestamp: frame.timestamp }, createdAt: Date.now() };
+  const record = { captureId: frame.captureId, image, mode, context: frame.context, source: { tabId: tab.id, documentUrl: tab.url, timestamp: frame.timestamp }, createdAt: Date.now() };
   // One temporary capture keeps session memory bounded.
   await chrome.storage.session.set({ currentCapture: record });
   await showInspector(tab, record.captureId);
@@ -64,7 +63,25 @@ async function capture(tab) {
 
 let capturing = false;
 let lastCapture = 0;
+let inspectorFrame = null;
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (['BOPIT_OVERLAY_STATE', 'BOPIT_SELECT_OBJECT', 'BOPIT_ADD_REGION'].includes(message?.type)) {
+    if (!sender.tab) return;
+    const fromInspector = sender.url?.startsWith(chrome.runtime.getURL('viewer.html')) && sender.frameId > 0;
+    if (message.type === 'BOPIT_OVERLAY_STATE' ? !fromInspector : sender.frameId !== 0) return;
+    storageReady.then(async () => {
+      const { currentCapture } = await chrome.storage.session.get('currentCapture');
+      const tab = await chrome.tabs.get(sender.tab.id);
+      if (currentCapture?.captureId !== message.captureId || currentCapture.source.tabId !== sender.tab.id || currentCapture.source.documentUrl !== tab.url) return { error: 'Stale or foreign capture.' };
+      if (fromInspector) {
+        inspectorFrame = { tabId: sender.tab.id, frameId: sender.frameId, captureId: message.captureId };
+        return chrome.tabs.sendMessage(sender.tab.id, message, { frameId: 0 });
+      }
+      if (!inspectorFrame || inspectorFrame.captureId !== message.captureId || inspectorFrame.tabId !== sender.tab.id) return { error: 'Inspector is not ready yet.' };
+      return chrome.tabs.sendMessage(sender.tab.id, message, { frameId: inspectorFrame.frameId });
+    }).then(respond).catch(() => respond({ error: 'Source page unavailable. Explore again.' }));
+    return true;
+  }
   if (message?.type === 'BOPIT_GET_CAPTURE') {
     if (!sender.url?.startsWith(chrome.runtime.getURL('viewer.html')) || !sender.tab || !sender.frameId) { respond({ error: 'Capture access is limited to its source-page panel.' }); return; }
     storageReady.then(async () => {
