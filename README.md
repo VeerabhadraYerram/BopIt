@@ -4,7 +4,7 @@
 
 Pause an authorized video in Chrome → activate BopIt → **Explore this moment** → review the captured frame → **Find objects with Gemini** → click highlights or inspect a smaller area.
 
-This implements the first recognition experiment, not the commerce platform. It detects generic object categories and approximate locations. It does **not** verify exact products, brands, prices, compatibility, inventory, creator attribution or payments. No accuracy percentage has been established.
+This development prototype detects generic object categories and approximate locations, searches related Channel3 products, and offers a separate PayPal Sandbox demo checkout. It does **not** establish exact product identity, compatibility, inventory, or creator attribution. Channel3 prices are provider-reported. No recognition accuracy percentage has been established.
 
 Results appear in an on-page BopIt panel beside the video. Its packaged `chrome-extension://` frame keeps the interface and credentials isolated from the host website; it does not navigate the viewer to another tab/window. The local server only provides setup/connection approval and the recognition API.
 
@@ -44,6 +44,7 @@ For a walkthrough of individual steps and troubleshooting, see below. This is lo
 - [Daily use, updates and uninstall](#daily-use-updates-and-uninstall)
 - [Architecture and privacy](#how-the-recognition-flow-works)
 - [Channel3 product discovery](#channel3-product-discovery)
+- [PayPal Sandbox checkout](#paypal-sandbox-checkout)
 - [Developer checks](#developer-checks)
 
 ## What you need
@@ -153,6 +154,35 @@ This returns real in-stock items with titles, brands, prices, retailers (such as
 4. **Auto-discovery from Gemini:** When Gemini detects visible objects, clicking on any object highlight automatically fills the search query and searches Channel3 for matching products.
 5. Click **View & Buy ↗** on any product card to open the retailer listing.
 
+## PayPal Sandbox checkout
+
+BopIt is being developed for the [PayPal AI Hackathon](https://paypalaihackathon.devpost.com/). The extension links to a real PayPal Sandbox checkout for a fixed **BopIt Sandbox Demo Mug · USD 12.00**. This test item is separate from Channel3 retailer listings; no real money is used and nothing is shipped.
+
+### Setup
+
+1. In the [PayPal Developer Dashboard](https://developer.paypal.com/dashboard/), create or select a **Sandbox** REST app associated with a sandbox **Business** seller account.
+2. Add its credentials to your local `.env`, alongside the Gemini and Channel3 settings:
+
+   ```dotenv
+   PAYPAL_SANDBOX_CLIENT_ID=your_actual_sandbox_app_client_id
+   PAYPAL_SANDBOX_CLIENT_SECRET=your_actual_sandbox_app_secret
+   ```
+
+3. Use a separate sandbox **Personal** buyer account for checkout. A US Business seller and US Personal buyer provide a straightforward USD test scenario. The app credentials must belong to the selected seller. Sandbox buyer email/password are separate from API credentials.
+4. Restart `npm start`, run `npm run build`, reload the extension in `chrome://extensions`, then reload your video page. Keep secrets in `.env`, outside Git and the extension.
+
+### Use and verification
+
+In BopIt's **Try checkout** panel, choose **Open PayPal Sandbox checkout**. Review the test item, continue to PayPal, and approve using the sandbox buyer account. PayPal returns to `http://127.0.0.1:4317/checkout`; BopIt validates ownership, product, amount and currency, captures server-side, and verifies the completed capture before displaying a receipt. Your video remains in its original tab.
+
+Cancellation and unconfirmed payments have distinct states. Use **Check payment again** for uncertain responses; retries reuse stable PayPal request IDs. Restart recovery requires the same browser checkout-session cookie (one-hour lifetime). Old `/demo` and `/demo/product` return links redirect to `/checkout` with their parameters preserved.
+
+If PayPal says the seller does not accept the currency, check the sandbox seller's USD receiving settings and buyer/seller country eligibility. BopIt sends USD orders; changing a displayed currency does not change account restrictions. Use `127.0.0.1`, not `localhost`, and keep the local server running.
+
+`npm test` covers mocked provider requests and actual local HTTP handling, including authorization, price validation, return/cancel routes, duplicate capture protection, timeout handling and restart recovery. Optional `node tests/payment-browser-smoke.mjs` tests the extension-to-checkout flow in isolated Chromium with explicitly mocked PayPal responses. It requires Playwright; set `BOPIT_PLAYWRIGHT_MODULE` and optionally `BOPIT_CHROMIUM_EXECUTABLE` if installed externally. Stop the normal server first because this browser test uses port 4317. Automated mocks do not prove live provider access.
+
+This local sandbox integration has no production fulfillment, durable order database, webhooks, refunds, rentals or creator payouts.
+
 ## 4. Fix a missed or inaccurate highlight
 
 - Click **Select an area**, then drag a rectangle around the item. This creates an explicitly manual region; click **Inspect this area more closely** to analyze it.
@@ -177,7 +207,7 @@ User-edited boxes/labels are tagged as manually corrected. They do not become mo
 | Persistence | One temporary capture in extension session storage. A new capture replaces the previous one. Images stay in the inspector until it closes; no disk image storage on the server. |
 | Context | Visible frame observations and a separately labeled possible activity. No automatic transcript extraction, user intent inference, or watch-history collection. |
 | Product search | Real-world product discovery via Channel3 (manual search & auto-suggestion from detected objects). |
-| Checkout | In progress by PayPal integration workstream. |
+| Checkout | PayPal Sandbox demo mug, opened from the extension; server-side capture and receipt verification. Channel3 offers remain external retailer links. |
 
 ### Common problems
 
@@ -264,7 +294,7 @@ The standalone Node service keeps this recognition experiment easy to run. A bro
 
 Before calling this accurate, build an annotated, authorized frame set and measure detection precision/recall, box overlap, selection success, correction rate, and latency. Compare models on the same held-out images. Add SAM or a specialist detector only after identifying a measured localization failure. See [recognition evaluation guide](docs/RECOGNITION_EVALUATION.md).
 
-See the [team workstream plan](TEAM_IMPLEMENTATION_PLAN.md) for the broader planned allocation; its commerce features are future scope, not implemented behavior. The previous master implementation document has been removed from the current repository. No public hosting or Chrome Web Store submission is included.
+See the [team workstream plan](TEAM_IMPLEMENTATION_PLAN.md) for the broader planned allocation. Beyond the sandbox demo checkout described above, its commerce features remain future scope. The previous master implementation document has been removed from the current repository. No public hosting or Chrome Web Store submission is included.
 
 ## License
 

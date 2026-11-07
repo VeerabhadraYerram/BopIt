@@ -24,7 +24,7 @@ await writeFile(join(ext, 'manifest.json'), JSON.stringify(manifest));
 let context;
 const errors = [];
 try {
-  context = await chromium.launchPersistentContext(profile, { headless: process.env.BOPIT_HEADLESS === '1', channel: 'chromium', viewport: { width: 1280, height: 900 }, args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, '--disable-background-timer-throttling'] });
+  context = await chromium.launchPersistentContext(profile, { headless: process.env.BOPIT_HEADLESS === '1', channel: 'chromium', ...(process.env.BOPIT_CHROMIUM_EXECUTABLE ? { executablePath: process.env.BOPIT_CHROMIUM_EXECUTABLE } : {}), viewport: { width: 1280, height: 900 }, args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, '--disable-background-timer-throttling'] });
   context.on('page', p => p.on('pageerror', error => errors.push(error.message)));
   const worker = context.serviceWorkers()[0] || await context.waitForEvent('serviceworker');
   const id = new URL(worker.url()).hostname;
@@ -80,11 +80,15 @@ try {
   await videoPage.evaluate(async () => {
     const canvas = document.createElement('canvas'); canvas.width = 640; canvas.height = 360;
     const ctx = canvas.getContext('2d'); ctx.fillStyle = '#e5d6b6'; ctx.fillRect(0, 0, 640, 360); ctx.fillStyle = '#24364e'; ctx.fillRect(200, 120, 200, 140);
-    const stream = canvas.captureStream(10), chunks = [], recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
-    const blob = await new Promise(resolve => { recorder.ondataavailable = e => chunks.push(e.data); recorder.onstop = () => resolve(new Blob(chunks, { type: 'video/webm' })); recorder.start(); setTimeout(() => recorder.stop(), 600); });
-    stream.getTracks().forEach(t => t.stop());
-    const video = document.querySelector('video'); video.muted = true; video.src = URL.createObjectURL(blob);
-    await video.play(); video.pause();
+    // A synthetic stream avoids depending on a platform WebM encoder/decoder.
+    const stream = canvas.captureStream(10);
+    const video = document.querySelector('video'); video.muted = true; video.srcObject = stream;
+    const drawTimer = setInterval(() => { ctx.fillRect(200, 120, 200, 140); stream.getVideoTracks()[0].requestFrame?.(); }, 50);
+    try {
+      await video.play();
+      await new Promise(resolve => video.requestVideoFrameCallback(resolve));
+      video.pause();
+    } finally { clearInterval(drawTimer); }
   });
   const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ active: true, currentWindow: true }))[0].id);
   await worker.evaluate(async ({ tabId }) => {

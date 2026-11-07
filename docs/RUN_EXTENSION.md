@@ -100,4 +100,4 @@ Then click BopIt's **Reload** button in `chrome://extensions` and reload the vid
 | Incorrect/missed item | Use manual correction/crop refinement or a clearer frame. Detections are not verified product identities. |
 | Narrow page | The results panel can overlap part of the page; close it whenever needed. |
 
-For architecture, privacy, testing and known limits, read the [main README](../README.md). Nothing in this installation guide enables purchases or payments; this build covers recognition only.
+For architecture, privacy, testing and known limits, read the [main README](../README.md). For the separate USD 12 demo mug payment flow, follow [PayPal Sandbox checkout](../README.md#paypal-sandbox-checkout). Channel3 product listings open retailer websites; the sandbox demo does not buy those listings.

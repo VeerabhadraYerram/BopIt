@@ -55,6 +55,7 @@ function select(id) {
   $('#detail').hidden = !object;
   if (!object) return;
   $('#label').textContent = object.label;
+  $('#checkout-context').textContent = `Exploring “${object.label}”. The checkout below uses a separate demo mug; return to this tab after payment to keep watching.`;
   $('#attributes').textContent = object.visibleAttributes.join(' · ') || 'No specific visual attributes established.';
   $('#markings').textContent = object.visibleText ? `Reported visible text (unverified): ${object.visibleText}` : 'No readable product markings reported.';
   $('#relationship').textContent = object.relationship;
