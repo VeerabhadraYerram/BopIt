@@ -1,12 +1,15 @@
 import { formatProductPrice, safeProductUrl } from './product-display.js';
+import { createShoppingTools } from './shopping-tools.js';
 import { searchPlan } from './contracts/profile.mjs';
 const $ = s => document.querySelector(s);
 const node = (tag, text, className) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; };
 const sourceLabel = { visible: 'Seen in frame', caption: 'Caption claim', video_speech: 'Video speech claim', viewer_note: 'Viewer-provided · unverified', inferred: 'Inference · unverified' };
 export function createInvestigator({ getCapture, crop, getSelected }) {
   let generation = 0, controller = null, selected = null, intent = 'exact', current = null;
+  let lastRendered = { products: [], assessments: [] };
+  const shopping = createShoppingTools(() => renderProducts(lastRendered.products,lastRendered.assessments));
   const cache = new Map(), searches = new Map(), views = new Map();
-  function cancel() { generation++; controller?.abort(); controller = null; $('#search-products-btn').disabled = false; }
+  function cancel() { lastRendered = { products: [], assessments: [] };generation++; controller?.abort(); controller = null; $('#search-products-btn').disabled = false; }
   function reset() { cancel(); cache.clear(); searches.clear(); views.clear(); selected = null; current = null; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#context-note').value = ''; $('#use-youtube').checked = false; }
   async function api(path, body, signal) {
     const { pairingToken } = await chrome.storage.local.get('pairingToken');
@@ -82,7 +85,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     try {
       let data = force ? null : searches.get(key);
       if (!data) {
-        data = await api('products/search', { query:plan.query,image:plan.useImage ? crop(current.object.box) : undefined,limit:6,filters:plan.filters,config }, signal);
+        data = await api('products/search', { query:plan.query,image:plan.useImage ? crop(current.object.box) : undefined,limit:12,filters:plan.filters,config }, signal);
         if (version !== generation) return;
         searches.set(key,data);
       }
@@ -109,20 +112,26 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     }
   }
   function renderProducts(products, assessments = []) {
+    lastRendered = {products,assessments};
     $('#products-container').replaceChildren();
-    $('#products-notice').textContent = products.length ? `${products.length} ${intent==='exact'?'identity candidates':intent==='look'?'similar-looking products':'functional alternatives'}. Exact identity is not verified. We may earn a commission from retailer links.` : 'No catalog matches found. Try another intent, increase your budget, or edit the query. An absent listing does not mean the item does not exist.';
+    let priceSorted=false;
+    try { const prepared=shopping.prepare(products, current?.object || selected || {}, intent);products=prepared.products;priceSorted=prepared.priceSorted; }
+    catch(e){$('#products-notice').textContent=e.message;return;}
+
+    $('#products-notice').textContent = products.length ? `${products.length} ${intent==='exact'?'identity candidates':intent==='look'?'similar-looking products':intent==='cheaper'?'alternatives sorted by price (original price unknown)':'functional alternatives'}. Exact identity is not verified. We may earn a commission from retailer links.` : 'No catalog matches found. Try another intent, increase your budget, or edit the query. An absent listing does not mean the item does not exist.';
     const ratings = new Map(assessments.map(a=>[a.id,a]));
     const rank = { identifier_match:0,possible_match:1,similar:2,contradicted:3 };
     const relevance = p => (rank[ratings.get(p.id)?.verdict] ?? 2) * 100 + (ratings.get(p.id)?.differences.length || 0) * 3 + (intent === 'exact' && /bundle|with.*stand|w\/stand/i.test(p.title) ? 12 : 0);
-    const ordered=[...products].sort((a,b)=>relevance(a)-relevance(b));
+    const ordered=priceSorted ? products : [...products].sort((a,b)=>relevance(a)-relevance(b));
     for(const product of ordered) {
       const card=node('article',undefined,'product-card');card.dataset.productId=product.id;
       const image=node('img',undefined,'product-thumb');image.alt=product.title;image.referrerPolicy='no-referrer';image.loading='lazy';
       const placeholder='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="12" fill="%23dff1e7"/></svg>';
       image.src=safeProductUrl(product.image)||placeholder;image.addEventListener('error',()=>image.src=placeholder,{once:true});
       const info=node('div',undefined,'product-info');info.append(node('div',product.title,'product-title'),node('div',`${formatProductPrice(product.price,product.currency)} · ${product.retailer||product.brand||'Retailer'}`,'product-meta'));
+      info.append(shopping.actions(product));
       const assessment=ratings.get(product.id);
-      if(assessment){const labels={identifier_match:'Identifier agrees · variant not verified',possible_match:'Possible match',similar:'Similar product',contradicted:'Conflicting evidence'};info.append(node('div',labels[assessment.verdict],'match-label'));const evidence=node('details');evidence.append(node('summary','Why this result?'));for(const [name,values] of [['Matches',assessment.matches],['Differences',assessment.differences],['Unknown',assessment.unknowns]])if(values.length)evidence.append(node('p',`${name}: ${values.join(' · ')}`));evidence.append(node('small',current?.results?.comparedImageIds?.includes(product.id) ? 'AI compared the video crop with catalog photos and listing text. This is supporting evidence, not proof of exact identity.' : 'AI compared the video crop with catalog text. A catalog photo was unavailable for this comparison.'));info.append(evidence);if(assessment.differences.length)info.append(node('small',`Difference: ${assessment.differences[0]}`));}else info.append(node('small',intent==='exact'?'Unverified catalog candidate':intent==='look'?'Appearance search result · differences may exist':'Function search result · check specifications'));
+      if(assessment){const labels={identifier_match:'Identifier agrees · variant not verified',possible_match:'Possible match',similar:'Similar product',contradicted:'Conflicting evidence'};info.append(node('div',labels[assessment.verdict],'match-label'));const evidence=node('details');evidence.append(node('summary','Why this result?'));for(const [name,values] of [['Matches',assessment.matches],['Differences',assessment.differences],['Unknown',assessment.unknowns]])if(values.length)evidence.append(node('p',`${name}: ${values.join(' · ')}`));evidence.append(node('small',current?.results?.comparedImageIds?.includes(product.id) ? 'AI compared the video crop with catalog photos and listing text. This is supporting evidence, not proof of exact identity.' : 'AI compared the video crop with catalog text. A catalog photo was unavailable for this comparison.'));info.append(evidence);if(assessment.differences.length)info.append(node('small',`Difference: ${assessment.differences[0]}`));}else {info.append(node('small',product.matchType || 'Unverified catalog candidate')); if(product.matchExplanation) {const why=node('details');why.append(node('summary','Why this result?'),node('p',product.matchExplanation));info.append(why);}}
       const details=node('button','Specifications & variants','secondary');details.onclick=()=>showDetails(product,card,details);info.append(details);
       const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','View retailer ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';info.append(link);}
       card.append(image,info);$('#products-container').append(card);
@@ -150,7 +159,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     cancel();const version=generation;controller=new AbortController();const signal=controller.signal;query=(query||'').trim();
     if(!query){$('#products-notice').textContent='Enter a product query.';return;}
     $('#products-container').replaceChildren();$('#products-notice').textContent=`Searching Channel3 for “${query}”…`;$('#search-products-btn').disabled=true;
-    try{const plan=searchPlan({category:query,queries:{exact:query}},'exact',$('#budget').value);const data=await api('products/search',{query,limit:6,filters:plan.filters,config:market()},signal);if(version!==generation)return;renderProducts(data.products||[]);if(!preserveProfile)$('#investigation-status').textContent='Manual catalog search · not an identity verification';}
+    try{const plan=searchPlan({category:query,queries:{exact:query}},'exact',$('#budget').value);const data=await api('products/search',{query,limit:12,filters:plan.filters,config:market()},signal);if(version!==generation)return;renderProducts(data.products||[]);if(!preserveProfile)$('#investigation-status').textContent='Manual catalog search · not an identity verification';}
     catch(e){if(version===generation&&e.name!=='AbortError')$('#products-notice').textContent=e.message;}
     finally{if(version===generation)$('#search-products-btn').disabled=false;}
   }

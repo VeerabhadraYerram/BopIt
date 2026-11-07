@@ -141,3 +141,11 @@ Design decisions and sources: [Moment-first UX](docs/UX_DECISIONS.md).
 Recognition remains Gemini-based. A separate `POST /api/segment` refines detected regions with **SlimSAM** on the backend CPU and traces raster mask edges, including holes. First use downloads public model weights to ignored `.local/models`; `npm run warm:outlines` prepares the model ahead of a demo. The gallery appears immediately after detection; refinement never blocks object selection. If refinement fails, small markers and the card list remain usable.
 
 “Local” describes where the development backend runs, not a browser requirement. The same segmentation module can execute on a hosted Node backend. Viewers do not download model weights. The current app still has a localhost-only server address, host checks and local pairing, so it is **not yet a production-hosted deployment**: remote endpoint configuration, HTTPS authentication, deployment packaging and service capacity need production work. The model itself does not prevent deployment.
+
+## Combined main integration
+
+The gallery-first interface retains main's saved-products storage (`savedProducts`), three-listing comparison, deterministic listing-evidence ranking, same-currency price sorting, brand/currency filtering, and budget presets. Save and Compare actions appear on retailer cards; saved finds are available in the panel. Extra controls are grouped under **More search options** rather than filling the initial item grid.
+
+**Lower-priced alternatives** remains available there. It uses the appearance query and ascending prices within each supplied currency; it does not claim prices are below the unknown original item's price. **Same function** remains a separate intent. **Recommended** uses listing evidence and, when available, the deeper photo/text assessment. Explicit price sorts take precedence over relevance.
+
+Closing the panel preserves main's captured-timestamp restoration. Unlike pulled main's old UI, activation is toolbar-only, the gallery opens during scanning, and the original video has object outlines rather than a floating Explore button. Manual corrections remain marked as user edits; missing provider currency/availability stay unknown. Retailer links require HTTPS. These are intentional integration choices, not a claim that every site's behaviour is verified.

@@ -26,3 +26,5 @@ After source updates: `npm run build` → Reload the extension in Chrome → rel
 Purchases open retailer pages. PayPal payments, rentals and creator payouts are not implemented. Full details: [README](../README.md).
 
 If an older version left buttons on an open tab, reload the extension and then refresh that video page. In `chrome://extensions`, keep only one BopIt installation enabled if you loaded multiple source/build folders.
+
+Saved products and three-item comparison are available on retailer cards. Expand **More search options** for sorting, brand/currency filters, budget presets and lower-priced alternatives. Prices in different currencies are not converted. Closing the panel restores the captured timestamp.

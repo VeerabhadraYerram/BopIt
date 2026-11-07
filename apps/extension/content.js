@@ -39,7 +39,8 @@
       for (const el of [host, overlay, panel].filter(Boolean)) if (el.parentElement !== container) container.append(el);
     } else if (!container) for (const el of [host, overlay, panel].filter(Boolean)) if (el.parentElement !== document.documentElement) document.documentElement.append(el);
   }
-  function hidePanel() { if (panel) panel.hidden = true; exited = true; root.querySelector('#hover-label').hidden = true; update(); selected?.focus({ preventScroll: true }); }
+  function restoreTimestamp() { const video = pending?.video; if (video?.isConnected && Number.isFinite(pending.timestamp) && Math.abs(video.currentTime-pending.timestamp)>=.02) video.currentTime=pending.timestamp; }
+  function hidePanel() { restoreTimestamp(); if (panel) panel.hidden = true; exited = true; root.querySelector('#hover-label').hidden = true; update(); selected?.focus({ preventScroll: true }); }
   function showError(message) { clearTimeout(statusTimer); status.textContent = message; status.hidden = false; host.style.display = 'block'; host.style.visibility = 'visible'; statusTimer = setTimeout(() => { status.hidden = true; host.style.display = 'none'; }, 8000); }
   function showPanel(id, error, background = false) {
     if (!panel) {
@@ -154,7 +155,7 @@
       try {const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;if(!c.width||c.width*c.height>16000000)throw new Error();c.getContext('2d').drawImage(v,0,0);directImage=c.toDataURL('image/png');}catch{/* activeTab fallback */}
       let rect={x:r.left,y:r.top,width:r.width,height:r.height};
       if(!directImage){if(r.left<0||r.top<0||r.right>innerWidth||r.bottom>innerHeight||!['contain','fill'].includes(css.objectFit)){respond({error:'For this cross-origin player, keep the whole video visible with contain/fill positioning.'});return;}rect=globalThis.BopitGeometry.imageRect(r,v.videoWidth,v.videoHeight,css.objectFit);}
-      pending={captureId:id,timestamp:v.currentTime,rect:r.toJSON(),viewport:{width:innerWidth,height:innerHeight}};
+      pending={captureId:id,timestamp:v.currentTime,video:v,rect:r.toJSON(),viewport:{width:innerWidth,height:innerHeight}};
       host.style.visibility='hidden';overlay.style.display='none';if(panel)panel.hidden=true;
       requestAnimationFrame(()=>requestAnimationFrame(()=>respond({captureId:id,directImage,rect,viewport:pending.viewport,timestamp:v.currentTime,context:{timestamp:v.currentTime,cues:captions(v),note:''}})));
       return true;

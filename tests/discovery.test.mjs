@@ -6,7 +6,14 @@ import {
   normalizeChannel3Product,
   normalizeChannel3Response,
   normalizeChannel3Offer,
-  buildProductQuery
+  buildProductQuery,
+  buildDiscoveryQuery,
+  rankDiscoveryProducts,
+  filterDiscoveryProducts,
+  buildProductComparison,
+  resolveBudgetMaximum,
+  normalizeSavedProducts,
+  toggleSavedProduct
 } from '../packages/contracts/discovery.mjs';
 import { searchChannel3 } from '../apps/recognition-server/channel3.mjs';
 import { createApp } from '../apps/recognition-server/server.mjs';
@@ -180,6 +187,8 @@ test('normalizeChannel3Offer normalizes various price and domain structures', ()
   assert.equal(altOffer.currency, 'EUR');
   assert.equal(altOffer.availability, 'OutOfStock');
   assert.equal(altOffer.purchaseUrl, 'https://buy.trychannel3.com/offer2');
+  assert.equal(altOffer.condition, null);
+  assert.equal(normalizeChannel3Offer({ price: 20, url: 'javascript:alert(1)' }).purchaseUrl, '');
 });
 
 test('normalizeChannel3Product extracts title, brand, clean image, and primary offer', () => {
@@ -199,6 +208,7 @@ test('normalizeChannel3Product extracts title, brand, clean image, and primary o
   assert.equal(product.condition, 'new');
   assert.equal(product.purchaseUrl, 'https://buy.trychannel3.com/rmAiFzV-macys');
   assert.equal(product.offers.length, 1);
+  assert.deepEqual(product.attributes, []);
   assert.equal(product.source, 'channel3');
 });
 
@@ -216,8 +226,25 @@ test('normalizeChannel3Product handles products with missing optional fields', (
   assert.equal(product.price, null);
   assert.equal(product.image, null);
   assert.equal(product.retailer, '');
-  assert.equal(product.availability, 'UNKNOWN');
+  assert.equal(product.availability, null);
+  assert.equal(product.currency, null);
+  assert.equal(product.condition, null);
   assert.equal(product.offers.length, 0);
+});
+
+test('normalizes only provider-supplied product attributes', () => {
+  const product = normalizeChannel3Product({
+    id: 'attribute-product',
+    title: 'Necklace',
+    attributes: [
+      { name: 'Material', value: 'Sterling silver' },
+      { name: 'Length', value: '18 inches' },
+      'Chain style: cable',
+      { name: 'Unsupported', value: null },
+      42
+    ]
+  });
+  assert.deepEqual(product.attributes, ['Material: Sterling silver', 'Length: 18 inches', 'Chain style: cable']);
 });
 
 test('normalizeChannel3Response normalizes a full API response and skips invalid entries', () => {
@@ -263,6 +290,175 @@ test('buildProductQuery formats strings and object attributes for search', () =>
   assert.equal(buildProductQuery(''), '');
   assert.equal(buildProductQuery(null), '');
   assert.equal(buildProductQuery({}), '');
+});
+
+test('discovery modes construct queries from only mode-supported visible evidence', () => {
+  const selection = {
+    label: 'headphones',
+    brand: 'Sony',
+    model: 'WH-1000XM5',
+    color: 'black',
+    material: 'leather',
+    visibleText: 'Sony',
+    visibleAttributes: ['over-ear']
+  };
+  assert.equal(buildDiscoveryQuery(selection, 'exact'), 'Sony WH-1000XM5 black leather headphones');
+  assert.equal(buildDiscoveryQuery(selection, 'similar'), 'black leather headphones over-ear');
+  assert.equal(buildDiscoveryQuery(selection, 'cheaper', 'wireless'), 'black leather headphones over-ear wireless');
+  assert.throws(() => buildDiscoveryQuery(selection, 'invented-mode'), /Unsupported discovery mode/);
+});
+
+test('ranking distinguishes text-supported exact candidates, similar products, and price sorting', () => {
+  const selection = { label: 'headphones', brand: 'Sony', model: 'WH-1000XM5', color: 'black', visibleAttributes: ['over-ear'] };
+  const products = [
+    { id: 'alternative', title: 'Black Over-Ear Headphones', brand: 'Other', category: 'Headphones', description: '', price: 90, currency: 'USD' },
+    { id: 'exact-candidate', title: 'Sony WH-1000XM5 Wireless Headphones', brand: 'Sony', category: 'Headphones', description: '', price: 300, currency: 'USD' },
+    { id: 'euro-candidate', title: 'Black Headphones', brand: 'Other', category: 'Headphones', description: '', price: 5, currency: 'EUR' },
+    { id: 'unknown-price', title: 'Headphones', brand: null, category: 'Audio', description: '', price: null, currency: null }
+  ];
+  const exact = rankDiscoveryProducts(products, selection, 'exact');
+  assert.equal(exact[0].id, 'exact-candidate');
+  assert.equal(exact[0].matchType, 'Strong attribute match');
+  assert.equal(exact.find(product => product.id === 'alternative').matchType, 'Strong attribute match');
+  assert.equal(exact.find(product => product.id === 'euro-candidate').matchType, 'Category match');
+  assert.match(exact[0].matchExplanation, /category or attribute/i);
+  assert.doesNotMatch(exact[0].matchType, /exact verified/i);
+  assert.equal(JSON.stringify(exact).includes('%'), false);
+
+  const similar = rankDiscoveryProducts(products, selection, 'similar');
+  assert.equal(similar.find(product => product.id === 'alternative').matchType, 'Strong attribute match');
+  assert.equal(similar.find(product => product.id === 'euro-candidate').matchType, 'Visually similar');
+  assert.equal(similar.find(product => product.id === 'unknown-price').matchType, 'Category match');
+  const cheapest = rankDiscoveryProducts(products, selection, 'cheaper', 'price-asc');
+  assert.deepEqual(cheapest.map(product => product.id), ['euro-candidate', 'alternative', 'exact-candidate', 'unknown-price']);
+  const mostExpensive = rankDiscoveryProducts(products, selection, 'similar', 'price-desc');
+  assert.deepEqual(mostExpensive.slice(1, 3).map(product => product.id), ['exact-candidate', 'alternative']);
+});
+
+test('strong matches require two independent listing-supported attribute fields', () => {
+  const categoryOnly = rankDiscoveryProducts([
+    { id: 'category-only', title: 'Sony Black Wireless Headphones', category: 'Headphones', brand: 'Sony' }
+  ], { label: 'headphones' }, 'exact');
+  assert.equal(categoryOnly[0].matchType, 'Category match');
+
+  const oneLongAttribute = rankDiscoveryProducts([
+    { id: 'one-attribute', title: 'Wireless Over Ear Headphones', category: 'Headphones' }
+  ], { label: 'headphones', visibleAttributes: ['wireless over ear'] }, 'similar');
+  assert.equal(oneLongAttribute[0].matchType, 'Visually similar');
+
+  const repeatedAttribute = rankDiscoveryProducts([
+    { id: 'repeated-attribute', title: 'Black Headphones', category: 'Headphones' }
+  ], { label: 'headphones', color: 'black', visibleAttributes: ['black color'] }, 'similar');
+  assert.equal(repeatedAttribute[0].matchType, 'Visually similar');
+
+  const twoAttributes = rankDiscoveryProducts([
+    { id: 'two-attributes', title: 'Black Leather Headphones', category: 'Headphones' }
+  ], { label: 'headphones', color: 'black', material: 'leather' }, 'similar');
+  assert.equal(twoAttributes[0].matchType, 'Strong attribute match');
+
+  const brandAndModel = rankDiscoveryProducts([
+    { id: 'brand-model', title: 'WH-1000XM5 Headphones', brand: 'Sony', category: 'Headphones' }
+  ], { label: 'headphones', brand: 'Sony', model: 'WH-1000XM5' }, 'exact');
+  assert.equal(brandAndModel[0].matchType, 'Strong attribute match');
+
+  const onlyBrand = rankDiscoveryProducts([
+    { id: 'brand-only', title: 'Sony Headphones', brand: 'Sony', category: 'Headphones' }
+  ], { label: 'headphones', brand: 'Sony' }, 'exact');
+  assert.equal(onlyBrand[0].matchType, 'Category match');
+});
+
+test('unmatched listings receive weak-match classification instead of inferred similarity', () => {
+  const [product] = rankDiscoveryProducts([
+    { id: 'weak', title: 'Desk lamp', brand: 'Other', category: 'Lighting', description: '', attributes: [] }
+  ], { label: 'necklace', color: 'blue' }, 'similar');
+  assert.equal(product.matchType, 'Weak match');
+  assert.match(product.matchExplanation, /does not show a strong match/);
+});
+
+test('wishlist products are deduplicated by ID and toggle cleanly on or off', () => {
+  const first = { id: ' product-1 ', title: 'Saved lens' };
+  const duplicate = { id: 'product-1', title: 'Duplicate lens' };
+  assert.deepEqual(normalizeSavedProducts([first, duplicate, null, { id: '' }]), [
+    { id: 'product-1', title: 'Saved lens' }
+  ]);
+  assert.deepEqual(toggleSavedProduct([first, duplicate], { id: 'product-2', title: 'Saved body' }), [
+    { id: 'product-1', title: 'Saved lens' },
+    { id: 'product-2', title: 'Saved body' }
+  ]);
+  assert.deepEqual(toggleSavedProduct([first, duplicate], { id: 'product-1', title: 'Saved lens' }), []);
+  assert.deepEqual(toggleSavedProduct([], { title: 'Missing ID' }), []);
+});
+
+test('budget and brand filters use matching currency and available brand data', () => {
+  const products = [
+    { id: 'usd', brand: 'A', price: 90, currency: 'USD' },
+    { id: 'eur', brand: 'A', price: 50, currency: 'EUR' },
+    { id: 'no-currency', brand: 'A', price: 10, currency: null },
+    { id: 'other-brand', brand: 'B', price: 40, currency: 'USD' },
+    { id: 'unknown-price', brand: 'A', price: null, currency: 'USD' }
+  ];
+  assert.deepEqual(filterDiscoveryProducts(products, { maxPrice: '60', currency: 'USD', brand: 'A' }).map(product => product.id), []);
+  assert.deepEqual(filterDiscoveryProducts(products, { maxPrice: '60', currency: 'EUR', brand: 'A' }).map(product => product.id), ['eur']);
+  assert.deepEqual(filterDiscoveryProducts(products, { brand: 'B' }).map(product => product.id), ['other-brand']);
+  assert.throws(() => filterDiscoveryProducts(products, { maxPrice: '-1', currency: 'USD' }), /non-negative/);
+  assert.throws(() => filterDiscoveryProducts(products, { maxPrice: '60' }), /Select a currency/);
+});
+
+test('budget presets derive currency-specific limits, custom amounts, and no-limit clearing', () => {
+  const products = [
+    { id: 'usd-low', price: 10, currency: 'USD' },
+    { id: 'usd-mid-low', price: 20, currency: 'USD' },
+    { id: 'usd-mid-high', price: 30, currency: 'USD' },
+    { id: 'usd-premium', price: 40, currency: 'USD' },
+    { id: 'eur-low', price: 100, currency: 'EUR' },
+    { id: 'eur-mid', price: 200, currency: 'EUR' },
+    { id: 'eur-premium', price: 300, currency: 'EUR' },
+    { id: 'usd-unknown', price: null, currency: 'USD' }
+  ];
+
+  assert.equal(resolveBudgetMaximum(products, 'low', 'USD'), 20);
+  assert.equal(resolveBudgetMaximum(products, 'mid', 'USD'), 30);
+  assert.equal(resolveBudgetMaximum(products, 'premium', 'USD'), 40);
+  assert.equal(resolveBudgetMaximum(products, 'low', 'EUR'), 100);
+  assert.equal(resolveBudgetMaximum(products, 'mid', 'EUR'), 200);
+  assert.equal(resolveBudgetMaximum(products, 'premium', 'EUR'), 300);
+  assert.equal(resolveBudgetMaximum(products, 'custom', 'USD', '25.50'), 25.5);
+  assert.equal(resolveBudgetMaximum(products, 'custom', 'USD', ''), null);
+  assert.equal(resolveBudgetMaximum(products, 'no-limit', '', ''), null);
+  assert.deepEqual(filterDiscoveryProducts(products, {
+    maxPrice: resolveBudgetMaximum(products, 'low', 'EUR'),
+    currency: 'EUR'
+  }).map(product => product.id), ['eur-low']);
+  assert.throws(() => resolveBudgetMaximum(products, 'low', ''), /Select a currency/);
+  assert.throws(() => resolveBudgetMaximum(products, 'low', 'GBP'), /No listed prices/);
+  assert.throws(() => resolveBudgetMaximum(products, 'custom', 'USD', '-1'), /non-negative/);
+  assert.throws(() => resolveBudgetMaximum(products, 'custom', 'USD', 'invalid'), /non-negative/);
+});
+
+test('comparison limits selection and refuses incompatible currency price comparisons', () => {
+  const matchingCurrency = buildProductComparison([
+    { id: 'a', title: 'Item A', price: 12, currency: 'USD', brand: null, attributes: ['metal'] },
+    { id: 'b', title: 'Item B', price: null, currency: 'USD', retailer: 'Shop', availability: 'InStock', attributes: [] }
+  ]);
+  assert.equal(matchingCurrency.pricesComparable, true);
+  assert.equal(matchingCurrency.products[0].brand, null);
+  assert.equal(matchingCurrency.products[1].price, null);
+  assert.equal(matchingCurrency.products[1].availability, 'InStock');
+
+  const mixed = buildProductComparison([
+    { id: 'usd', price: 12, currency: 'USD' },
+    { id: 'eur', price: 10, currency: 'EUR' }
+  ]);
+  assert.equal(mixed.pricesComparable, false);
+  assert.deepEqual(mixed.currencies, ['USD', 'EUR']);
+  assert.equal(buildProductComparison([{ id: 'missing-currency', price: 10 }]).pricesComparable, false);
+  assert.throws(() => buildProductComparison([{}, {}, {}, {}]), /at most 3/);
+});
+
+test('empty Channel3 results remain empty and malformed provider response fails', () => {
+  assert.deepEqual(normalizeChannel3Response({ products: [] }), { products: [], total: 0, pageToken: null });
+  assert.throws(() => normalizeChannel3Response({ results: [] }), /missing "products" array/);
+  assert.deepEqual(rankDiscoveryProducts([], { label: 'camera' }, 'exact'), []);
 });
 
 test('searchChannel3 rejects missing API key with KEY_MISSING', async () => {
@@ -431,3 +627,34 @@ test('server endpoint /api/products/search reports 503 when CHANNEL3_API_KEY is 
   }
 ));
 
+test('server endpoint preserves empty Channel3 results and reports provider failures', () => withServer(
+  {
+    channel3Key: 'test-channel3-key',
+    searchProducts: async query => {
+      if (query === 'provider failure') {
+        const error = new Error('Channel3 is unavailable.');
+        error.code = 'PROVIDER_ERROR';
+        error.status = 503;
+        throw error;
+      }
+      return { ok: true, query, total: 0, products: [], pageToken: null };
+    }
+  },
+  async base => {
+    const empty = await fetchHttp(`${base}/api/products/search`, {
+      method: 'POST',
+      headers: serverHeaders,
+      body: JSON.stringify({ query: 'no matching listing' })
+    });
+    assert.equal(empty.status, 200);
+    assert.deepEqual((await empty.json()).products, []);
+
+    const failed = await fetchHttp(`${base}/api/products/search`, {
+      method: 'POST',
+      headers: serverHeaders,
+      body: JSON.stringify({ query: 'provider failure' })
+    });
+    assert.equal(failed.status, 503);
+    assert.equal((await failed.json()).code, 'PROVIDER_ERROR');
+  }
+));

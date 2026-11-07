@@ -75,6 +75,7 @@ function select(id) {
   $('#detail').hidden = !object;
   if (!object) return;
   $('#label').textContent = object.label;
+  $('#object-origin').textContent = object.manual ? `Your correction${object.predictedLabel ? ' · originally '+object.predictedLabel : ''}` : 'Detected in your video · identity not verified';
   $('#attributes').textContent = object.visibleAttributes.join(' · ') || 'No specific visual attributes established.';
   $('#markings').textContent = object.visibleText ? `Reported visible text (unverified): ${object.visibleText}` : 'No readable product markings reported.';
   $('#relationship').textContent = object.relationship;
@@ -165,7 +166,7 @@ $('#correction').addEventListener('submit', event => {
   event.preventDefault(); const object = objects.find(o => o.id === selectedId); if (!object) return;
   const box = Object.fromEntries(['x', 'y', 'width', 'height'].map(k => [k, Number($(`#edit-${k}`).value) / 100]));
   if (Object.values(box).some(v => !Number.isFinite(v) || v < 0) || box.width <= 0 || box.height <= 0 || box.x + box.width > 1.00001 || box.y + box.height > 1.00001) { notice('The box must fit entirely inside the image.', true); return; }
-  object.box = box; object.contour = null; object.label = $('#edit-label').value.trim() || object.label; object.manual = true;
+  object.predictedLabel ||= object.label; object.box = box; object.contour = null; object.contours = null; object.label = $('#edit-label').value.trim() || object.label; object.manual = true;
   select(object.id); notice('Manual correction applied locally. Inspect the area to ask Gemini for a new interpretation.');
 });
 $('#draw').addEventListener('click', () => {
@@ -216,7 +217,7 @@ $('#export').addEventListener('click', () => {
   const a = document.createElement('a'); a.href = url; a.download = `bopit-${capture.captureId}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 });
 $('#return').addEventListener('click', async () => {
-  if (embedded) { controller?.abort(); await chrome.runtime.sendMessage({ type: 'BOPIT_CLOSE_PANEL' }); return; }
+  if (embedded) { controller?.abort(); await chrome.runtime.sendMessage({ type: 'BOPIT_CLOSE_PANEL', captureId: capture?.captureId }); return; }
   try { const tab = await chrome.tabs.get(capture.source.tabId); if (tab.url !== capture.source.documentUrl) throw new Error('The original tab navigated. Return to it manually.'); await chrome.tabs.update(tab.id, { active: true }); await chrome.windows.update(tab.windowId, { focused: true }); window.close(); }
   catch (error) { notice(error.message || 'Original tab unavailable. Return to it manually.', true); }
 });
@@ -243,7 +244,7 @@ if (query.has('capture')) {
   else notice(response?.error || 'This temporary capture expired or was replaced. Capture the moment again.', true);
 } else if (query.has('error')) notice(query.get('error'), true);
 document.addEventListener('keydown', event => {
-  if (embedded && event.key === 'Escape' && !event.defaultPrevented && !drawing && !['INPUT', 'TEXTAREA'].includes(event.target.tagName)) { controller?.abort(); chrome.runtime.sendMessage({ type: 'BOPIT_CLOSE_PANEL' }); }
+  if (embedded && event.key === 'Escape' && !event.defaultPrevented && !drawing && !['INPUT', 'TEXTAREA'].includes(event.target.tagName)) { controller?.abort(); chrome.runtime.sendMessage({ type: 'BOPIT_CLOSE_PANEL', captureId: capture?.captureId }); }
 });
 
 async function searchProducts(queryText) { return investigator.searchManual(queryText); }

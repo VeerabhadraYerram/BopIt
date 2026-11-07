@@ -16,11 +16,12 @@ export const detectionSchema = {
           box_2d: { type: 'array', items: { type: 'integer', minimum: 0, maximum: 1000 }, minItems: 4, maxItems: 4 },
           mask: { type: 'array', items: { type: 'array', items: { type: 'integer' }, minItems: 2, maxItems: 2 }, maxItems: 48 },
           visibleAttributes: { type: 'array', items: string, maxItems: 8 },
+          color: string, material: string, brand: string, model: string,
           visibleText: string,
           uncertainty: string,
           relationship: string
         },
-        required: ['label', 'box_2d', 'mask', 'visibleAttributes', 'visibleText', 'uncertainty', 'relationship']
+        required: ['label', 'box_2d', 'mask', 'visibleAttributes', 'visibleText', 'uncertainty', 'relationship', 'color', 'material', 'brand', 'model']
       }
     }
   },
@@ -65,6 +66,9 @@ export function validateDetections(raw) {
     const object = {
       id: `object-${objects.length + 1}`, label, box, contour: normalizeContour(item.mask),
       visibleAttributes: item.visibleAttributes.map(v => short(v, 'attribute', 200)),
+      color: short(item.color ?? '', 'color', 100), material: short(item.material ?? '', 'material', 100),
+      brand: short(item.brand ?? '', 'visible brand', 100), model: short(item.model ?? '', 'visible model', 100),
+      segmentation: null,
       visibleText: short(item.visibleText, 'visible text'),
       uncertainty: short(item.uncertainty, 'uncertainty'),
       relationship: short(item.relationship, 'relationship')

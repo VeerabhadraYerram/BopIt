@@ -41,8 +41,8 @@ export function validateContext(raw = {}) {
   return { timestamp, cues, youtubeUrl, note: text(raw.note ?? '', 4000) };
 }
 export function searchPlan(profile, intent = 'exact', budget) {
-  if (!['exact', 'look', 'function'].includes(intent)) throw new Error('Unknown shopping intent');
-  const query = profile.queries[intent] || profile.category;
+  if (!['exact', 'look', 'function', 'cheaper'].includes(intent)) throw new Error('Unknown shopping intent');
+  const query = profile.queries[intent === 'cheaper' ? 'look' : intent] || profile.category;
   const filters = {};
   if (budget !== undefined && budget !== '' && budget !== null) {
     const value = Number(budget);
