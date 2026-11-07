@@ -9,6 +9,9 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "build": "node scripts/build-extension.mjs",
+    "dashboard:dev": "npm --prefix apps/dashboard run dev",
+    "dashboard:build": "npm --prefix apps/dashboard run build",
+    "retail-api:start": "node apps/retail-api/src/main.mjs",
     "start": "node --env-file-if-exists=.env apps/recognition-server/server.mjs",
     "test": "node --test tests/*.test.mjs",
     "check": "node scripts/check.mjs",

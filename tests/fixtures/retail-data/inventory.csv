@@ -1,0 +1,2 @@
+SKU,Location,Quantity on hand,Reorder threshold,Unit cost,Currency
+TEST-KETTLE-1,Fixture shelf,4,2,12.50,USD

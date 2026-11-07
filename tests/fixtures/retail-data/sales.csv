@@ -1,0 +1,2 @@
+Order ID,Date,Status,SKU,Quantity,Unit Price,Line Total,Currency
+FIXTURE-ORDER-001,2026-11-07,paid,TEST-KETTLE-1,2,15.00,30.00,USD

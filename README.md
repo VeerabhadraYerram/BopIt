@@ -142,6 +142,37 @@ Recognition remains Gemini-based. A separate `POST /api/segment` refines detecte
 
 “Local” describes where the development backend runs, not a browser requirement. The same segmentation module can execute on a hosted Node backend. Viewers do not download model weights. The current app still has a localhost-only server address, host checks and local pairing, so it is **not yet a production-hosted deployment**: remote endpoint configuration, HTTPS authentication, deployment packaging and service capacity need production work. The model itself does not prevent deployment.
 
+## Retail Intelligence dashboard foundation
+
+The Retail dashboard is a separate React + TypeScript application under `apps/dashboard`; it does not add frontend dependencies to or change the Chrome extension build. The independent Node API is under `apps/retail-api`. The SQLite prototype schema is `apps/retail-api/migrations/001_retail_sqlite.sql` and is applied automatically to the local database. The PostgreSQL foundation migration remains at `apps/dashboard/db/migrations/001_retail_foundation.sql`; PostgreSQL currently supports the original product and inventory foundation APIs, while CSV imports and sales analytics in this iteration require SQLite.
+
+Install once, then run the Retail API and dashboard in separate terminals:
+
+```sh
+npm install --prefix apps/dashboard
+npm install --prefix apps/retail-api
+RETAIL_STORAGE=sqlite RETAIL_LOCAL_DEV_AUTH=true npm run retail-api:start
+npm run dashboard:dev
+```
+
+The dashboard opens at `http://127.0.0.1:5173`; the API listens on `http://127.0.0.1:4320`. SQLite data is stored at `.local/retail.sqlite` by default (ignored by Git); `RETAIL_SQLITE_PATH` can point to another file. The API does not create business records. The opt-in `RETAIL_LOCAL_DEV_AUTH=true` mode creates one local workspace tenant and accepts requests only from loopback; it is for local development only and must not be used in production or exposed on a network. Production/shared use still requires a trusted `RETAIL_AUTH_MODULE` that returns a tenant principal. The extension pairing token is not used. `RETAIL_API_PORT` and `RETAIL_API_HOST` optionally configure the listener. The dashboard can target another API origin with browser build-time `VITE_RETAIL_API_URL`, which must end in `/api/retail/v1`; database credentials never belong in a `VITE_` variable.
+
+To use the existing PostgreSQL foundation API instead, set `RETAIL_STORAGE=postgres` and `RETAIL_DATABASE_URL` on the API server. This mode does not support the new CSV/sales endpoints yet. Without an authentication adapter, protected routes return `401`; there is no memory-only success fallback. Set `RETAIL_DASHBOARD_ORIGINS` to a comma-separated origin allowlist when changing the dashboard origin.
+
+### CSV import and analytics workflow
+
+Open **CSV imports** from the Data Grids navigation and choose Products, Inventory or Sales. Select a CSV, review the detected headers and map them to BopIt fields. Validation runs on the API; invalid rows and reasons are shown in the shared AG Grid preview. Select only the valid rows to import and confirm. Every confirmed job is stored in SQLite and appears in **Import history**.
+
+- **Products:** requires `title` and `sku`; `brand` and `category` are optional. Categories are tenant-scoped and linked to owned products.
+- **Inventory:** requires `sku`, `location` and non-negative `quantity_on_hand`; optionally map `reorder_threshold`, `unit_cost` and `currency` together. Import products first. Matching SKU/location rows update existing inventory and create movement history; stock cannot go negative.
+- **Sales:** requires `order_id`, `transaction_date`, `status`, `product_sku`, `quantity`, `unit_price` and `currency`; `line_total` is optional and preferred when the export supplies it. Import products first. Multiple CSV rows for an order form one transaction and must share date, status and currency. All rows for an order must be selected together. Existing order IDs are rejected to prevent double counting.
+
+Uploads are limited to 4.5 MB and 5,000 data rows. Product and inventory reimports update matching records; missing or blank optional fields preserve existing values. Imports are atomic when confirmed. The small CSV files under `tests/fixtures/retail-data/` are test-only fixtures and are never seeded or imported automatically. Sales amounts sum supplied line totals, or `quantity × unit_price` when no line total is mapped; taxes, discounts and refunds are not inferred. Imported sales are not independently payment-verified. Only statuses `completed`, `paid`, `settled` and `succeeded` contribute to revenue, units-sold and performance analytics. Transaction counts include all imported statuses. Revenue, average order value, category sales and trends remain separated by currency, with no conversion.
+
+Overview and inventory metrics now use imported tenant records. Customer analytics and Channel3 competitor listings remain disconnected; external listings are not owned inventory or actual customer demand. PayPal payment/refund analytics and customer data are not included. AG Grid Community remains the shared table component, and AG Charts renders inventory status, currency-selected revenue trends and sales-by-category charts. Inventory, sales, product performance and import history use bounded server pagination and server-side text search; sort/filter controls in the grid operate on the loaded page.
+
+AG Grid Community is the dashboard's shared table component. Inventory uses a bounded 100-row server page; sales transactions, product performance and import history use bounded 25-row server pages with server-side search and supported currency/status filters. Local column filtering and sorting apply to the currently loaded page. The import preview uses the same shared grid for up to 5,000 validated rows and only valid rows can be selected. Customer analytics and market listings remain disconnected. Grid CSV export exports currently loaded grid rows; no Enterprise-only functionality is used.
+
 ## Combined main integration
 
 The gallery-first interface retains main's saved-products storage (`savedProducts`), three-listing comparison, deterministic listing-evidence ranking, same-currency price sorting, brand/currency filtering, and budget presets. Save and Compare actions appear on retailer cards; saved finds are available in the panel. Extra controls are grouped under **More search options** rather than filling the initial item grid.
