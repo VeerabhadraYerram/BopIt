@@ -3,7 +3,10 @@ import { spawnSync } from 'node:child_process';
 async function check(dir) {
   for (const item of await readdir(dir, { withFileTypes: true })) {
     const path = `${dir}/${item.name}`;
-    if (item.isDirectory()) await check(path);
+    if (item.isDirectory()) {
+      if (item.name === 'node_modules' || item.name === 'dist' || item.name === '.git') continue;
+      await check(path);
+    }
     else if (/\.(mjs|js)$/.test(path)) {
       const result = spawnSync(process.execPath, ['--check', path], { encoding: 'utf8' });
       if (result.status) { process.stderr.write(result.stderr); process.exitCode = 1; }
