@@ -29,6 +29,32 @@ export function toggleSavedProduct(products, product) {
     : [...saved, product];
 }
 
+const SAVED_OFFER_FIELDS = ['retailer', 'price', 'currency', 'condition', 'availability', 'purchaseUrl'];
+function sameSavedOffer(a, b) {
+  return SAVED_OFFER_FIELDS.every(key => (a?.[key] ?? null) === (b?.[key] ?? null));
+}
+
+export function compareSavedOffer(savedProduct, currentProduct) {
+  if (currentProduct?.selectionChanges?.length) return { status: 'variant-unavailable', offers: [] };
+  const offers = Array.isArray(currentProduct?.offers) ? currentProduct.offers : [];
+  return { status: offers.some(offer => sameSavedOffer(offer, savedProduct)) ? 'current' : 'changed', offers };
+}
+
+export function applySavedOffer(savedProduct, currentProduct, offer) {
+  if (currentProduct?.selectionChanges?.length || !currentProduct?.offers?.some(item => sameSavedOffer(item, offer))) {
+    throw new Error('The saved product offer is not an available offer for the selected variant.');
+  }
+  return {
+    ...savedProduct,
+    ...offer,
+    title: currentProduct.title || savedProduct.title,
+    image: currentProduct.image || savedProduct.image,
+    offers: currentProduct.offers,
+    variants: currentProduct.variants,
+    variantSelection: Object.fromEntries((currentProduct.variants?.selected || []).map(option => [option.name, option.label]))
+  };
+}
+
 function externalUrl(value) {
   if (typeof value !== 'string' || !value.trim()) return null;
   try {
@@ -164,6 +190,13 @@ export function normalizeChannel3Product(rawProduct) {
 
   // Determine primary offer (prefer in-stock offer, otherwise first available)
   const primaryOffer = offers.find(o => o.availability === 'InStock') || offers[0] || null;
+  const variants = rawProduct.variants && typeof rawProduct.variants === 'object'
+    ? {
+        ...rawProduct.variants,
+        options: Array.isArray(rawProduct.variants.options) ? rawProduct.variants.options : [],
+        selected: Array.isArray(rawProduct.variants.selected) ? rawProduct.variants.selected : []
+      }
+    : null;
 
   return {
     id,
@@ -185,7 +218,7 @@ export function normalizeChannel3Product(rawProduct) {
     structuredAttributes: rawProduct.structured_attributes && typeof rawProduct.structured_attributes === 'object' ? rawProduct.structured_attributes : {},
     materials: Array.isArray(rawProduct.materials) ? rawProduct.materials : [],
     keyFeatures: Array.isArray(rawProduct.key_features) ? rawProduct.key_features : [],
-    variants: rawProduct.variants || null,
+    variants,
     source: 'channel3'
   };
 }
@@ -215,8 +248,36 @@ export function normalizeChannel3Response(rawResponse) {
   return {
     products,
     total: products.length,
-    pageToken: rawResponse.page_token ? String(rawResponse.page_token) : null
+    pageToken: rawResponse.next_page_token
+      ? String(rawResponse.next_page_token)
+      : rawResponse.page_token ? String(rawResponse.page_token) : null
   };
+}
+
+export function normalizeColorPalette(palette) {
+  if (!Array.isArray(palette) || palette.length > 6) throw new Error('Choose up to six palette colours.');
+  return palette.map(({ hex, percentage }) => {
+    if (typeof hex !== 'string' || !/^#[\da-f]{6}$/i.test(hex)) throw new Error('Palette colours must be six-digit HEX values.');
+    if (percentage !== undefined && (!Number.isFinite(percentage) || percentage <= 0 || percentage > 1)) {
+      throw new Error('Palette prominence must be greater than zero and at most one.');
+    }
+    return { hex: hex.toUpperCase(), ...(percentage === undefined ? {} : { percentage }) };
+  });
+}
+
+export function extractColorPalette(pixels, maxColors = 3) {
+  if (!(pixels instanceof Uint8Array) && !(pixels instanceof Uint8ClampedArray)) throw new Error('Image pixel data is required.');
+  if (pixels.length % 4 !== 0 || !Number.isInteger(maxColors) || maxColors < 1 || maxColors > 6) throw new Error('Invalid image pixel data or palette size.');
+  const colors = new Map();
+  for (let i = 0; i < pixels.length; i += 4) {
+    if (pixels[i + 3] < 128) continue;
+    const channels = [pixels[i], pixels[i + 1], pixels[i + 2]].map(value => Math.min(255, Math.round(value / 32) * 32));
+    const key = channels.map(value => value.toString(16).padStart(2, '0')).join('').toUpperCase();
+    colors.set(key, (colors.get(key) || 0) + 1);
+  }
+  const ranked = [...colors.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxColors);
+  const total = ranked.reduce((sum, [, count]) => sum + count, 0);
+  return ranked.map(([hex, count]) => ({ hex: `#${hex}`, percentage: Number((count / total).toFixed(3)) }));
 }
 
 /**
@@ -452,5 +513,111 @@ export function buildProductComparison(products) {
     currencies,
     pricesComparable: products.length > 0 && currencies.length === 1
       && products.every(product => Boolean(String(product.currency || '').trim()))
+  };
+}
+
+function normalizedTimestamp(value) {
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return null;
+  return new Date(value).toISOString();
+}
+
+function finiteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+export function normalizePriceHistory(raw) {
+  const history = Array.isArray(raw?.history) ? raw.history : [];
+  const points = history.flatMap(point => {
+    const timestamp = normalizedTimestamp(point?.timestamp);
+    const price = finiteNumber(point?.price);
+    const currency = typeof point?.currency === 'string' && point.currency.trim()
+      ? point.currency.trim().toUpperCase() : null;
+    return timestamp && price !== null && price >= 0 && currency
+      ? [{ timestamp, price, currency }]
+      : [];
+  }).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+  const stats = raw?.statistics;
+  const statistics = stats && typeof stats === 'object' ? {
+    mean: finiteNumber(stats.mean),
+    stdDev: finiteNumber(stats.std_dev),
+    minPrice: finiteNumber(stats.min_price),
+    maxPrice: finiteNumber(stats.max_price),
+    currentPrice: finiteNumber(stats.current_price),
+    currentStatus: typeof stats.current_status === 'string' ? stats.current_status : null,
+    currency: typeof stats.currency === 'string' && stats.currency.trim() ? stats.currency.trim().toUpperCase() : null
+  } : null;
+  return {
+    canonicalProductId: typeof raw?.canonical_product_id === 'string' ? raw.canonical_product_id : null,
+    productTitle: typeof raw?.product_title === 'string' ? raw.product_title : null,
+    history: points,
+    statistics
+  };
+}
+
+function normalizeReportProduct(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  return {
+    id: typeof raw.id === 'string' ? raw.id : null,
+    title: typeof raw.title === 'string' ? raw.title : null,
+    imageUrl: externalUrl(raw.image_url)
+  };
+}
+
+function reportPageFields(raw) {
+  return {
+    page: Number.isInteger(raw?.page) && raw.page > 0 ? raw.page : null,
+    limit: Number.isInteger(raw?.limit) && raw.limit > 0 ? raw.limit : null,
+    totalCount: Number.isInteger(raw?.total_count) && raw.total_count >= 0 ? raw.total_count : null,
+    hasMore: typeof raw?.has_more === 'boolean' ? raw.has_more : null,
+    startDate: normalizedTimestamp(raw?.start_date),
+    endDate: normalizedTimestamp(raw?.end_date)
+  };
+}
+
+export function normalizeClicksReport(raw) {
+  const items = Array.isArray(raw?.items) ? raw.items : [];
+  return {
+    ...reportPageFields(raw),
+    totalClicks: Number.isInteger(raw?.summary?.total_clicks) && raw.summary.total_clicks >= 0
+      ? raw.summary.total_clicks : null,
+    items: items.flatMap(item => {
+      const timestamp = normalizedTimestamp(item?.timestamp);
+      if (typeof item?.id !== 'string' || !timestamp) return [];
+      return [{
+        id: item.id,
+        timestamp,
+        userId: typeof item.user_id === 'string' ? item.user_id : null,
+        product: normalizeReportProduct(item.product),
+        city: typeof item.city === 'string' ? item.city : null,
+        country: typeof item.country === 'string' ? item.country : null
+      }];
+    })
+  };
+}
+
+export function normalizeTransactionsReport(raw) {
+  const summary = raw?.summary || {};
+  const items = Array.isArray(raw?.items) ? raw.items : [];
+  return {
+    ...reportPageFields(raw),
+    totalTransactions: Number.isInteger(summary.total_count) && summary.total_count >= 0 ? summary.total_count : null,
+    totalCommission: finiteNumber(summary.total_commission),
+    pendingCommission: finiteNumber(summary.pending_commission),
+    paidCommission: finiteNumber(summary.paid_commission),
+    items: items.flatMap(item => {
+      const purchasedAt = normalizedTimestamp(item?.purchased_at);
+      if (typeof item?.id !== 'string' || !purchasedAt) return [];
+      return [{
+        id: item.id,
+        orderAmount: finiteNumber(item.order_amount),
+        commissionAmount: finiteNumber(item.commission_amount),
+        currency: typeof item.currency === 'string' && item.currency.trim() ? item.currency.trim().toUpperCase() : null,
+        status: typeof item.status === 'string' ? item.status : null,
+        purchasedAt,
+        userId: typeof item.user_id === 'string' ? item.user_id : null,
+        product: normalizeReportProduct(item.product),
+        brandName: typeof item.brand_name === 'string' ? item.brand_name : null
+      }];
+    })
   };
 }

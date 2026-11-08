@@ -89,6 +89,26 @@ For exact-item candidates, the backend retrieves up to three product records and
 
 Retailer buttons open external HTTPS links. Affiliate disclosure is shown. Optional PayPal Sandbox checkout simulates payment for the selected listing; no real merchant order, reservation, refund or creator payout occurs.
 
+Discovery also supports combined text-and-crop searches, Channel3 continuation tokens, native canonical-product similarity, URL lookup, and category/brand browsing. Category attributes come from Channel3 category details; optional crop-derived HEX palette filters use Channel3's Beta color filter and are dropped with a visible notice if that filter is rejected. URL lookup accepts public HTTPS product URLs only and is proxied through Channel3; BopIt never fetches the submitted page itself.
+
+Product details compare the returned merchant offers for the selected variant and market. Saved products can refresh their offers and show changed or missing sellers; choosing a replacement requires an explicit confirmation. Checkout revalidates the selected seller, variant, locale and displayed offer, and stops if any of them changed. These features require a working server-side `CHANNEL3_API_KEY`; catalog availability and account access are controlled by Channel3.
+
+### Conversational shopping, price history and reporting
+
+After selecting an object, use **Refine these results** to ask Channel3 for follow-ups such as cheaper options or a different color. BopIt starts a conversation on the first turn and stores its conversation ID and short display transcript in Chrome's session storage for that selected capture/object. **Start fresh** discards that local thread reference; the next message creates a new Channel3 conversation. The initial request includes the selected crop, current filters/market, and a short summary of the object and previous results. Later turns reuse Channel3's conversation context. Returned Channel3 products appear in the existing result cards; an empty product response is not replaced with fabricated results.
+
+The backend proxies the documented `POST /v1/conversations`, `GET /v0/price-tracking/history/{canonical_product_id}`, `GET /v1/reporting/clicks`, and `GET /v1/reporting/transactions` operations with the server-only Channel3 key.
+
+Open **Specifications & variants** on a product card and choose **Load price history** to request 7, 30 or 90 days of history. This calls Channel3 `GET /v0/price-tracking/history/{canonical_product_id}` only on demand. A chart is drawn only from supplied, valid history points; no points produce an explicit empty state. The endpoint is product-level and does not specify a selected variant.
+
+Use **Shopping performance → Load report** to request Channel3 click and transaction reports for 7, 30 or 90 days. The extension creates a random opaque identifier for this browser installation and sends it as `x-user-id` on supported catalog requests; it contains no email, password, pairing token or other account data. Reporting uses Channel3's `user_id` filter for this identifier, so it is installation-level attribution, not a BopIt login/account report. Metrics are only what Channel3 attributes and reports; a click is not assumed to produce a sale.
+
+The current Channel3 OpenAPI includes transaction `order_amount` values but does not include their currency. BopIt therefore lists individual amounts without assigning a currency and does not aggregate them into a transaction-value total. Net commission summaries are also shown without a currency label because the reporting schema supplies none. Actual attribution, reporting access, price-tracking data, conversation access and agentic search depend on the Channel3 account/key permissions and provider data.
+
+Simple searches keep deterministic Channel3 search. BopIt selects `config.mode = "agentic"` only for long or clearly multi-constraint natural-language requests, and falls back at most once to the default mode for eligible provider errors/timeouts. An optional palette-filter rejection can cause one additional bounded request without the color filter. Structured, non-sensitive logs record the selected strategy, reason, endpoint, fallback and outcome without logging search text, user IDs, images or credentials. This is bounded search orchestration, not a fully autonomous multi-agent system.
+
+Operation selection stays bounded and understandable: a submitted retailer URL uses URL lookup; a similar-products request with a selected canonical listing uses native similarity; explicitly browsing a selected category or brand uses the catalog browse endpoint; opening specifications or changing an option retrieves that product/variant; and natural-language follow-ups use the conversation thread. Otherwise BopIt retains the existing intent-based text/image search rather than guessing extra tool calls.
+
 ## Supported surfaces and limitations
 
 - Ordinary top-level HTML5 video after explicit toolbar activation; no permanent access to every site.

@@ -17,13 +17,30 @@ export function readQuote(value, secret, { allowExpired = false, now = Date.now(
   if (!Number.isFinite(quote.expires) || (!allowExpired && quote.expires <= now)) throw new Error('Quote expired. Return to BopIt for a fresh price.');
   return quote;
 }
-export function catalogQuote(product) {
+export function catalogQuote(product, { websiteIds = [] } = {}) {
   if (!product?.id || typeof product.title !== 'string' || !product.title.trim()) throw new Error('Listing identity unavailable.');
   if (product.selectionChanges?.length) throw new Error('The requested variant changed. Review its specifications before checkout.');
-  if (product.availability === 'OutOfStock' || product.availability === 'out_of_stock') throw new Error('This listing is out of stock.');
-  if (!['USD', 'EUR', 'GBP', 'CAD', 'AUD'].includes(product.currency)) throw new Error('Sandbox checkout currently supports USD, EUR, GBP, CAD and AUD listings.');
-  const price = Number(product.price);
-  if (product.price == null || !Number.isFinite(price) || price <= 0 || price > 100000 || Math.abs(price * 100 - Math.round(price * 100)) > 0.00001) throw new Error('A valid catalog price is required for checkout.');
+  const offer = websiteIds.length
+    ? product.offers?.find(item => websiteIds.includes(item.retailer))
+    : null;
+  if (websiteIds.length && !offer) throw new Error('The selected seller is no longer available for this product.');
+  const selectedOffer = offer || product;
+  if (selectedOffer.availability === 'OutOfStock' || selectedOffer.availability === 'out_of_stock') throw new Error('This listing is out of stock.');
+  if (!['USD', 'EUR', 'GBP', 'CAD', 'AUD'].includes(selectedOffer.currency)) throw new Error('Sandbox checkout currently supports USD, EUR, GBP, CAD and AUD listings.');
+  const price = Number(selectedOffer.price);
+  if (selectedOffer.price == null || !Number.isFinite(price) || price <= 0 || price > 100000 || Math.abs(price * 100 - Math.round(price * 100)) > 0.00001) throw new Error('A valid catalog price is required for checkout.');
   const variants = (product.variants?.selected || []).map(v => `${v.name}: ${v.label}`).join(', ');
-  return { id: `catalog-${createHash('sha256').update(JSON.stringify([product.id, variants, price, product.currency])).digest('hex').slice(0,32)}`, catalogId: product.id, name: product.title.slice(0,120), price: price.toFixed(2), currency: product.currency, variants, fulfillment: CONCIERGE };
+  return {
+    id: `catalog-${createHash('sha256').update(JSON.stringify([product.id, variants, selectedOffer.retailer, price, selectedOffer.currency])).digest('hex').slice(0,32)}`,
+    catalogId: product.id,
+    name: product.title.slice(0,120),
+    price: price.toFixed(2),
+    currency: selectedOffer.currency,
+    retailer: selectedOffer.retailer || '',
+    condition: selectedOffer.condition || null,
+    availability: selectedOffer.availability || null,
+    purchaseUrl: selectedOffer.purchaseUrl || '',
+    variants,
+    fulfillment: CONCIERGE
+  };
 }

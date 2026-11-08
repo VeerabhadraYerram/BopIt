@@ -18,11 +18,43 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
     if (!req.headers['content-type']?.startsWith('application/json')) { send(415, { error: 'JSON required.' }); return true; }
     try {
       const body = await readJson(req, 4096);
-      if (Object.keys(body).some(k => !['id', 'selection'].includes(k)) || typeof body.id !== 'string' || !/^[\w-]{1,160}$/.test(body.id) || (body.selection && (typeof body.selection !== 'object' || Array.isArray(body.selection) || Object.keys(body.selection).length > 12))) throw new Error('Invalid catalog selection.');
-      const product = catalogQuote(await retrieve(body.id, { apiKey: channel3Key, selection: body.selection }));
-      const quote = signQuote(product, token);
-      send(201, { product, checkoutUrl: `${BASE}/checkout?quote=${encodeURIComponent(quote)}`, expiresInSeconds: 600 });
-    } catch (error) { send(400, { error: error.message || 'Could not verify the catalog quote.' }); }
+      const userId = req.headers['x-bopit-user-id'];
+      if (userId !== undefined && (typeof userId !== 'string' || !/^bopit_[a-f0-9-]{36}$/.test(userId))) throw new Error('Invalid anonymous BopIt user identifier.');
+      if (Object.keys(body).some(k => !['id', 'selection', 'websiteIds', 'config', 'expectedOffer'].includes(k))
+          || typeof body.id !== 'string' || !/^[\w-]{1,160}$/.test(body.id)
+          || (body.selection && (typeof body.selection !== 'object' || Array.isArray(body.selection) || Object.keys(body.selection).length > 12))
+          || (body.websiteIds !== undefined && (!Array.isArray(body.websiteIds) || body.websiteIds.length > 25 || body.websiteIds.some(site => typeof site !== 'string' || site.length > 200)))
+          || (body.config !== undefined && (!body.config || typeof body.config !== 'object' || Array.isArray(body.config)
+            || Object.entries(body.config).some(([key, value]) => key === 'country'
+              ? typeof value !== 'string' || !/^[A-Z]{2}$/.test(value)
+              : key === 'currency' ? typeof value !== 'string' || !/^[A-Z]{3}$/.test(value)
+                : key === 'language' ? typeof value !== 'string' || !/^[a-z]{2}$/.test(value)
+                  : true)))
+          || (body.expectedOffer !== undefined && (!body.expectedOffer || typeof body.expectedOffer !== 'object' || Array.isArray(body.expectedOffer)
+            || Object.keys(body.expectedOffer).length !== 6
+            || Object.keys(body.expectedOffer).some(key => !['retailer', 'price', 'currency', 'condition', 'availability', 'purchaseUrl'].includes(key))
+            || typeof body.expectedOffer.retailer !== 'string'
+            || (body.expectedOffer.price !== null && (typeof body.expectedOffer.price !== 'number' || !Number.isFinite(body.expectedOffer.price)))
+            || ['currency','condition','availability','purchaseUrl'].some(key => body.expectedOffer[key] !== null && typeof body.expectedOffer[key] !== 'string')))) {
+        throw new Error('Invalid catalog selection.');
+      }
+      const websiteIds = body.websiteIds || [];
+      const product = await retrieve(body.id, { apiKey: channel3Key, selection: body.selection || {}, websiteIds, config: body.config || {}, userId });
+      if (body.expectedOffer) {
+        const freshOffer = websiteIds.length
+          ? product.offers?.find(item => websiteIds.includes(item.retailer))
+          : product.offers?.[0];
+        const expected = body.expectedOffer;
+        if (!freshOffer || ['retailer', 'price', 'currency', 'condition', 'availability', 'purchaseUrl'].some(key => (freshOffer[key] ?? null) !== (expected[key] ?? null))) {
+          const error = new Error('This seller offer changed since it was displayed. Refresh the product details and explicitly review the current offer before checkout.');
+          error.status = 409;
+          throw error;
+        }
+      }
+      const quote = catalogQuote(product, { websiteIds });
+      const signedQuote = signQuote(quote, token);
+      send(201, { product: quote, checkoutUrl: `${BASE}/checkout?quote=${encodeURIComponent(signedQuote)}`, expiresInSeconds: 600 });
+    } catch (error) { send(error.status === 409 ? 409 : 400, { error: error.message || 'Could not verify the catalog quote.' }); }
     return true;
   }
   let product = DEMO_PRODUCT;

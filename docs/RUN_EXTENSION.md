@@ -29,6 +29,16 @@ If an older version left buttons on an open tab, reload the extension and then r
 
 Saved products and three-item comparison are available on retailer cards. Expand **More search options** for sorting, brand/currency filters, budget presets and lower-priced alternatives. Prices in different currencies are not converted. Closing the panel restores the captured timestamp.
 
+For catalog discovery, use **Find similar products** on a product card for Channel3's native canonical-ID endpoint, or paste a public HTTPS retailer page into **Look up URL**. **More search options** includes category and brand search/list/detail, category-specific attributes, and catalog browsing; **Load more products** follows Channel3's page token. Object colors are derived from the selected crop and can be reviewed or edited before applying the optional Beta palette filter. Product details show seller offers for the selected variant and market. In **Saved finds**, use **Refresh offers** to check current listings; select and confirm a replacement explicitly. Checkout refuses to proceed if the selected offer changes after it was displayed.
+
+For conversational refinement, select an object and use **Refine these results** below the search status. Send a natural-language request or choose a Channel3 suggestion. The first turn creates a Channel3 conversation from the object crop and current shopping context; subsequent turns reuse its ID, stored only in Chrome session storage for that selected capture/object. **Start fresh** clears the local reference. Returned products use the regular result cards.
+
+To see price history, open **Specifications & variants** on a product and click **Load price history**. Choose 7, 30 or 90 days. The provider is queried on demand; missing history is shown as an empty state rather than a synthetic chart.
+
+Open **Shopping performance** and click **Load report**, then select 7, 30 or 90 days. The report shows only data returned by Channel3. A random opaque browser-installation ID (not personal information) is used for supported catalog attribution and the `user_id` report filter; BopIt has no signed-in account identifier. The current Channel3 transaction schema does not expose currency, so BopIt does not invent a currency or sum transaction values across records. Reporting, price history and conversation availability require appropriate Channel3 key/account access; check the Channel3 account if those endpoints return access errors or no data.
+
+Simple searches stay in the deterministic default mode. Only long or multi-constraint natural-language searches use Channel3's `config.mode = "agentic"`; eligible failures/timeouts fall back once to normal search. Logs include strategy, reason, endpoint, fallback and outcome, but omit query text, images, user IDs and credentials. This is bounded orchestration, not a fully autonomous agent system. Wave 3 subscriptions/webhooks and multi-product scene planning are not included.
+
 
 ## Test PayPal Sandbox
 

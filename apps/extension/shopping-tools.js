@@ -1,8 +1,8 @@
-import { normalizeSavedProducts, toggleSavedProduct, buildProductComparison, filterDiscoveryProducts, resolveBudgetMaximum, rankDiscoveryProducts } from './contracts/discovery.mjs';
+import { normalizeSavedProducts, toggleSavedProduct, compareSavedOffer, applySavedOffer, buildProductComparison, filterDiscoveryProducts, resolveBudgetMaximum, rankDiscoveryProducts } from './contracts/discovery.mjs';
 import { formatProductPrice, safeProductUrl } from './product-display.js';
 const $=s=>document.querySelector(s);
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-export function createShoppingTools(onChange) {
+export function createShoppingTools(onChange, api, market, makeCheckoutAction) {
   let saved=[],ready=false,queue=Promise.resolve(),lastProducts=[],lastKey='';
   const catalog=new Map(),comparison=new Set(),pending=new Set();
   const initialized=chrome.storage.local.get('savedProducts').then(async data=>{
@@ -18,13 +18,63 @@ export function createShoppingTools(onChange) {
   async function save(product) {
     if(pending.has(product.id))return;pending.add(product.id);syncButtons();
     try {await initialized;if(!ready)throw new Error('Saved items are unavailable');
-      const next=queue.then(async()=>{const updated=toggleSavedProduct(saved,product);await chrome.storage.local.set({savedProducts:updated});saved=updated;});queue=next.catch(()=>{});await next;renderSaved();
+      const savedProduct={...product,variantSelection:product.variantSelection||Object.fromEntries((product.variants?.selected||[]).map(v=>[v.name,v.label]))};
+      const next=queue.then(async()=>{const updated=toggleSavedProduct(saved,savedProduct);await chrome.storage.local.set({savedProducts:updated});saved=updated;});queue=next.catch(()=>{});await next;renderSaved();
     }catch(e){$('#wishlist-notice').textContent=`Could not save: ${e.message}`;}
     finally{pending.delete(product.id);syncButtons();}
   }
+  async function refreshSaved(product, result) {
+    if(!api){result.textContent='Offer refresh is unavailable in this extension session.';return;}
+    result.replaceChildren(el('p','Refreshing saved product and current seller offers…','muted'));
+    try {
+      const data=await api('products/details',{id:product.id,selection:product.variantSelection||{},config:market()});
+      const current=data.product;
+      if(current.selectionChanges?.length) {
+        result.replaceChildren(el('p',`Saved variant unavailable or substituted: ${current.selectionChanges.map(v=>`${v.name}: ${v.requested} → ${v.actual}`).join('; ')}. No alternative was selected.`,'variant-warning'));
+        return;
+      }
+      const reconciliation=compareSavedOffer(product,current);
+      const same=reconciliation.status==='current';
+      result.replaceChildren(el('p',same?'The saved seller offer still matches the current catalog details.':'The saved offer is unavailable or changed. Review an offer below; BopIt will not switch sellers or variants automatically.',same?'muted':'variant-warning'));
+      for(const offer of current.offers||[]) {
+        const row=el('div',undefined,'seller-offer');
+        row.append(el('span',`${offer.retailer||'Seller not supplied'} · ${formatProductPrice(offer.price,offer.currency)} · ${offer.condition||'Condition unknown'} · ${offer.availability||'Availability unknown'}`));
+        const url=safeProductUrl(offer.purchaseUrl);
+        if(url){const link=el('a','View seller ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';row.append(link);}
+        if(offer.retailer) {
+          const confirm=el('button',`Confirm and use ${offer.retailer}`,'secondary');
+          confirm.onclick=async()=>{
+            const changedSeller=offer.retailer!==product.retailer;
+            const changedVariant=JSON.stringify(product.variantSelection||{})!==JSON.stringify(Object.fromEntries((current.variants?.selected||[]).map(v=>[v.name,v.label])));
+            const summary=`Use ${offer.retailer} at ${formatProductPrice(offer.price,offer.currency)}${offer.condition?` (${offer.condition})`:''}${changedSeller?` instead of ${product.retailer||'the saved seller'}`:''}${changedVariant?' with the currently returned variant':''}?`;
+            if(!window.confirm(summary))return;
+            const selected={...applySavedOffer(product,current,offer),refreshedAt:new Date().toISOString()};
+            const next=queue.then(async()=>{const updated=saved.map(item=>item.id===product.id?selected:item);await chrome.storage.local.set({savedProducts:updated});saved=updated;});
+            queue=next.catch(()=>{});
+            try{await next;renderSaved();}catch(error){result.append(el('p',`Could not save the selected offer: ${error.message}`,'variant-warning'));}
+          };
+          row.append(confirm);
+        }
+        result.append(row);
+      }
+      if(!(current.offers||[]).length)result.append(el('p','Channel3 did not return current seller offers. No replacement is available.','muted'));
+    } catch(error) {
+      result.replaceChildren(el('p',`Offer refresh failed: ${error.message}`,'variant-warning'));
+    }
+  }
   function renderSaved() {
     const target=$('#wishlist-container');target.replaceChildren();$('#wishlist-notice').textContent=saved.length?`${saved.length} saved on this device. Prices may have changed.`:'Save a find to come back to it.';
-    for(const product of saved){const card=el('article',undefined,'wishlist-item');card.append(el('strong',product.title||'Saved product'),el('small',formatProductPrice(product.price,product.currency)));const url=safeProductUrl(product.purchaseUrl);if(url){const link=el('a','View retailer ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}const remove=el('button','Remove','secondary');remove.onclick=()=>save(product);card.append(remove);target.append(card);}syncButtons();
+    for(const product of saved){
+      const card=el('article',undefined,'wishlist-item');
+      card.append(el('strong',product.title||'Saved product'),el('small',`${formatProductPrice(product.price,product.currency)} · ${product.retailer||'Seller unknown'} · ${product.availability||'Availability unknown'}`));
+      const url=safeProductUrl(product.purchaseUrl);if(url){const link=el('a','View retailer ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}
+      if(makeCheckoutAction)card.append(makeCheckoutAction(product));
+      const refresh=el('button','Refresh offers','secondary'),result=el('div',undefined,'saved-offer-refresh');
+      refresh.onclick=()=>{refresh.disabled=true;refreshSaved(product,result).finally(()=>{refresh.disabled=false;});};
+      const remove=el('button','Remove','secondary');remove.onclick=()=>save(product);
+      card.append(refresh,remove,result);target.append(card);
+    }
+    syncButtons();
   }
   function renderComparison() {
     const products=[...comparison].map(id=>catalog.get(id)).filter(Boolean),panel=$('#comparison-panel'),target=$('#comparison-container');panel.hidden=!products.length;target.replaceChildren();if(!products.length)return;

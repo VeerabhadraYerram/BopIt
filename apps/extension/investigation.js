@@ -1,22 +1,53 @@
 import { formatProductPrice, safeProductUrl } from './product-display.js';
 import { createShoppingTools } from './shopping-tools.js';
 import { searchPlan } from './contracts/profile.mjs';
+import { extractColorPalette } from './contracts/discovery.mjs';
+import { chooseSearchStrategy, searchWithAgenticFallback } from './search-orchestration.mjs';
 const $ = s => document.querySelector(s);
 const node = (tag, text, className) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; };
+const logOrchestration = entry => console.info('[bopit-orchestration]', JSON.stringify(entry));
 const sourceLabel = { visible: 'Seen in frame', caption: 'Caption claim', video_speech: 'Video speech claim', viewer_note: 'Viewer-provided · unverified', inferred: 'Inference · unverified' };
 export function createInvestigator({ getCapture, crop, getSelected }) {
-  let generation = 0, controller = null, selected = null, intent = 'exact', current = null;
+  let generation = 0, controller = null, selected = null, intent = 'exact', current = null, activeSimilar = null;
+  let conversationScope = null, conversationId = null, conversationHistory = [], conversationGeneration = 0, selectedProductContext = null;
+  let channel3UserIdPromise = null;
+  let clickReport = null, transactionReport = null;
   let lastRendered = { products: [], assessments: [] };
-  const shopping = createShoppingTools(() => renderProducts(lastRendered.products,lastRendered.assessments));
+  const shopping = createShoppingTools(() => {
+    if(activeSimilar?.nextPageToken)renderProducts(lastRendered.products,lastRendered.assessments,{nextPageToken:activeSimilar.nextPageToken,loadMore:()=>loadMoreSimilar(activeSimilar)});
+    else if(activeBrowse?.nextPageToken)renderProducts(lastRendered.products,lastRendered.assessments,{nextPageToken:activeBrowse.nextPageToken,loadMore:loadMoreBrowse});
+    else renderProducts(lastRendered.products,lastRendered.assessments,{nextPageToken:activeSearch?.nextPageToken,loadMore:loadMoreSearch});
+  },api,market,product=>checkoutAction(
+    ()=>({id:product.id,selection:product.variantSelection||{},websiteIds:product.retailer?[product.retailer]:[],config:market(),expectedOffer:offerSnapshot(product)}),product));
   const cache = new Map(), searches = new Map(), views = new Map();
+  let palette = [], activeSearch = null, activeBrowse = null;
+  let brandCursor = null, categoryPage = 1, categoryTotal = 0;
   function cancel() { lastRendered = { products: [], assessments: [] };generation++; controller?.abort(); controller = null; $('#search-products-btn').disabled = false; }
-  function reset() { cancel(); cache.clear(); searches.clear(); views.clear(); selected = null; current = null; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#context-note').value = ''; $('#use-youtube').checked = false; }
+  function reset() { cancel(); cache.clear(); searches.clear(); views.clear(); selected = null; current = null; conversationGeneration++; conversationScope = null; conversationId = null; conversationHistory = []; selectedProductContext = null; $('#conversation-tools').hidden = true; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#context-note').value = ''; $('#use-youtube').checked = false; }
+  function getChannel3UserId() {
+    if (!channel3UserIdPromise) {
+      channel3UserIdPromise = (async() => {
+        const { channel3UserId } = await chrome.storage.local.get('channel3UserId');
+        if (typeof channel3UserId === 'string' && /^bopit_[a-f0-9-]{36}$/.test(channel3UserId)) return channel3UserId;
+        const id = `bopit_${crypto.randomUUID()}`;
+        await chrome.storage.local.set({ channel3UserId: id });
+        return id;
+      })();
+      channel3UserIdPromise.catch(() => { channel3UserIdPromise = null; });
+    }
+    return channel3UserIdPromise;
+  }
   async function api(path, body, signal) {
     const { pairingToken } = await chrome.storage.local.get('pairingToken');
     if (!pairingToken) throw new Error('Open Settings → Connect local server first.');
-    const response = await fetch(`http://127.0.0.1:4317/api/${path}`, { method: 'POST', headers: { 'content-type':'application/json','x-bopit-token':pairingToken }, body:JSON.stringify(body), signal });
+    const userId = await getChannel3UserId();
+    const response = await fetch(`http://127.0.0.1:4317/api/${path}`, { method: 'POST', headers: { 'content-type':'application/json','x-bopit-token':pairingToken,'x-bopit-user-id':userId }, body:JSON.stringify(body), signal });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || 'Request failed.');
+    if (!response.ok) {
+      const error = new Error(data.error || 'Request failed.');
+      error.status = response.status; error.code = data.code;
+      throw error;
+    }
     return data;
   }
   function context() {
@@ -25,6 +56,119 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       try { const url = new URL(c.source.documentUrl); if (['www.youtube.com','youtube.com'].includes(url.hostname) && /^[\w-]{11}$/.test(url.searchParams.get('v') || '')) result.youtubeUrl = `https://www.youtube.com/watch?v=${url.searchParams.get('v')}`; } catch { /* Not a public watch page */ }
     }
     return result;
+  }
+  function renderConversationHistory() {
+    const target = $('#conversation-transcript');
+    target.replaceChildren();
+    for (const turn of conversationHistory) {
+      target.append(node('div', turn.text, `conversation-turn ${turn.role}`));
+    }
+    target.scrollTop = target.scrollHeight;
+  }
+  async function restoreConversation(object) {
+    const capture = getCapture();
+    conversationScope = `bopit-conversation:${capture?.captureId || 'session'}:${object.id}`;
+    const scope = conversationScope, version = ++conversationGeneration;
+    const saved = await chrome.storage.session.get(scope);
+    if (version !== conversationGeneration) return;
+    const state = saved[scope];
+    conversationId = typeof state?.conversationId === 'string' ? state.conversationId : null;
+    conversationHistory = Array.isArray(state?.history)
+      ? state.history.filter(turn => ['user', 'assistant'].includes(turn?.role) && typeof turn.text === 'string').slice(-12)
+      : [];
+    $('#conversation-tools').hidden = false;
+    $('#conversation-status').textContent = conversationId
+      ? 'Continuing this shopping conversation for the selected item.'
+      : 'Ask for a change to the current results; this starts a new Channel3 conversation.';
+    renderConversationHistory();
+  }
+  function initialConversationContext() {
+    const selectedProduct = selectedProductContext;
+    const variant = selectedProduct?.variants?.selected?.map(item => `${item.name}: ${item.label}`).join(', ');
+    const contextValue = {
+      selectedObject: selected?.label || '',
+      investigation: current?.profile?.summary || '',
+      intent,
+      currentFilters: searchFilters(),
+      previousResults: (current?.results?.products || []).slice(0, 5).map(product => ({ id: product.id, title: product.title })),
+      selectedProduct: selectedProduct ? { id: selectedProduct.id, title: selectedProduct.title, variant: variant || null } : null
+    };
+    return {
+      application_context: 'BopIt selected-object product discovery. Continue or refine the active catalog search.',
+      user_context: JSON.stringify(contextValue).slice(0, 3800)
+    };
+  }
+  async function sendConversationMessage(message) {
+    const text = (message ?? $('#conversation-message').value).trim();
+    if (!text) { $('#conversation-status').textContent = 'Enter a refinement request first.'; return; }
+    const initialTurn = !conversationId;
+    const scope = conversationScope, version = ++conversationGeneration;
+    const sendButton = $('#send-conversation');
+    sendButton.disabled = true;
+    $('#conversation-status').textContent = 'Asking Channel3 to refine these product results…';
+    const userTurn = { role: 'user', text };
+    conversationHistory.push(userTurn);
+    renderConversationHistory();
+    try {
+      const request = {
+        message: text,
+        ...(conversationId ? { conversationId } : { context: initialConversationContext() }),
+        filters: searchFilters(),
+        config: market(),
+        ...(!conversationId && selected ? { image: crop(selected.box) } : {})
+      };
+      const data = await api('conversations/turn', request);
+      if (version !== conversationGeneration || scope !== conversationScope) return;
+      conversationId = data.conversationId;
+      const answer = data.message?.text || data.message?.errors?.join(' ') || '';
+      if (answer) conversationHistory.push({ role: 'assistant', text: answer });
+      else if (!(data.message?.products || []).length) conversationHistory.push({ role: 'assistant', text: 'Channel3 returned no text or product matches for this turn. Try a more specific refinement.' });
+      conversationHistory = conversationHistory.slice(-12);
+      await chrome.storage.session.set({ [conversationScope]: { conversationId, history: conversationHistory } });
+      renderConversationHistory();
+      const products = data.message?.products || [];
+      if (products.length) {
+        activeSearch = null; activeBrowse = null; activeSimilar = null;
+        current.results = { products };
+        renderProducts(products);
+        $('#products-notice').textContent = `${products.length} product${products.length === 1 ? '' : 's'} returned by the Channel3 conversation.`;
+      }
+      const suggestions = (data.message?.suggestions || []).slice(0, 4);
+      if (suggestions.length) {
+        const group = node('div', undefined, 'conversation-suggestions');
+        for (const suggestion of suggestions) {
+          const button = node('button', suggestion, 'secondary');
+          button.type = 'button';
+          button.onclick = () => { $('#conversation-message').value = suggestion; sendConversationMessage(suggestion); };
+          group.append(button);
+        }
+        $('#conversation-transcript').append(group);
+      }
+      $('#conversation-message').value = '';
+      $('#conversation-status').textContent = products.length
+        ? 'Product matches were refreshed from the conversation. Review the listings before buying.'
+        : 'Conversation updated; no new product matches were returned.';
+      logOrchestration({
+        strategy: 'conversation',
+        reason: initialTurn ? 'new shopping conversation' : 'refinement of existing shopping conversation',
+        operations: ['POST /v1/conversations'],
+        fallbackUsed: false,
+        outcome: products.length ? 'products-returned' : 'response-without-products'
+      });
+    } catch (error) {
+      if (version !== conversationGeneration || scope !== conversationScope) return;
+      if ((error.status === 404 || error.status === 410) && conversationId) {
+        conversationId = null;
+        await chrome.storage.session.remove(conversationScope);
+        $('#conversation-status').textContent = 'This Channel3 conversation is unavailable or expired. Start fresh to continue shopping.';
+      } else {
+        $('#conversation-status').textContent = `Conversation unavailable: ${error.message}`;
+      }
+      logOrchestration({
+        strategy: 'conversation', reason: 'user requested conversational refinement',
+        operations: ['POST /v1/conversations'], fallbackUsed: false, outcome: 'error'
+      });
+    } finally { sendButton.disabled = false; }
   }
   function setContextInfo() {
     const c = getCapture(), cues = c?.context?.cues || [];
@@ -52,7 +196,9 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   }
   async function select(object, force = false) {
     cancel(); const version = generation; controller = new AbortController(); const signal = controller.signal;
-    selected = object; current = null; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#products-container').replaceChildren();
+    selected = object; selectedProductContext = null; current = null; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#products-container').replaceChildren();
+    await restoreConversation(object);
+    if (version !== generation) return;
     setContextInfo(); $('#view-status').textContent = `${(views.get(object.id)||[]).length} / 2 additional views. Use clear images of the same item.`; $('#clear-views').hidden = !(views.get(object.id)||[]).length; $('#investigation-status').textContent = '1 · Inspecting selected object & available context…'; $('#products-notice').textContent = 'Product search follows the detailed object investigation.';
     const c = getCapture(), ctx = context(), additionalImages = views.get(object.id)||[], key = JSON.stringify([c.captureId, object, ctx, additionalImages]);
     try {
@@ -64,6 +210,9 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       }
       if (version !== generation) return;
       current = { ...record, key, object };
+      palette = [];
+      await preparePalette(object);
+      if (version !== generation) return;
       renderProfile(record); $('#investigation-status').textContent = '1 ✓ Object details extracted · 2 · Searching catalog…';
       await runSearch(version, signal, force);
     } catch (e) {
@@ -76,21 +225,431 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     }
   }
   function market() { const [country,currency] = $('#market').value.split(':'); return { country,currency }; }
+  async function preparePalette(object) {
+    try {
+      const source = crop(object.box);
+      const bitmap = await createImageBitmap(await (await fetch(source)).blob());
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = 48;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        context.drawImage(bitmap, 0, 0, 48, 48);
+        palette = extractColorPalette(context.getImageData(0, 0, 48, 48).data).map(color => ({ ...color, enabled: true }));
+        renderPalette();
+        $('#palette-status').textContent = palette.length ? 'Colour filtering is optional and uses Channel3 Beta.' : 'No usable colours were found in this crop.';
+      } finally { bitmap.close(); }
+    } catch (error) {
+      palette = []; renderPalette();
+      $('#palette-status').textContent = `Could not derive a palette from this crop: ${error.message}`;
+    }
+  }
+  function renderPalette() {
+    const target = $('#palette-controls');
+    target.replaceChildren();
+    palette.forEach((color, index) => {
+      const row = node('div', undefined, 'palette-row');
+      const enabled = document.createElement('input'); enabled.type = 'checkbox'; enabled.checked = color.enabled;
+      enabled.setAttribute('aria-label', `Include colour ${index + 1}`);
+      enabled.onchange = () => { color.enabled = enabled.checked; changeSearch(); };
+      const picker = document.createElement('input'); picker.type = 'color'; picker.value = color.hex;
+      picker.setAttribute('aria-label', `Adjust colour ${index + 1}`);
+      picker.onchange = () => { color.hex = picker.value.toUpperCase(); changeSearch(); };
+      row.append(enabled, picker, node('span', `${Math.round(color.percentage * 100)}% prominent`));
+      target.append(row);
+    });
+  }
+  function searchFilters(base = {}) {
+    const filters = { ...base };
+    const category = $('#category-filter').value;
+    if (category) filters.category_ids = [category];
+    const brandId = $('#catalog-brand').value;
+    if (brandId) filters.brand_ids = [brandId];
+    const attributes = {};
+    for (const control of document.querySelectorAll('#category-attributes [data-attribute]')) {
+      const values = control.tagName === 'SELECT'
+        ? [...control.selectedOptions].map(option => option.value)
+        : control.value.trim() ? [control.value.trim()] : [];
+      if (values.length) attributes[control.dataset.attribute] = values;
+    }
+    if (Object.keys(attributes).length) filters.attributes = attributes;
+    const colors = palette.filter(color => color.enabled).map(({ hex, percentage }) => ({ hex, percentage }));
+    if (colors.length) filters.colors = { palette: colors };
+    return filters;
+  }
+  async function discoverySearch(request, signal) {
+    const strategy = chooseSearchStrategy({
+      query: request.query,
+      intent,
+      hasImage: Boolean(request.image),
+      hasFilters: Boolean(Object.keys(request.filters || {}).length),
+      hasPreviousResults: Boolean(current?.results?.products?.length),
+      hasVariant: Boolean(selectedProductContext?.variants?.selected?.length)
+    });
+    let result;
+    try {
+      result = await searchWithAgenticFallback(payload => api('products/search', payload, signal), request, strategy);
+    } catch (error) {
+      if (!request.filters?.colors || ![400, 422].includes(error.status)) {
+        logOrchestration({
+          strategy: strategy.mode, reason: strategy.reason, operations: ['POST /v1/search'],
+          fallbackUsed: Boolean(error.fallbackUsed), outcome: 'error'
+        });
+        throw error;
+      }
+      const filters = { ...request.filters };
+      delete filters.colors;
+      const fallbackRequest = { ...request, filters, config: { ...(request.config || {}), mode: 'default' } };
+      result = {
+        data: await api('products/search', fallbackRequest, signal),
+        mode: 'default',
+        fallbackUsed: true,
+        attempts: (error.attempts || 1) + 1
+      };
+      result.data._requestFilters = filters;
+      $('#palette-status').textContent = 'Channel3 rejected the Beta colour filter; results were searched without palette matching.';
+    }
+    request.config = { ...(request.config || {}), mode: result.mode };
+    logOrchestration({
+      strategy: result.mode,
+      reason: strategy.reason,
+      operations: Array.from({ length: result.attempts }, (_, index) => `POST /v1/search (${index === 0 && strategy.mode === 'agentic' ? 'agentic' : 'default'})`),
+      fallbackUsed: result.fallbackUsed,
+      outcome: 'success'
+    });
+    return result;
+  }
+  function reportingRange(days) {
+    const end = new Date(), start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
+    return { startDate: start.toISOString(), endDate: end.toISOString() };
+  }
+  function renderReporting() {
+    const metrics = $('#reporting-metrics');
+    metrics.replaceChildren();
+    const clicks = clickReport?.totalClicks;
+    const transactions = transactionReport?.totalTransactions;
+    const metric = (label, value) => {
+      const item = node('div', undefined, 'reporting-metric');
+      item.append(node('span', label), node('strong', value === null || value === undefined ? 'Not supplied' : String(value)));
+      metrics.append(item);
+    };
+    metric('Total clicks', clicks);
+    metric('Attributed transactions', transactions);
+    metric('Conversion rate', clicks > 0 && transactions !== null && transactions !== undefined
+      ? `${(transactions / clicks * 100).toFixed(1)}%` : clicks === 0 ? 'N/A · no clicks' : null);
+    const dates = clickReport?.startDate && clickReport?.endDate
+      ? `${new Date(clickReport.startDate).toLocaleDateString()} – ${new Date(clickReport.endDate).toLocaleDateString()}`
+      : transactionReport?.startDate && transactionReport?.endDate
+        ? `${new Date(transactionReport.startDate).toLocaleDateString()} – ${new Date(transactionReport.endDate).toLocaleDateString()}`
+        : 'Reporting period unavailable';
+    metric('Reporting period', dates);
+
+    const chart = $('#reporting-chart');
+    chart.replaceChildren();
+    if (clicks !== null && clicks !== undefined && transactions !== null && transactions !== undefined) {
+      const max = Math.max(clicks, transactions, 1);
+      for (const [label, value] of [['Clicks', clicks], ['Transactions', transactions]]) {
+        const bar = node('div', undefined, 'reporting-bar');
+        const fill = node('div', undefined, 'reporting-bar-fill');
+        fill.style.height = `${Math.max(value ? 4 : 0, value / max * 90)}px`;
+        fill.setAttribute('aria-label', `${label}: ${value}`);
+        bar.append(node('strong', String(value)), fill, node('span', label));
+        chart.append(bar);
+      }
+    } else {
+      chart.append(node('p', 'Chart unavailable because Channel3 did not supply both reporting totals.', 'muted'));
+    }
+
+    const values = $('#reporting-values');
+    values.replaceChildren();
+    const transactionsPage = transactionReport?.items || [];
+    const withCurrency = transactionsPage.filter(item => item.orderAmount !== null && item.currency);
+    const amounts = new Map();
+    for (const item of withCurrency) amounts.set(item.currency, (amounts.get(item.currency) || 0) + item.orderAmount);
+    if (amounts.size) {
+      for (const [currency, total] of amounts) values.append(node('p', `Transaction value on loaded page · ${formatProductPrice(total, currency)} (${transactionsPage.length} loaded records).`));
+    } else if (transactionsPage.some(item => item.orderAmount !== null)) {
+      values.append(node('p', 'Transaction amounts are present, but Channel3 does not provide their currency in the current reporting schema; no total is calculated.', 'muted'));
+    } else {
+      values.append(node('p', 'No transaction values were supplied for the loaded page.', 'muted'));
+    }
+    if (transactionReport?.totalCommission !== null && transactionReport?.totalCommission !== undefined) {
+      values.append(node('p', `Channel3 net commission summary: ${transactionReport.totalCommission}. Currency is not specified by the reporting response, so this amount is not assigned a currency.`,'muted'));
+    }
+
+    const clicksTarget = $('#click-report-items');
+    clicksTarget.replaceChildren();
+    for (const item of clickReport?.items || []) {
+      const row = node('div', undefined, 'reporting-item');
+      row.append(node('strong', item.product?.title || item.product?.id || 'Product not matched'));
+      row.append(node('div', new Date(item.timestamp).toLocaleString()));
+      clicksTarget.append(row);
+    }
+    if (!clickReport?.items?.length) clicksTarget.append(node('p', 'No click events returned for this period.', 'muted'));
+    const transactionsTarget = $('#transaction-report-items');
+    transactionsTarget.replaceChildren();
+    for (const item of transactionReport?.items || []) {
+      const row = node('div', undefined, 'reporting-item');
+      const amount = item.orderAmount === null ? 'Order amount not supplied'
+        : item.currency ? formatProductPrice(item.orderAmount, item.currency) : `${item.orderAmount} · currency not supplied`;
+      row.append(node('strong', item.product?.title || item.brandName || 'Transaction'));
+      row.append(node('div', `${amount} · ${item.status || 'status unknown'}`));
+      row.append(node('small', new Date(item.purchasedAt).toLocaleString()));
+      transactionsTarget.append(row);
+    }
+    if (!transactionReport?.items?.length) transactionsTarget.append(node('p', 'No attributed transactions returned for this period.', 'muted'));
+    $('#more-clicks').hidden = !clickReport?.hasMore;
+    $('#more-transactions').hidden = !transactionReport?.hasMore;
+  }
+  async function loadReporting() {
+    $('#reporting-status').textContent = 'Loading Channel3 click and transaction reports…';
+    $('#load-reporting').disabled = true;
+    clickReport = null; transactionReport = null;
+    const range = reportingRange(Number($('#reporting-period').value));
+    const results = await Promise.allSettled([
+      api('reporting/clicks', { ...range, page: 1, limit: 100 }),
+      api('reporting/transactions', { ...range, page: 1, limit: 100 })
+    ]);
+    if (results[0].status === 'fulfilled') clickReport = results[0].value;
+    if (results[1].status === 'fulfilled') transactionReport = results[1].value;
+    renderReporting();
+    const failures = results.filter(result => result.status === 'rejected');
+    $('#reporting-status').textContent = failures.length
+      ? `Some reporting data could not be loaded: ${failures.map(result => result.reason.message).join(' · ')}`
+      : clickReport?.totalClicks === 0 && transactionReport?.totalTransactions === 0
+        ? 'No clicks or attributed transactions were reported in this period.'
+        : 'Channel3 reporting loaded for this period. Attribution depends on merchant tracking and approval.';
+    $('#load-reporting').disabled = false;
+  }
+  async function loadMoreReport(kind) {
+    const report = kind === 'clicks' ? clickReport : transactionReport;
+    if (!report?.hasMore) return;
+    const button = kind === 'clicks' ? $('#more-clicks') : $('#more-transactions');
+    button.disabled = true;
+    try {
+      const next = await api(`reporting/${kind}`, {
+        startDate: report.startDate, endDate: report.endDate, page: report.page + 1, limit: report.limit
+      });
+      const combined = { ...next, items: [...report.items, ...next.items] };
+      if (kind === 'clicks') clickReport = combined; else transactionReport = combined;
+      renderReporting();
+      $('#reporting-status').textContent = `${kind === 'clicks' ? 'Click' : 'Transaction'} page ${next.page} loaded.`;
+    } catch (error) {
+      $('#reporting-status').textContent = `Could not load more ${kind}: ${error.message}`;
+    } finally { button.disabled = false; }
+  }
+  function setMoreProducts(token, loader) {
+    const button = $('#load-more-products');
+    button.hidden = !token;
+    button.disabled = false;
+    button.textContent = loader ? 'Load more products' : 'Load more products';
+    button.onclick = token ? loader : null;
+  }
+  async function loadMoreSearch() {
+    if (!activeSearch?.nextPageToken) return;
+    const state = activeSearch; $('#load-more-products').disabled = true;
+    try {
+      const next = await api('products/search', { ...state.request, pageToken: state.nextPageToken });
+      if (activeSearch !== state) return;
+      state.nextPageToken = next.nextPageToken || next.pageToken;
+      const combined = [...state.products, ...(next.products || [])];
+      state.products = combined;
+      renderProducts(combined, state.assessments, { nextPageToken: state.nextPageToken, loadMore: loadMoreSearch });
+    } catch (error) { $('#products-notice').textContent = `Could not load the next page: ${error.message}`; }
+    finally { $('#load-more-products').disabled = false; }
+  }
+  async function findSimilar(product) {
+    cancel();
+    selectedProductContext = product;
+    const request = { id: product.id, limit: 12, config: market(), filters: searchFilters() };
+    const requestId = {};
+    activeSimilar = requestId; activeSearch = null; activeBrowse = null;
+    $('#products-notice').textContent = `Finding products similar to ${product.title}…`;
+    $('#products-container').replaceChildren(); setMoreProducts(null);
+    try {
+      const data = await api('products/similar', request);
+      if (activeSimilar !== requestId) return;
+      const state = { request, products: data.products || [], assessments: [], nextPageToken: data.nextPageToken || data.pageToken, kind: 'similar' };
+      activeSimilar = state;
+      renderProducts(state.products, [], { nextPageToken: state.nextPageToken, loadMore: () => loadMoreSimilar(state) });
+      $('#products-notice').textContent = state.products.length ? `Native Channel3 similar products for ${product.title}.` : 'Channel3 found no similar products for this catalog item.';
+      logOrchestration({ strategy: 'native-similar', reason: 'selected canonical product is the discovery context', operations: ['POST /v1/similar'], fallbackUsed: false, outcome: state.products.length ? 'products-returned' : 'empty' });
+    } catch (error) {
+      if (activeSimilar !== requestId) return;
+      $('#products-notice').textContent = error.status === 404 ? 'Channel3 no longer has this canonical product ID. Search by text or image instead.' : `Similar-product search unavailable: ${error.message}`;
+      logOrchestration({ strategy: 'native-similar', reason: 'selected canonical product is the discovery context', operations: ['POST /v1/similar'], fallbackUsed: false, outcome: 'error' });
+    }
+  }
+  async function loadMoreSimilar(state) {
+    if (!state.nextPageToken) return;
+    $('#load-more-products').disabled = true;
+    try {
+      const next = await api('products/similar', { ...state.request, pageToken: state.nextPageToken });
+      if(activeSimilar!==state)return;
+      state.nextPageToken = next.nextPageToken || next.pageToken;
+      state.products = [...state.products, ...(next.products || [])];
+      renderProducts(state.products, [], { nextPageToken: state.nextPageToken, loadMore: () => loadMoreSimilar(state) });
+    } catch (error) { $('#products-notice').textContent = `Could not load similar products: ${error.message}`; }
+    finally { $('#load-more-products').disabled = false; }
+  }
+  function populateOptions(select, items, { value, label, empty } = {}) {
+    const previous = select.value;
+    select.replaceChildren(new Option(empty, ''));
+    for (const item of items) {
+      const id = value(item), name = label(item);
+      if (id && name) select.add(new Option(name, id));
+    }
+    if ([...select.options].some(option => option.value === previous)) select.value = previous;
+  }
+  async function categoryDetails(slug) {
+    $('#category-attributes').replaceChildren();
+    if (!slug) return;
+    $('#catalog-notice').textContent = 'Loading available category attributes…';
+    try {
+      const data = await api('catalog/categories/details', { slug });
+      const category = data.category || data;
+      for (const attribute of category.attributes || []) {
+        const handle = attribute.handle || attribute.slug;
+        if (!handle || !Array.isArray(attribute.values)) continue;
+        const label = node('label', attribute.name || handle);
+        if (attribute.values.length) {
+          const select = document.createElement('select'); select.multiple = true; select.dataset.attribute = handle;
+          for (const value of attribute.values) if (typeof value === 'string') select.add(new Option(value, value));
+          select.onchange = changeSearch;
+          label.append(select);
+        } else {
+          const input = document.createElement('input'); input.type = 'text'; input.maxLength = 200; input.dataset.attribute = handle;
+          input.onchange = changeSearch;
+          label.append(input);
+        }
+        $('#category-attributes').append(label);
+      }
+      $('#catalog-notice').textContent = `${category.attributes?.length || 0} category attribute groups available.`;
+    } catch (error) { $('#catalog-notice').textContent = `Category filters unavailable: ${error.message}`; }
+  }
+  async function searchCategoryCatalog() {
+    const query = $('#category-query').value.trim();
+    if (!query) { $('#catalog-notice').textContent = 'Enter a category name first.'; return; }
+    $('#catalog-notice').textContent = 'Searching Channel3 categories…';
+    try {
+      const data = await api('catalog/categories/search', { query });
+      const items = data.categories || data.items || [];
+      populateOptions($('#category-filter'), items, { value: item => item.slug, label: item => item.name || item.title || item.slug, empty: 'Choose a category' });
+      if (!items.length) $('#catalog-notice').textContent = 'No matching Channel3 categories.';
+      else { $('#catalog-notice').textContent = `${items.length} categories found.`; if (items.length === 1) { $('#category-filter').value = items[0].slug; await categoryDetails(items[0].slug); changeSearch(); } }
+    } catch (error) { $('#catalog-notice').textContent = `Category search failed: ${error.message}`; }
+  }
+  async function listCategoryCatalog(page = 1) {
+    $('#catalog-notice').textContent = 'Loading Channel3 categories…';
+    try {
+      const data = await api('catalog/categories/list', { rootsOnly: true, page, pageSize: 100 });
+      const items = data.items || data.categories || [];
+      const select=$('#category-filter'),prior=select.value;
+      const existing=page>1?[...select.options].filter(option=>option.value).map(option=>({slug:option.value,title:option.textContent})):[];
+      populateOptions(select,[...existing,...items],{value:item=>item.slug,label:item=>item.name||item.title||item.slug,empty:'Choose a category'});
+      if(prior&&[...select.options].some(option=>option.value===prior))select.value=prior;
+      categoryPage=data.page||page;categoryTotal=data.total||items.length;
+      $('#category-more').hidden=categoryPage*100>=categoryTotal;
+      $('#catalog-notice').textContent = items.length ? `${items.length} top-level categories loaded.` : 'No top-level categories returned.';
+    } catch (error) { $('#catalog-notice').textContent = `Could not load categories: ${error.message}`; }
+  }
+  async function searchBrandCatalog() {
+    const query = $('#brand-query').value.trim();
+    if (!query) { $('#catalog-notice').textContent = 'Enter a brand name first.'; return; }
+    $('#catalog-notice').textContent = 'Searching Channel3 brands…';
+    try {
+      const category = $('#category-filter').value;
+      const data = await api('catalog/brands/search', { query, categoryIds: category ? [category] : [], config: market() });
+      const items = data.brands || data.items || [];
+      populateOptions($('#catalog-brand'), items, { value: item => item.id, label: item => item.name, empty: 'Choose a brand' });
+      $('#catalog-notice').textContent = items.length ? `${items.length} Channel3 brands found.` : 'No matching Channel3 brands.';
+    } catch (error) { $('#catalog-notice').textContent = `Brand search failed: ${error.message}`; }
+  }
+  async function listBrandCatalog(cursor) {
+    $('#catalog-notice').textContent = 'Loading Channel3 brands…';
+    try {
+      const category = $('#category-filter').value;
+      const data = await api('catalog/brands/list', { limit: 100, cursor, categoryIds: category ? [category] : [], config: market() });
+      const items = data.items || [];
+      const select = $('#catalog-brand'), previous = select.value;
+      const existing = cursor ? [...select.options].filter(option => option.value).map(option => ({ id: option.value, name: option.textContent })) : [];
+      populateOptions(select, [...existing, ...items], { value: item => item.id, label: item => item.name, empty: 'Choose a brand' });
+      if (previous && [...select.options].some(option => option.value === previous)) select.value = previous;
+      brandCursor = data.next_cursor || null;
+      $('#brand-more').hidden = !brandCursor;
+      $('#catalog-notice').textContent = items.length ? `${items.length} Channel3 brands loaded.` : 'No additional brands returned.';
+    } catch (error) { $('#catalog-notice').textContent = `Could not load brands: ${error.message}`; }
+  }
+  async function showBrandDetails() {
+    const id = $('#catalog-brand').value, target = $('#brand-details-view');
+    target.replaceChildren();
+    if (!id) { target.textContent = 'Choose a brand first.'; return; }
+    try {
+      const data = await api('catalog/brands/details', { id }), brand = data.brand || data;
+      target.append(node('strong', brand.name || 'Channel3 brand'));
+      if (brand.description) target.append(node('p', brand.description));
+      if (brand.best_commission_rate !== undefined) target.append(node('small', `Maximum commission rate reported by Channel3: ${brand.best_commission_rate}%`));
+    } catch (error) { target.textContent = `Brand details unavailable: ${error.message}`; }
+  }
+  async function browseCatalog() {
+    const category = $('#category-filter').value, brand = $('#catalog-brand').value;
+    if (!category && !brand) { $('#catalog-notice').textContent = 'Choose a category or brand to browse.'; return; }
+    const filters = {};
+    if (category) filters.category_ids = [category];
+    if (brand) filters.brand_ids = [brand];
+    if ($('#budget').value) filters.price = { max_price:Number($('#budget').value) };
+    const requestedFilters=searchFilters(filters);
+    const request = { filters:requestedFilters, limit: 12, config: market() };
+    const requestId={};activeBrowse=requestId;activeSimilar=null;activeSearch=null;
+    $('#products-container').replaceChildren();setMoreProducts(null);
+    $('#catalog-notice').textContent = 'Browsing Channel3 products…';
+    try {
+      const data = await api('products/browse', request);
+      if(activeBrowse!==requestId)return;
+      activeBrowse = { request, products: data.products || [], nextPageToken: data.nextPageToken || data.pageToken };
+      activeSearch = null;
+      renderProducts(activeBrowse.products, [], { nextPageToken: activeBrowse.nextPageToken, loadMore: loadMoreBrowse });
+      $('#catalog-notice').textContent = activeBrowse.products.length ? `${activeBrowse.products.length} catalog products loaded.` : 'No products in this catalog page.';
+      logOrchestration({ strategy: 'catalog-browse', reason: 'a real Channel3 category or brand was selected', operations: ['POST /v1/browse'], fallbackUsed: false, outcome: activeBrowse.products.length ? 'products-returned' : 'empty' });
+    } catch (error) { if(activeBrowse===requestId)$('#catalog-notice').textContent = `Catalog browse failed: ${error.message}`; }
+  }
+  async function loadMoreBrowse() {
+    const state = activeBrowse;
+    if (!state?.nextPageToken) return;
+    $('#load-more-products').disabled = true;
+    try {
+      const next = await api('products/browse', { ...state.request, pageToken: state.nextPageToken });
+      if (activeBrowse !== state) return;
+      state.nextPageToken = next.nextPageToken || next.pageToken;
+      state.products = [...state.products, ...(next.products || [])];
+      renderProducts(state.products, [], { nextPageToken: state.nextPageToken, loadMore: loadMoreBrowse });
+    } catch (error) { $('#catalog-notice').textContent = `Could not load more catalog products: ${error.message}`; }
+    finally { $('#load-more-products').disabled = false; }
+  }
   async function runSearch(version, signal, force) {
     if (!current) return;
+    activeSearch=null;activeBrowse=null;activeSimilar=null;
     const plan = searchPlan(current.profile,intent,$('#budget').value), config = market();
-    const key = JSON.stringify([current.key,intent,$('#budget').value,config]);
+    const filters = searchFilters(plan.filters);
+    const key = JSON.stringify([current.key,intent,$('#budget').value,config,filters]);
+    const request = { query:plan.query,image:plan.useImage ? crop(current.object.box) : undefined,limit:12,filters,config };
     $('#product-query').value = plan.query; $('#products-notice').textContent = `Searching ${intent === 'exact' ? 'identity candidates' : intent === 'look' ? 'similar appearances' : 'functional alternatives'}…`;
     $('#search-products-btn').disabled = true;
     try {
       let data = force ? null : searches.get(key);
       if (!data) {
-        data = await api('products/search', { query:plan.query,image:plan.useImage ? crop(current.object.box) : undefined,limit:12,filters:plan.filters,config }, signal);
+        if (filters.colors) $('#products-notice').textContent = 'Searching with the optional Channel3 colour filter…';
+        const outcome = await discoverySearch(request, signal);
+        data = outcome.data;
         if (version !== generation) return;
+        if (data._requestFilters) request.filters = data._requestFilters;
+        data._searchMode = request.config.mode;
         searches.set(key,data);
+      } else if (data._searchMode) {
+        request.config = { ...request.config, mode: data._searchMode };
       }
       if (version !== generation) return;
-      current.results = data; current.searchKey = key; renderProducts(data.products || [], data.assessments || []);
+      activeSearch = { request, products:data.products || [], assessments:data.assessments || [], nextPageToken:data.nextPageToken || data.pageToken };
+      current.results = data; current.searchKey = key; renderProducts(data.products || [], data.assessments || [], { nextPageToken:data.nextPageToken || data.pageToken, loadMore:loadMoreSearch });
       $('#investigation-status').textContent = '1 ✓ Details extracted · 2 ✓ Catalog searched';
       if (intent === 'exact' && data.products?.length && !data.assessments) await compareCandidates(version,signal);
     } catch (e) {
@@ -105,13 +664,15 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       if (version !== generation || current !== state) return;
       const detailed = new Map(data.products.map(p=>[p.id,p]));
       state.results.products = state.results.products.map(p=>detailed.get(p.id)||p);state.results.assessments=data.assessments;state.results.comparedImageIds=data.comparedImageIds||[];
-      searches.set(state.searchKey,state.results);renderProducts(state.results.products,data.assessments);
+      searches.set(state.searchKey,state.results);
+      if(activeSearch){activeSearch.products=state.results.products;activeSearch.assessments=data.assessments;}
+      renderProducts(state.results.products,data.assessments,{nextPageToken:activeSearch?.nextPageToken,loadMore:loadMoreSearch});
       $('#investigation-status').textContent = '1 ✓ Details · 2 ✓ Catalog · 3 ✓ Catalog evidence compared';
     } catch(e) {
       if(version===generation&&e.name!=='AbortError') { $('#investigation-status').textContent = `Matches loaded · deeper comparison unavailable: ${e.message}`; }
     }
   }
-  function renderProducts(products, assessments = []) {
+  function renderProducts(products, assessments = [], { nextPageToken = null, loadMore = loadMoreSearch } = {}) {
     lastRendered = {products,assessments};
     $('#products-container').replaceChildren();
     let priceSorted=false;
@@ -123,6 +684,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     const rank = { identifier_match:0,possible_match:1,similar:2,contradicted:3 };
     const relevance = p => (rank[ratings.get(p.id)?.verdict] ?? 2) * 100 + (ratings.get(p.id)?.differences.length || 0) * 3 + (intent === 'exact' && /bundle|with.*stand|w\/stand/i.test(p.title) ? 12 : 0);
     const ordered=priceSorted ? products : [...products].sort((a,b)=>relevance(a)-relevance(b));
+    setMoreProducts(nextPageToken, loadMore);
     for(const product of ordered) {
       const card=node('article',undefined,'product-card');card.dataset.productId=product.id;
       const image=node('img',undefined,'product-thumb');image.alt=product.title;image.referrerPolicy='no-referrer';image.loading='lazy';
@@ -132,8 +694,10 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       info.append(shopping.actions(product));
       const assessment=ratings.get(product.id);
       if(assessment){const labels={identifier_match:'Identifier agrees · variant not verified',possible_match:'Possible match',similar:'Similar product',contradicted:'Conflicting evidence'};info.append(node('div',labels[assessment.verdict],'match-label'));const evidence=node('details');evidence.append(node('summary','Why this result?'));for(const [name,values] of [['Matches',assessment.matches],['Differences',assessment.differences],['Unknown',assessment.unknowns]])if(values.length)evidence.append(node('p',`${name}: ${values.join(' · ')}`));evidence.append(node('small',current?.results?.comparedImageIds?.includes(product.id) ? 'AI compared the video crop with catalog photos and listing text. This is supporting evidence, not proof of exact identity.' : 'AI compared the video crop with catalog text. A catalog photo was unavailable for this comparison.'));info.append(evidence);if(assessment.differences.length)info.append(node('small',`Difference: ${assessment.differences[0]}`));}else {info.append(node('small',product.matchType || 'Unverified catalog candidate')); if(product.matchExplanation) {const why=node('details');why.append(node('summary','Why this result?'),node('p',product.matchExplanation));info.append(why);}}
-      card.checkoutAction=checkoutAction(() => card.checkoutSelection || { id: product.id },product);info.append(card.checkoutAction);
+      card.checkoutSelection={id:product.id,selection:Object.fromEntries((product.variants?.selected||[]).map(v=>[v.name,v.label])),websiteIds:product.retailer?[product.retailer]:[],config:market(),expectedOffer:offerSnapshot(product)};
+      card.checkoutAction=checkoutAction(() => card.checkoutSelection,product);info.append(card.checkoutAction);
       const details=node('button','Specifications & variants','secondary');details.onclick=()=>showDetails(product,card,details);info.append(details);
+      const similar=node('button','Find similar products','secondary');similar.onclick=()=>findSimilar(product);info.append(similar);
       const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','Buy from seller ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';info.append(link);}
       card.append(image,info);$('#products-container').append(card);
     }
@@ -144,9 +708,10 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     group.updateOffer=offer=>{
       const out=offer.availability==='OutOfStock'||offer.availability==='out_of_stock';
       const valid=offer.price!=null&&Number.isFinite(Number(offer.price))&&Number(offer.price)>0&&['USD','EUR','GBP','CAD','AUD'].includes(offer.currency);
-      eligible=!out&&valid;button.disabled=!eligible;
-      note.textContent=out?'Currently unavailable from this seller.':!valid?'See seller for pricing and purchase options.':'Review price and selected options before paying.';
+      eligible=Boolean(offer.retailer)&&!out&&valid;button.disabled=!eligible;
+      note.textContent=out?'Currently unavailable from this seller.':!valid?'See seller for pricing and purchase options.':!offer.retailer?'Seller identity is unavailable; checkout cannot pin this offer.':'Review price and selected options before paying.';
     };
+    group.disableSelection=message=>{eligible=false;button.disabled=true;note.textContent=message;};
     group.updateOffer(product);
     button.dataset.action='sandbox-checkout';
     button.onclick=async()=>{
@@ -165,12 +730,90 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     };
     group.append(button,note);return group;
   }
+  function offerSnapshot(offer) {
+    return {
+      retailer:offer.retailer||'',
+      price:offer.price??null,
+      currency:offer.currency??null,
+      condition:offer.condition??null,
+      availability:offer.availability??null,
+      purchaseUrl:offer.purchaseUrl||''
+    };
+  }
+  function drawPriceHistory(target, history) {
+    target.replaceChildren();
+    if (!history.history.length) {
+      target.append(node('p', 'No historical price points are available for this product in the selected period.', 'muted'));
+      return;
+    }
+    const currencies = [...new Set(history.history.map(point => point.currency))];
+    if (currencies.length !== 1) {
+      target.append(node('p', 'Channel3 returned multiple currencies; the chart is omitted to avoid comparing unlike prices.', 'variant-warning'));
+      for (const point of history.history) target.append(node('p', `${new Date(point.timestamp).toLocaleDateString()} · ${formatProductPrice(point.price, point.currency)}`));
+      return;
+    }
+    const currency = currencies[0], prices = history.history.map(point => point.price);
+    const min = Math.min(...prices), max = Math.max(...prices), span = max - min || 1;
+    const points = history.history.map((point, index) => {
+      const x = history.history.length === 1 ? 160 : 10 + index * 300 / (history.history.length - 1);
+      const y = 105 - ((point.price - min) / span) * 90;
+      return { x, y, point };
+    });
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 320 120');
+    svg.setAttribute('class', 'price-history-chart');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', `Channel3 price history in ${currency}`);
+    const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    title.textContent = `Price history, ${currency}`;
+    svg.append(title);
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+    line.setAttribute('points', points.map(point => `${point.x},${point.y}`).join(' '));
+    svg.append(line);
+    for (const { x, y, point } of points) {
+      const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      circle.setAttribute('cx', String(x)); circle.setAttribute('cy', String(y)); circle.setAttribute('r', '3');
+      const pointTitle = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      pointTitle.textContent = `${new Date(point.timestamp).toLocaleDateString()}: ${formatProductPrice(point.price, currency)}`;
+      circle.append(pointTitle); svg.append(circle);
+    }
+    target.append(svg, node('p', `${formatProductPrice(min, currency)} low · ${formatProductPrice(max, currency)} high`));
+    target.append(node('p', `${new Date(history.history[0].timestamp).toLocaleDateString()} – ${new Date(history.history.at(-1).timestamp).toLocaleDateString()} · ${currency}`,'muted'));
+    const stats = history.statistics;
+    if (stats && (!stats.currency || stats.currency === currency)) {
+      const supplied = [
+        stats.mean !== null && `Mean ${formatProductPrice(stats.mean, currency)}`,
+        stats.minPrice !== null && `Minimum ${formatProductPrice(stats.minPrice, currency)}`,
+        stats.maxPrice !== null && `Maximum ${formatProductPrice(stats.maxPrice, currency)}`,
+        stats.currentPrice !== null && `Current ${formatProductPrice(stats.currentPrice, currency)}`,
+        stats.currentStatus && `Status ${stats.currentStatus}`
+      ].filter(Boolean);
+      if (supplied.length) target.append(node('p', supplied.join(' · ')));
+    }
+  }
+  async function loadPriceHistory(id, days, target, button) {
+    button.disabled = true;
+    target.replaceChildren(node('p', 'Loading Channel3 price history…', 'muted'));
+    try {
+      const history = await api('products/price-history', { id, days });
+      if (history.canonicalProductId && history.canonicalProductId !== id) throw new Error('Channel3 returned history for a different product ID.');
+      drawPriceHistory(target, history);
+    } catch (error) {
+      target.replaceChildren(node('p', `Price history unavailable: ${error.message}`));
+    } finally { button.disabled = false; }
+  }
   async function showDetails(product, card, button, selection = {}) {
+    selectedProductContext = product;
     const old=card.querySelector('.catalog-details');if(old&&Object.keys(selection).length===0){old.hidden=!old.hidden;return;}
     const box=old||node('div',undefined,'catalog-details');if(!old)card.append(box);box.hidden=false;box.replaceChildren(node('p','Loading catalog specifications…'));button.disabled=true;
     try {
-      const data=await api('products/details',{id:product.id,selection},controller?.signal);if(!card.isConnected)return;
-      const p=data.product;card.checkoutAction?.updateOffer(p);card.checkoutSelection = { id: p.id, selection: Object.fromEntries((p.variants?.selected || []).map(v=>[v.name,v.label])) };box.replaceChildren(node('p','Source: Channel3 / merchant listing. These specifications describe this catalog product; identity with the video object is not established.','muted'));
+      const data=await api('products/details',{id:product.id,selection,config:market()},controller?.signal);if(!card.isConnected)return;
+      const p=data.product;
+      selectedProductContext = p;
+      logOrchestration({ strategy: 'product-details', reason: 'user opened product details or changed a variant', operations: ['GET /v1/products/{id}'], fallbackUsed: false, outcome: p.selectionChanges?.length ? 'variant-substituted' : 'success' });
+      if(p.selectionChanges?.length){card.checkoutSelection=null;card.checkoutAction?.disableSelection('The requested variant was unavailable; choose a supported variant before checkout.');}
+      else {card.checkoutAction?.updateOffer(p);card.checkoutSelection = { id: p.id, selection: Object.fromEntries((p.variants?.selected || []).map(v=>[v.name,v.label])),websiteIds:p.retailer?[p.retailer]:[],config:market(),expectedOffer:offerSnapshot(p) };}
+      box.replaceChildren(node('p','Source: Channel3 / merchant listing. These specifications describe this catalog product; identity with the video object is not established.','muted'));
       if(p.selectionChanges?.length)box.append(node('p',`Requested variant changed: ${p.selectionChanges.map(c=>`${c.name}: ${c.requested} → ${c.actual}`).join('; ')}. Review before continuing.`,'variant-warning'));
       box.append(node('p',p.description||'No description supplied.'));
       const dl=node('dl');for(const [k,v] of Object.entries(p.structuredAttributes||{})){dl.append(node('dt',k),node('dd',Array.isArray(v)?v.join(', '):String(v)));}box.append(dl);
@@ -178,24 +821,104 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       let measurements=false;for(const offer of p.offers||[]){if(offer.dimensions){measurements=true;box.append(node('p',`Measurements (${offer.retailer}): ${Object.entries(offer.dimensions).filter(([,v])=>v).map(([k,v])=>`${k}: ${v.number} ${v.unit}`).join(' · ')}`));}}
       if(!measurements)box.append(node('p','Dimensions / weight: not supplied by this listing.','muted'));
       const effective=Object.fromEntries((p.variants?.selected||[]).map(v=>[v.name,v.label]));
-      for(const option of p.variants?.options||[]){const label=node('label',option.name),sel=node('select');for(const v of option.values||[]){const opt=node('option',`${v.label}${!v.exists?' · different combination':v.available==='OutOfStock'?' · out of stock':v.available==null?' · stock unknown':''}`);opt.value=v.label;opt.selected=effective[option.name]===v.label;sel.append(opt);}sel.onchange=()=>{const value=option.values.find(v=>v.label===sel.value);showDetails({...p,id:value?.product_id||p.id},card,button,{...effective,[option.name]:sel.value});};label.append(sel);box.append(label);}
-      for(const offer of p.offers||[]){const url=safeProductUrl(offer.purchaseUrl);if(!url)continue;const a=node('a',`${offer.retailer} · ${formatProductPrice(offer.price,offer.currency)} · ${offer.availability||'Stock unknown'} ↗`);a.href=url;a.target='_blank';a.rel='noopener noreferrer';box.append(a);}
+      for(const option of p.variants?.options||[]){const label=node('label',option.name),sel=node('select');for(const v of option.values||[]){const opt=node('option',`${v.label}${!v.exists?' · different combination':v.available==='OutOfStock'?' · out of stock':v.available==null?' · stock unknown':''}`);opt.value=v.label;opt.selected=effective[option.name]===v.label;sel.append(opt);}sel.onchange=()=>showDetails(p,card,button,{...effective,[option.name]:sel.value});label.append(sel);box.append(label);}
+      const offerHeading=node('h3',`Seller offers · same selected configuration (${p.variants?.selected?.map(v=>`${v.name}: ${v.label}`).join(', ')||'no variant options'})`);
+      box.append(offerHeading);
+      if(!(p.offers||[]).length)box.append(node('p','No seller offers were supplied for this product detail response.','muted'));
+      for(const offer of p.offers||[]){
+        const row=node('div',undefined,'seller-offer');
+        row.append(node('strong',offer.retailer||'Seller not supplied'));
+        row.append(node('span',formatProductPrice(offer.price,offer.currency)));
+        row.append(node('span',offer.condition||'Condition not supplied'));
+        row.append(node('span',offer.availability||'Availability unknown'));
+        const url=safeProductUrl(offer.purchaseUrl);
+        if(url){const a=node('a','View seller ↗');a.href=url;a.target='_blank';a.rel='noopener noreferrer';row.append(a);}
+        else row.append(node('span','Purchase URL not supplied','muted'));
+        if(!p.selectionChanges?.length && offer.retailer){
+          const choose=node('button','Use this seller for Sandbox quote','secondary');
+          choose.onclick=()=>{card.checkoutSelection={id:p.id,selection:effective,websiteIds:[offer.retailer],config:market(),expectedOffer:offerSnapshot(offer)};card.checkoutAction?.updateOffer(offer);choose.textContent=`Selected seller · ${offer.retailer}`;};
+          row.append(choose);
+        }
+        box.append(row);
+      }
+      const historyControls=node('div',undefined,'price-history-controls');
+      const historyLabel=node('label','Price history period');
+      const historyDays=document.createElement('select');
+      for(const days of [7,30,90])historyDays.add(new Option(`${days} days`,String(days)));
+      historyDays.value='30';historyLabel.append(historyDays);
+      const historyButton=node('button','Load price history','secondary');
+      const historyContent=node('div',undefined,'price-history-content');
+      historyButton.onclick=()=>loadPriceHistory(p.id,Number(historyDays.value),historyContent,historyButton);
+      historyControls.append(historyLabel,historyButton,historyContent);
+      box.append(node('h3','Price history'),node('p','History is fetched only on request and is for the canonical product; the provider does not identify a selected variant in this endpoint.','muted'),historyControls);
+      if(p.selectionChanges?.length)box.append(node('p','Seller offers above describe the server-selected variant, not the requested variant. They are not comparable to your selection; choose a supported variant and refresh.','variant-warning'));
       box.append(node('small','Compatibility is advisory; confirm the specifications for your equipment. Unknown stock is not confirmed availability.'));
-    }catch(e){if(e.name!=='AbortError')box.replaceChildren(node('p',e.message));}finally{button.disabled=false;}
+    }catch(e){if(e.name!=='AbortError'){box.replaceChildren(node('p',e.message));logOrchestration({strategy:'product-details',reason:'user opened product details or changed a variant',operations:['GET /v1/products/{id}'],fallbackUsed:false,outcome:'error'});}}finally{button.disabled=false;}
   }
   async function manual(query, preserveProfile = false) {
-    cancel();const version=generation;controller=new AbortController();const signal=controller.signal;query=(query||'').trim();
+    query=(query||'').trim();
     if(!query){$('#products-notice').textContent='Enter a product query.';return;}
+    if(/^https?:\/\//i.test(query)){$('#product-url').value=query;lookupProductUrl();return;}
+    cancel();const version=generation;controller=new AbortController();const signal=controller.signal;
+    activeSearch=null;activeBrowse=null;activeSimilar=null;
     $('#products-container').replaceChildren();$('#products-notice').textContent=`Searching Channel3 for “${query}”…`;$('#search-products-btn').disabled=true;
-    try{const plan=searchPlan({category:query,queries:{exact:query}},'exact',$('#budget').value);const data=await api('products/search',{query,limit:12,filters:plan.filters,config:market()},signal);if(version!==generation)return;renderProducts(data.products||[]);if(!preserveProfile)$('#investigation-status').textContent='Manual catalog search · not an identity verification';}
+    try{
+      const plan=searchPlan({category:query,queries:{exact:query}},'exact',$('#budget').value);
+      const request={query,image:selected?crop(selected.box):undefined,limit:12,filters:searchFilters(plan.filters),config:market()};
+      const outcome=await discoverySearch(request,signal),data=outcome.data;if(version!==generation)return;
+      activeSearch={request,products:data.products||[],assessments:[],nextPageToken:data.nextPageToken||data.pageToken};
+      activeBrowse=null;
+      renderProducts(activeSearch.products,[],{nextPageToken:activeSearch.nextPageToken,loadMore:loadMoreSearch});
+      if(!preserveProfile)$('#investigation-status').textContent='Manual catalog search · not an identity verification';
+    }
     catch(e){if(version===generation&&e.name!=='AbortError')$('#products-notice').textContent=e.message;}
     finally{if(version===generation)$('#search-products-btn').disabled=false;}
   }
+  async function lookupProductUrl() {
+    const url=$('#product-url').value.trim();
+    if(!url){$('#products-notice').textContent='Paste a public HTTPS product page URL first.';return;}
+    cancel();const version=generation;activeSearch=null;activeBrowse=null;activeSimilar=null;
+    $('#products-container').replaceChildren();setMoreProducts(null);
+    $('#lookup-product-btn').disabled=true;$('#products-notice').textContent='Looking up this product in Channel3…';
+    try {
+      const result=await api('products/lookup',{url,maxStalenessHours:3,realtimeFetch:true});
+      if(version!==generation)return;
+      const product=result.product;
+      if(!product?.id||!product.title)throw new Error('Channel3 returned an incomplete product record.');
+      activeSearch=null;activeBrowse=null;
+      renderProducts([product]);
+      $('#products-notice').textContent=`Channel3 product lookup returned ${product.title}. Canonical product ID: ${product.id}.`;
+      logOrchestration({ strategy: 'product-url-lookup', reason: 'submitted input is a product URL', operations: ['POST /v1/lookup'], fallbackUsed: false, outcome: 'product-returned' });
+    } catch(error) {
+      if(version!==generation)return;
+      $('#products-notice').textContent=error.status===404
+        ?'Channel3 could not resolve this URL. Check that it is a supported product page, or search by text/image.'
+        :`Product URL lookup failed: ${error.message}`;
+      logOrchestration({ strategy: 'product-url-lookup', reason: 'submitted input is a product URL', operations: ['POST /v1/lookup'], fallbackUsed: false, outcome: 'error' });
+    } finally { if(version===generation)$('#lookup-product-btn').disabled=false; }
+  }
   function changeSearch() { if(!current){if(selected)select(selected);return;}cancel();const version=generation;controller=new AbortController();$('#products-container').replaceChildren();runSearch(version,controller.signal,false); }
-  for(const chip of document.querySelectorAll('[data-intent]'))chip.onclick=()=>{intent=chip.dataset.intent;document.querySelectorAll('[data-intent]').forEach(b=>b.setAttribute('aria-pressed',String(b===chip)));changeSearch();};
+  for(const chip of document.querySelectorAll('[data-intent]'))chip.onclick=()=>{intent=chip.dataset.intent;document.querySelectorAll('[data-intent]').forEach(b=>b.setAttribute('aria-pressed',String(b===chip)));if(intent==='look'&&selectedProductContext?.id)findSimilar(selectedProductContext);else changeSearch();};
   let lastPreferences = JSON.stringify([$('#budget').value,$('#market').value]);
   function changePreferences() { const key = JSON.stringify([$('#budget').value,$('#market').value]); if (key === lastPreferences) return; lastPreferences = key; changeSearch(); }
   $('#budget').addEventListener('change',changePreferences);$('#market').addEventListener('change',changePreferences);
+  $('#category-search').onclick=searchCategoryCatalog;
+  $('#category-list').onclick=listCategoryCatalog;
+  $('#category-more').onclick=()=>listCategoryCatalog(categoryPage+1);
+  $('#brand-search').onclick=searchBrandCatalog;
+  $('#brand-list').onclick=()=>listBrandCatalog();
+  $('#brand-more').onclick=()=>listBrandCatalog(brandCursor);
+  $('#brand-details').onclick=showBrandDetails;
+  $('#browse-products').onclick=browseCatalog;
+  $('#category-filter').onchange=async()=>{await categoryDetails($('#category-filter').value);changeSearch();};
+  $('#catalog-brand').onchange=changeSearch;
+  $('#load-more-products').onclick=loadMoreSearch;
+  $('#lookup-product-btn').onclick=lookupProductUrl;
+  $('#product-url').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();lookupProductUrl();}});
+  for(const selector of ['#category-query','#brand-query'])$(selector).addEventListener('keydown',event=>{
+    if(event.key!=='Enter')return;event.preventDefault();selector==='#category-query'?searchCategoryCatalog():searchBrandCatalog();
+  });
+  $('#brand-filter').addEventListener('change',changeSearch);
   $('#refresh-profile').onclick=()=>{const object=getSelected();if(object)select(object,true);};
   $('#additional-view').addEventListener('change',async event=>{
     const file=event.target.files[0],object=getSelected();if(!file||!object)return;
@@ -209,6 +932,17 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     }catch(e){$('#view-status').textContent=e.message;}finally{event.target.value='';}
   });
   $('#clear-views').onclick=()=>{const object=getSelected();if(object){views.delete(object.id);select(object,true);}};
+  $('#conversation-form').addEventListener('submit', event => { event.preventDefault(); sendConversationMessage(); });
+  $('#new-conversation').onclick=async()=>{
+    conversationGeneration++;
+    conversationId=null;conversationHistory=[];
+    await chrome.storage.session.remove(conversationScope);
+    renderConversationHistory();
+    $('#conversation-status').textContent='Fresh conversation ready. Your next refinement will start a new Channel3 thread.';
+  };
+  $('#load-reporting').onclick=loadReporting;
+  $('#more-clicks').onclick=()=>loadMoreReport('clicks');
+  $('#more-transactions').onclick=()=>loadMoreReport('transactions');
   return { select, cancel, reset, searchManual:manual, snapshot:()=>[...cache.values()] };
 
 }
