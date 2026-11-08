@@ -36,7 +36,7 @@ const paypal = {
 };
 let server, context;
 async function start(configured = true) {
-  server = createApp({ token: 'payment-browser-token', channel3Key: 'fixture-key', searchProducts: async()=>({products:[product]}), retrieve: async()=>product, paypal, paypalClientId: configured ? 'test-id' : '', paypalClientSecret: configured ? 'test-secret' : '' });
+  server = createApp({ token: 'payment-browser-token', channel3Key: 'fixture-key', searchProducts: async()=>({products:[product,{...product,id:'fixture-stand',title:'Fixture stand',price:20}]}), retrieve: async id=>id==='fixture-stand'?{...product,id:'fixture-stand',title:'Fixture stand',price:20}:product, paypal, paypalClientId: configured ? 'test-id' : '', paypalClientSecret: configured ? 'test-secret' : '' });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(4317, '127.0.0.1', resolve); });
 }
 async function stop() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
@@ -63,13 +63,16 @@ try {
   await viewer.locator('#example').click();await viewer.locator('#objects button').first().click();
   await viewer.locator('#product-query').fill('headphones');await viewer.locator('#search-products-btn').click();
   await viewer.locator('[data-action="sandbox-checkout"]').first().waitFor();
-  const popup=context.waitForEvent('page');await viewer.locator('[data-action="sandbox-checkout"]').first().click();const checkout=await popup;
+  await viewer.locator('[data-action="add-to-cart"]').first().click();await viewer.locator('[data-action="add-to-cart"]').nth(1).click();
+  await viewer.locator('#cart-toggle').click();await viewer.locator('#review-cart').click();await viewer.locator('#cart-review p').first().waitFor();
+  const popup=context.waitForEvent('page');await viewer.locator('#pay-cart').click();const checkout=await popup;
   await checkout.waitForURL(`${base}/checkout?quote=*`);
   const quotedCheckoutUrl=checkout.url();
 
   await checkout.waitForFunction(() => !document.querySelector('#buy').disabled);
-  assert.equal(await checkout.locator('h1').innerText(),'Fixture headphones');
-  assert.match(await checkout.locator('.price').innerText(),/149.95/);
+  assert.equal(await checkout.locator('h1').innerText(),'2 items in your BopIt cart');
+  assert.equal(await checkout.locator('#checkout-items li').count(),2);
+  assert.match(await checkout.locator('.price').innerText(),/169.95/);
   await checkout.locator('#buy').click();
   await checkout.waitForURL('https://www.sandbox.paypal.com/**');
   const id = new URL(checkout.url()).searchParams.get('token');
@@ -128,7 +131,7 @@ try {
   await checkout.locator('#setup-check').click();
   await checkout.waitForFunction(() => !document.querySelector('#buy').disabled);
   assert.deepEqual(errors, []);
-  console.log('PASS: extension catalog result → canonical selected-item quote → checkout → approval → verified receipt, reload protection, create failure retry, cancellation, pending retry after server restart, missing credentials and setup recovery. PayPal mocked; no real payment.');
+  console.log('PASS: extension → two-item cart → canonical itemized quote → checkout → approval → verified receipt, reload protection, create failure retry, cancellation, pending retry after server restart, missing credentials and setup recovery. PayPal mocked; no real payment.');
 } finally {
   await context?.close();
   if (server?.listening) await stop();

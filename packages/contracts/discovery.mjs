@@ -201,6 +201,8 @@ export function normalizeChannel3Product(rawProduct) {
   return {
     id,
     title,
+    brandIds: (rawProduct.brands || []).map(b=>b.id).filter(v=>typeof v==='string'),
+    categoryRef: rawProduct.category && typeof rawProduct.category==='object' ? {slug:rawProduct.category.slug,title:rawProduct.category.title} : null,
     brand,
     category,
     description: rawProduct.description ? String(rawProduct.description).trim() : null,

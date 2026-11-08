@@ -75,3 +75,32 @@ test('selected Channel3 variant → signed server quote → approved PayPal orde
    assert.match(changed.body.error,/changed since it was displayed/);
   });
 });
+
+test('itemized cart quotes revalidate every seller and selected variant before signing',async()=>{
+ const offers={
+  'lens-1':{retailer:'shop.example',price:149.95,currency:'USD',condition:'new',availability:'InStock',purchaseUrl:'https://shop.example/lens'},
+  'stand-1':{retailer:'store.example',price:20,currency:'USD',condition:'new',availability:'InStock',purchaseUrl:'https://store.example/stand'},
+  'euro-1':{retailer:'eu.example',price:25,currency:'EUR',condition:'new',availability:'InStock',purchaseUrl:'https://eu.example/item'}
+ };
+ const retrieved=[];let order;
+ const paypal={async createOrder(body){order={...body,id:'CART_ORDER',status:'CREATED',links:[{rel:'approve',href:'https://www.sandbox.paypal.com/checkoutnow?token=CART_ORDER'}]};return order;},async getOrder(){return order;}};
+ await start({paypal,retrieve:async(id,options)=>{retrieved.push({id,options});return {...listing,id,title:id,price:offers[id].price,retailer:offers[id].retailer,offers:[offers[id]],selectionChanges:id==='lens-1'&&options.selection?.Mount!=='E'?[{name:'Mount',requested:options.selection?.Mount,actual:'E'}]:[]};}},async call=>{
+  const userId='bopit_00000000-0000-4000-8000-000000000001';
+  const items=[
+   {id:'lens-1',selection:{Mount:'E'},websiteIds:['shop.example'],quantity:2,expectedOffer:offers['lens-1']},
+   {id:'stand-1',selection:{Color:'Black'},websiteIds:['store.example'],quantity:1,expectedOffer:offers['stand-1']}
+  ];
+  const quoted=await call('/api/payments/quotes',{body:{items,config:{country:'US',currency:'USD'}},headers:{'x-bopit-user-id':userId}});
+  assert.equal(quoted.status,201);assert.equal(quoted.body.product.price,'319.90');assert.equal(quoted.body.product.items.length,2);assert.deepEqual(retrieved.map(x=>x.options.selection),[{Mount:'E'},{Color:'Black'}]);
+  const suffix=new URL(quoted.body.checkoutUrl).search;
+  const created=await call('/api/payments/orders'+suffix,{origin:'http://127.0.0.1:4317',body:{checkoutId:'cart-checkout-123'}});
+  assert.equal(created.status,201);assert.equal(order.purchase_units[0].items.length,2);assert.equal(order.purchase_units[0].items[0].quantity,'2');
+  const changed=await call('/api/payments/quotes',{body:{items:[{...items[0],expectedOffer:{...offers['lens-1'],price:139.95}}]},headers:{'x-bopit-user-id':userId}});
+  assert.equal(changed.status,409);assert.match(changed.body.error,/offer changed/);
+  const substituted=await call('/api/payments/quotes',{body:{items:[{...items[0],selection:{Mount:'F'},expectedOffer:offers['lens-1']}]},headers:{'x-bopit-user-id':userId}});
+  assert.equal(substituted.status,400);assert.match(substituted.body.error,/variant changed/);
+  const mixed=await call('/api/payments/quotes',{body:{items:[items[0],{id:'euro-1',websiteIds:['eu.example'],quantity:1,expectedOffer:offers['euro-1']}]},headers:{'x-bopit-user-id':userId}});
+  assert.equal(mixed.status,400);
+  assert.equal((await call('/api/payments/quotes',{body:{items:[{...items[0],quantity:11}]},headers:{'x-bopit-user-id':userId}})).status,400);
+ });
+});

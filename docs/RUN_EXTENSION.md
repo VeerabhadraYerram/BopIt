@@ -87,3 +87,6 @@ This opens an isolated Chrome extension and a local demonstration video, perform
 If Playwright is supplied by another installation, set `BOPIT_PLAYWRIGHT_MODULE` to its absolute module path. Set `BOPIT_DEMO_PORT=4921` when the default demo port 4919 is busy. `BOPIT_DEMO_CLOSE=1` closes the test browser after success. Reports are ignored under `.local/full-pipeline-live-report.json`; screenshots are under `test-results/full-pipeline-*.png`.
 
 Ordinary `npm run demo` stops after discovery and does not start a payment. Payment remains available in the product UI. Optional `BOPIT_DEMO_PROFILE` reuses an existing isolated profile. For automated tests only, `BOPIT_DEMO_APPROVE_SANDBOX=1` can click the Sandbox confirmation button when that profile already has a signed-in test buyer; it never supplies login credentials or approves live payments.
+
+
+Reload the extension after building v0.5. Add products from result cards to the cart, review current listings, then continue to the itemized PayPal Sandbox checkout.

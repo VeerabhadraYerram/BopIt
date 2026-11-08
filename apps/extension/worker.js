@@ -1,3 +1,5 @@
+import {cartKey} from './contracts/cart.mjs';
+let cartQueue=Promise.resolve();
 const storageReady = Promise.all([
   chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
   chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
@@ -5,7 +7,6 @@ const storageReady = Promise.all([
 chrome.runtime.onInstalled.addListener(details => {
   if (details.reason === 'install') chrome.runtime.openOptionsPage();
 });
-
 async function showInspector(tab, id, error = '') {
   await chrome.tabs.sendMessage(tab.id, { type: 'BOPIT_SHOW_PANEL', captureId: id, error });
 }
@@ -71,6 +72,32 @@ let capturing = false;
 let lastCapture = 0;
 let inspectorFrame = null;
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if(message?.type==='BOPIT_TRACKING_ENABLE'){
+    if(!sender.url?.startsWith(chrome.runtime.getURL('viewer.html'))){respond({error:'Open BopIt to enable desktop alerts.'});return;}
+    chrome.alarms.create('bopit-subscription-events',{periodInMinutes:1});respond({enabled:true});return;
+  }
+  if(message?.type==='BOPIT_CART'){
+    if(!sender.url?.startsWith(chrome.runtime.getURL('viewer.html'))){respond({error:'Open BopIt to update the cart.'});return;}
+    const work=cartQueue.then(async()=>{
+      await storageReady;const {bopitCart=[]}=await chrome.storage.local.get('bopitCart');let cart=bopitCart;
+      if(message.action==='add'){
+        const item=message.item;
+        if(!item||typeof item.id!=='string'||!/^[A-Za-z0-9_-]{1,160}$/.test(item.id))throw new Error('Invalid catalog product.');
+        const chosen=item.selection||{};
+        if(!chosen||typeof chosen!=='object'||Array.isArray(chosen)||Object.keys(chosen).length>12||Object.entries(chosen).some(([k,v])=>!k.trim()||k.length>100||typeof v!=='string'||!v.trim()||v.length>160))throw new Error('Invalid variant selection.');
+        const websiteIds=item.websiteIds||[];
+        if(!Array.isArray(websiteIds)||websiteIds.length>25||websiteIds.some(v=>typeof v!=='string'||v.length>200))throw new Error('Invalid selected seller.');
+        const key=cartKey({id:item.id,selection:chosen,websiteIds});
+        const old=cart.find(p=>p.key===key);if(old){if(old.quantity>=10)throw new Error('Maximum quantity is ten.');old.quantity++;}
+        else {if(cart.length>=12)throw new Error('Your cart can hold twelve different items.');cart.push({key,id:item.id,selection:chosen,websiteIds,expectedOffer:item.expectedOffer||null,quantity:1,title:String(item.title||'Selected item').slice(0,160),price:typeof item.price==='number'?item.price:null,currency:String(item.currency||''),retailer:String(item.retailer||'').slice(0,160)});}
+      }else if(message.action==='remove')cart=cart.filter(p=>p.key!==message.key);
+      else if(message.action==='quantity'){const item=cart.find(p=>p.key===message.key),n=Number(message.quantity);if(!item||!Number.isInteger(n)||n<1||n>10)throw new Error('Choose a quantity from one to ten.');item.quantity=n;}
+      else if(message.action==='clear')cart=[];
+      else if(message.action!=='read')throw new Error('Invalid cart action.');
+      if(message.action!=='read')await chrome.storage.local.set({bopitCart:cart});return {cart};
+    });cartQueue=work.catch(()=>{});work.then(respond).catch(e=>respond({error:e.message}));return true;
+  }
+
   if (['BOPIT_OVERLAY_STATE', 'BOPIT_SELECT_OBJECT', 'BOPIT_ADD_REGION'].includes(message?.type)) {
     if (!sender.tab) return;
     const fromInspector = sender.url?.startsWith(chrome.runtime.getURL('viewer.html')) && sender.frameId > 0;
@@ -116,4 +143,26 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
   capturing = true; lastCapture = Date.now();
   storageReady.then(() => capture(sender.tab)).then(() => respond({ ok: true })).catch(error => respond({ error: error.message })).finally(() => { capturing = false; });
   return true;
+});
+
+// Desktop notifications reuse installation-owned events from the established
+// subscription inbox. They do not create or refresh a second watch system.
+chrome.alarms.onAlarm.addListener(async alarm=>{
+  if(alarm.name!=='bopit-subscription-events')return;
+  try{
+    await storageReady;
+    const {pairingToken,channel3UserId,bopitNotifiedEventIds=[]}=await chrome.storage.local.get(['pairingToken','channel3UserId','bopitNotifiedEventIds']);
+    if(!pairingToken||!channel3UserId)return;
+    const response=await fetch('http://127.0.0.1:4317/api/subscriptions/events',{method:'POST',headers:{'content-type':'application/json','x-bopit-token':pairingToken,'x-bopit-user-id':channel3UserId},body:JSON.stringify({limit:100}),signal:AbortSignal.timeout(15000)});
+    if(!response.ok)return;
+    const {events=[]}=await response.json(),seen=new Set(bopitNotifiedEventIds),next=[...bopitNotifiedEventIds];
+    for(const item of events){
+      if(item.read||seen.has(item.eventId))continue;
+      const domain=item.data?.subject?.domain||item.data?.offer?.domain||'seller not supplied';
+      const title=item.type==='offer.price.changed'?'Price changed':item.type==='offer.availability.changed'?'Availability changed':'Product offer updated';
+      await chrome.notifications.create(`bopit-alert-${item.eventId}`,{type:'basic',iconUrl:chrome.runtime.getURL('notification-icon.png'),title:`BopIt · ${title}`,message:`${domain}. Open Price & Availability Alerts to review.`});
+      seen.add(item.eventId);next.push(item.eventId);
+    }
+    await chrome.storage.local.set({bopitNotifiedEventIds:next.slice(-200)});
+  }catch{/* Persisted events remain available in the alert inbox when the server returns. */}
 });

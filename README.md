@@ -4,7 +4,7 @@ A Chrome extension for discovering objects inside a paused video, investigating 
 
 **Pause → click the BopIt toolbar icon → scan on the video → select an object → details and shopping options.**
 
-This is a local developer prototype, not a Chrome Web Store release. Product identification is uncertain; no accuracy percentage or universal exact-match guarantee has been established. PayPal Sandbox checkout is available for selected catalog listings; rentals, cart management and creator payouts are not implemented.
+This is a local developer prototype, not a Chrome Web Store release. Product identification is uncertain; no accuracy percentage or universal exact-match guarantee has been established. PayPal Sandbox checkout is available for selected catalog listings; rentals and creator payouts are not implemented. A persistent cart supports itemized Sandbox checkout.
 
 ## Run it
 
@@ -204,4 +204,9 @@ PAYPAL_SANDBOX_CLIENT_SECRET=your_sandbox_app_secret
 
 Create/open an app under [PayPal Apps & Credentials → Sandbox](https://developer.paypal.com/dashboard/applications/sandbox). Approve checkout using a separate **Personal sandbox account** from [Sandbox Accounts](https://developer.paypal.com/dashboard/accounts), not your real buyer login. Full walkthrough: [Run the extension](docs/RUN_EXTENSION.md#test-paypal-sandbox).
 
-Validation: `npm test`, `npm run check`, `npm run build`, `npm run test:browser`, `npm run test:payments:browser`. Browser tests need Playwright (or `BOPIT_PLAYWRIGHT_MODULE`) and Chrome/Chromium. The payment browser test temporarily needs port 4317 free; it uses explicitly mocked PayPal and catalog responses. It covers selected-item quoting, approval, verified receipt, reload, cancellation, retries and missing credentials. Passing mocks does not establish that your PayPal account works; live Sandbox approval/capture must be tested separately.
+Validation: `npm test`, `npm run check`, `npm run build`, `npm run test:browser`, `npm run test:payments:browser`. Browser tests need Playwright (or `BOPIT_PLAYWRIGHT_MODULE`) and Chrome/Chromium. The payment browser test temporarily needs port 4317 free; it uses explicitly mocked PayPal and catalog responses. It covers itemized cart quotes, approval, verified receipt, reload, cancellation, retries and missing credentials. Passing mocks does not establish that your PayPal account works; live Sandbox approval/capture must be tested separately.
+
+
+## Persistent cart (v0.5)
+
+Add discovered items to the cart, adjust quantities, and review current seller prices and selected variants before checkout. PayPal Sandbox quotes are rebuilt from Channel3 at checkout; changed seller offers, substituted variants, unavailable items, mixed currencies and invalid totals are rejected. Cart data is stored in trusted extension storage. Existing Channel3 discovery, alerts, reporting and scene planning continue to use their established routes and persistence.

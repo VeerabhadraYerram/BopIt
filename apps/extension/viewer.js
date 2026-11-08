@@ -81,7 +81,7 @@ async function refreshSubscriptionInbox() {
       }
       target.append(group);
     }
-    $('#subscription-inbox-status').textContent = `${data.events.length} persisted alert event${data.events.length === 1 ? '' : 's'} loaded. This inbox refreshes on request; no desktop push is implemented.`;
+    $('#subscription-inbox-status').textContent = `${data.events.length} persisted alert event${data.events.length === 1 ? '' : 's'} loaded. Desktop notifications are optional and can be enabled above.`;
   } catch (error) {
     target.replaceChildren(node('p', channel3ErrorMessage(error, 'load the alert inbox'), 'variant-warning'));
     $('#subscription-inbox-status').textContent = 'Could not load persisted alerts.';
@@ -502,6 +502,18 @@ $('#rebuild-scene-plan').addEventListener('click', () => {
   $('#scene-plan-status').textContent = 'Plan rebuilt from the current detected finds. Select objects and start discovery.';
 });
 $('#refresh-subscription-inbox').addEventListener('click', refreshSubscriptionInbox);
+$('#enable-desktop-alerts').addEventListener('click', async event => {
+  const button=event.currentTarget;button.disabled=true;
+  try {
+    await investigator.listSubscriptionEvents();
+    const granted=await chrome.permissions.request({permissions:['notifications']});
+    if(!granted)throw new Error('Notification permission was not granted. Your alerts remain in the inbox.');
+    const result=await chrome.runtime.sendMessage({type:'BOPIT_TRACKING_ENABLE'});
+    if(result?.error)throw new Error(result.error);
+    $('#subscription-inbox-status').textContent='Desktop alerts are enabled. BopIt checks saved Channel3 events while the local server is available.';
+  } catch(error) { $('#subscription-inbox-status').textContent=channel3ErrorMessage(error,'enable desktop alerts'); }
+  finally { button.disabled=false; }
+});
 
 const query = new URLSearchParams(location.search);
 if (query.has('capture')) {

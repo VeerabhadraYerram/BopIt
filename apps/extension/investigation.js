@@ -30,7 +30,8 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     else if(activeBrowse?.nextPageToken)renderProducts(lastRendered.products,lastRendered.assessments,{nextPageToken:activeBrowse.nextPageToken,loadMore:loadMoreBrowse});
     else renderProducts(lastRendered.products,lastRendered.assessments,{nextPageToken:activeSearch?.nextPageToken,loadMore:loadMoreSearch});
   },api,market,product=>checkoutAction(
-    ()=>({id:product.id,selection:product.variantSelection||{},websiteIds:product.retailer?[product.retailer]:[],config:market(),expectedOffer:offerSnapshot(product)}),product));
+    ()=>({id:product.id,selection:product.variantSelection||{},websiteIds:product.retailer?[product.retailer]:[],config:market(),expectedOffer:offerSnapshot(product)}),product),
+    ()=>({url:getCapture()?.source?.documentUrl,timestamp:getCapture()?.source?.timestamp||0}));
   const cache = new Map(), searches = new Map(), views = new Map();
   const detailGenerations = new WeakMap();
   let palette = [], activeSearch = null, activeBrowse = null;
@@ -763,7 +764,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       const placeholder='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="12" fill="%23dff1e7"/></svg>';
       image.src=safeProductUrl(product.image)||placeholder;image.addEventListener('error',()=>image.src=placeholder,{once:true});
       const info=node('div',undefined,'product-info');info.append(node('div',product.title,'product-title'),node('div',`${formatProductPrice(product.price,product.currency)} · ${product.retailer||product.brand||'Retailer'}`,'product-meta'));
-      info.append(shopping.actions(product));
+      info.append(shopping.actions(product,()=>card.checkoutSelection));
       const assessment=ratings.get(product.id);
       if(assessment){const labels={identifier_match:'Identifier agrees · variant not verified',possible_match:'Possible match',similar:'Similar product',contradicted:'Conflicting evidence'};info.append(node('div',labels[assessment.verdict],'match-label'));const evidence=node('details');evidence.append(node('summary','Why this result?'));for(const [name,values] of [['Matches',assessment.matches],['Differences',assessment.differences],['Unknown',assessment.unknowns]])if(values.length)evidence.append(node('p',`${name}: ${values.join(' · ')}`));evidence.append(node('small',current?.results?.comparedImageIds?.includes(product.id) ? 'AI compared the video crop with catalog photos and listing text. This is supporting evidence, not proof of exact identity.' : 'AI compared the video crop with catalog text. A catalog photo was unavailable for this comparison.'));info.append(evidence);if(assessment.differences.length)info.append(node('small',`Difference: ${assessment.differences[0]}`));}else {info.append(node('small',product.matchType || 'Unverified catalog candidate')); if(product.matchExplanation) {const why=node('details');why.append(node('summary','Why this result?'),node('p',product.matchExplanation));info.append(why);}}
       card.checkoutSelection={id:product.id,selection:Object.fromEntries((product.variants?.selected||[]).map(v=>[v.name,v.label])),websiteIds:product.retailer?[product.retailer]:[],config:market(),expectedOffer:offerSnapshot(product)};
@@ -901,7 +902,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   async function renderProductSubscriptions(target, product, unavailableSelection) {
     const panel = node('section', undefined, 'subscription-controls');
     panel.append(node('h3', 'Price & Availability Alerts'));
-    panel.append(node('p', 'Choose supported price or availability updates, review active subscriptions below, and check the alert inbox for changes. Updates depend on Channel3 provider support and webhook delivery; they are not desktop notifications.', 'muted'));
+    panel.append(node('p', 'Choose supported price or availability updates, review active subscriptions below, and check the alert inbox for changes. Updates depend on Channel3 provider support and webhook delivery. Optional desktop notifications can be enabled in the alert inbox.', 'muted'));
     const eventTypes = [
       ['offer.price.changed', 'Price changes', true],
       ['offer.availability.changed', 'Availability changes', true],

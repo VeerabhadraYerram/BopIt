@@ -39,6 +39,7 @@ function renderProduct(product) {
   if (!product) return;
   document.querySelector('h1').textContent = product.name;
   document.querySelector('.price').textContent = `${product.currency} ${product.price}`;
+  let list=document.querySelector('#checkout-items');if(!list){list=document.createElement('ul');list.id='checkout-items';document.querySelector('.price').after(list);}list.replaceChildren();for(const item of product.items||[]){const row=document.createElement('li');row.textContent=`${item.name} × ${item.quantity} · ${item.currency} ${item.price} each${item.variants?' · '+item.variants:''}`;list.append(row);}
   if (product.fulfillment) document.querySelector('#product-description').textContent = `${product.variants || 'Listing default variant'}. Listed item price; no tax or shipping is added to this test payment.`;
 }
 

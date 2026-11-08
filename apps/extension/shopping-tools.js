@@ -3,8 +3,9 @@ import { formatProductPrice, safeProductUrl } from './product-display.js';
 import { availableReplacementVariantValues, retrieveReplacementVariant, persistSavedOfferUpdate } from './saved-offer-recovery.mjs';
 const $=s=>document.querySelector(s);
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-export function createShoppingTools(onChange, api, market, makeCheckoutAction) {
+export function createShoppingTools(onChange, api, market, makeCheckoutAction, getCartContext = () => ({})) {
   let saved=[],ready=false,queue=Promise.resolve(),lastProducts=[],lastKey='';
+  let cart=[],cartBusy=false;
   const catalog=new Map(),comparison=new Set(),pending=new Set();
   const initialized=chrome.storage.local.get('savedProducts').then(async data=>{
     saved=normalizeSavedProducts(data.savedProducts);ready=true;
@@ -16,6 +17,46 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction) {
     document.querySelectorAll('[data-compare-product]').forEach(b=>{const id=b.dataset.compareProduct;b.textContent=comparison.has(id)?'Remove from comparison':'Compare sellers';b.setAttribute('aria-pressed',String(comparison.has(id)));b.disabled=!comparison.has(id)&&comparison.size>=3;});
     $('#saved-count').textContent=String(saved.length);
   }
+  const cartPanel=el('section',undefined,'panel cart-panel');cartPanel.id='cart-panel';cartPanel.hidden=true;
+  const cartList=el('div'),cartReview=el('div');cartReview.id='cart-review';
+  const cartStatus=el('p','Prices are refreshed before payment.','muted');cartStatus.setAttribute('role','status');
+  const cartToggle=el('button','Cart · 0','secondary');cartToggle.id='cart-toggle';cartToggle.onclick=()=>{cartPanel.hidden=!cartPanel.hidden;if(!cartPanel.hidden)renderCart();};
+  $('header nav').prepend(cartToggle);
+  async function updateCart(action,fields={}) {
+    const result=await chrome.runtime.sendMessage({type:'BOPIT_CART',action,...fields});if(result?.error)throw new Error(result.error);
+    cart=result.cart||[];renderCart();return cart;
+  }
+  function cartPayload(){return cart.map(({id,selection,websiteIds,expectedOffer,quantity})=>({id,selection,websiteIds,expectedOffer,quantity}));}
+  function renderCart(){
+    cartToggle.textContent=`Cart · ${cart.reduce((n,item)=>n+item.quantity,0)}`;cartList.replaceChildren();cartReview.replaceChildren();
+    if(!cart.length){cartList.append(el('p','Your cart is empty. Add a product to keep exploring.'));return;}
+    const totals=new Map();
+    for(const item of cart){const row=el('article',undefined,'cart-line');row.append(el('strong',item.title),el('small',`${item.retailer||'Seller'} · ${Object.entries(item.selection||{}).map(([k,v])=>`${k}: ${v}`).join(' · ')||'Default variant'}`),el('p',formatProductPrice(item.price,item.currency)));
+      if(item.price!=null&&item.currency)totals.set(item.currency,(totals.get(item.currency)||0)+Math.round(item.price*100)*item.quantity);
+      const qty=document.createElement('select');for(let n=1;n<=10;n++)qty.add(new Option(String(n),String(n)));qty.value=String(item.quantity);qty.setAttribute('aria-label',`Quantity for ${item.title}`);qty.onchange=()=>updateCart('quantity',{key:item.key,quantity:Number(qty.value)}).catch(e=>cartStatus.textContent=e.message);row.append(qty);
+      const remove=el('button','Remove','secondary');remove.onclick=()=>updateCart('remove',{key:item.key}).catch(e=>cartStatus.textContent=e.message);row.append(remove);
+      const source=item.source?.url;try{const url=new URL(source);if(['http:','https:'].includes(url.protocol)){if(item.source.timestamp)url.searchParams.set('t',String(Math.floor(item.source.timestamp)));const link=el('a','Back to this moment ↗');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';row.append(link);}}catch{}
+      cartList.append(row);
+    }
+    for(const [currency,cents]of totals)cartList.append(el('p',`${formatProductPrice(cents/100,currency)} · estimated item subtotal`));
+    if(totals.size>1)cartList.append(el('p','A single payment requires items in one currency.','variant-warning'));
+  }
+  const reviewCart=el('button','Review current prices','secondary');reviewCart.id='review-cart';reviewCart.onclick=async()=>{
+    if(cartBusy||!cart.length)return;cartBusy=true;reviewCart.disabled=true;cartStatus.textContent='Checking current prices, variants and availability…';
+    try{const reviewed=await Promise.all(cart.map(async item=>({item,product:(await api('products/details',{id:item.id,selection:item.selection,websiteIds:item.websiteIds,config:market()})).product})));
+      cartReview.replaceChildren();for(const line of reviewed){const offer=line.item.websiteIds?.length?line.product.offers?.find(item=>line.item.websiteIds.includes(item.retailer)):null,current=offer||line.product;cartReview.append(el('p',`${line.product.title} × ${line.item.quantity}: ${formatProductPrice(current.price,current.currency)} · ${current.retailer||'Seller not supplied'} · ${current.availability||'Availability unknown'}`));if(line.product.selectionChanges?.length)cartReview.append(el('p','The requested variant changed. Remove and add the intended variant before checkout.','variant-warning'));}
+      cartStatus.textContent='Current listings loaded. Review variants and seller details before paying.';
+    }catch(e){cartStatus.textContent=e.message;}finally{cartBusy=false;reviewCart.disabled=false;}
+  };
+  const payCart=el('button','Continue with PayPal');payCart.id='pay-cart';payCart.onclick=async()=>{
+    if(cartBusy||!cart.length)return;const page=window.open('about:blank','_blank');if(!page){cartStatus.textContent='Allow the checkout tab, then try again.';return;}
+    page.opener=null;cartBusy=true;payCart.disabled=true;cartStatus.textContent='Preparing a fresh itemized quote…';
+    try{const data=await api('payments/quotes',{items:cartPayload(),config:market()});const url=new URL(data.checkoutUrl);if(url.origin!=='http://127.0.0.1:4317'||url.pathname!=='/checkout')throw new Error('Invalid checkout address.');page.location.replace(url.href);cartStatus.textContent='Review the fresh itemized quote before approving payment.';}
+    catch(e){page.close();cartStatus.textContent=e.message;}finally{cartBusy=false;payCart.disabled=false;}
+  };
+  cartPanel.append(el('h2','Your cart'),cartStatus,cartList,reviewCart,cartReview,payCart);$('main').prepend(cartPanel);
+  updateCart('read').catch(e=>cartStatus.textContent=e.message);
+  chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.bopitCart){cart=changes.bopitCart.newValue||[];renderCart();}});
   async function save(product) {
     if(pending.has(product.id))return;pending.add(product.id);syncButtons();
     try {await initialized;if(!ready)throw new Error('Saved items are unavailable');
@@ -134,8 +175,8 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction) {
     const table=el('table',undefined,'comparison-table'),head=el('tr');head.append(el('th','Detail'));for(const p of products){const th=el('th',p.title),remove=el('button','Remove','secondary');remove.onclick=()=>{comparison.delete(p.id);renderComparison();syncButtons();};th.append(remove);head.append(th);}const thead=el('thead');thead.append(head);table.append(thead);
     const body=el('tbody');for(const [label,value] of [['Price',p=>formatProductPrice(p.price,p.currency)],['Brand',p=>p.brand||'Not supplied'],['Retailer',p=>p.retailer||'Not supplied'],['Availability',p=>p.availability||'Not supplied'],['Category',p=>p.category||'Not supplied'],['Attributes',p=>p.attributes?.join(' · ')||p.condition||'Not supplied']]){const row=el('tr');row.append(el('th',label));products.forEach(p=>row.append(el('td',value(p))));body.append(row);}table.append(body);target.append(table);
   }
-  function actions(product) {
-    catalog.set(product.id,product);const row=el('div',undefined,'product-actions');const saveButton=el('button','Save product','save-product secondary');saveButton.dataset.saveProduct=product.id;saveButton.onclick=()=>save(product);
+  function actions(product,getSelection=()=>({id:product.id,selection:product.variantSelection||Object.fromEntries((product.variants?.selected||[]).map(v=>[v.name,v.label])),websiteIds:product.retailer?[product.retailer]:[]})) {
+    catalog.set(product.id,product);const row=el('div',undefined,'product-actions');const add=el('button','Add to cart','secondary');add.dataset.action='add-to-cart';add.onclick=async()=>{try{const chosen={...getSelection()};if(!chosen.websiteIds?.length)delete chosen.expectedOffer;const snapshot=chosen.expectedOffer;await updateCart('add',{item:{...chosen,title:product.title,price:snapshot?.price??product.price,currency:snapshot?.currency??product.currency,retailer:snapshot?.retailer||product.retailer,source:getCartContext()}});add.textContent='Added ✓';}catch(e){cartStatus.textContent=e.message;}};row.append(add);const saveButton=el('button','Save product','save-product secondary');saveButton.dataset.saveProduct=product.id;saveButton.onclick=()=>save(product);
     const compareButton=el('button','Compare sellers','compare-product secondary');compareButton.dataset.compareProduct=product.id;compareButton.onclick=()=>{if(comparison.has(product.id))comparison.delete(product.id);else if(comparison.size<3)comparison.add(product.id);renderComparison();syncButtons();};row.append(saveButton,compareButton);queueMicrotask(syncButtons);return row;
   }
   function prepare(products,selection,mode) {

@@ -1,7 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-import { signQuote, readQuote, catalogQuote } from './checkout-quotes.mjs';
+import { signQuote, readQuote, catalogQuote, cartQuote } from './checkout-quotes.mjs';
+import { cartItems } from '../../packages/contracts/cart.mjs';
 
 const BASE = 'http://127.0.0.1:4317';
 export const DEMO_PRODUCT = Object.freeze({ id: 'bopit-demo-mug', name: 'BopIt Sandbox Demo Mug', price: '12.00', currency: 'USD' });
@@ -17,9 +18,28 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
     if (!channel3Key) { send(503, { error: 'Channel3 key missing.' }); return true; }
     if (!req.headers['content-type']?.startsWith('application/json')) { send(415, { error: 'JSON required.' }); return true; }
     try {
-      const body = await readJson(req, 4096);
+      const body = await readJson(req, 16384);
       const userId = req.headers['x-bopit-user-id'];
       if (userId !== undefined && (typeof userId !== 'string' || !/^bopit_[a-f0-9-]{36}$/.test(userId))) throw new Error('Invalid anonymous BopIt user identifier.');
+      if (body.items !== undefined) {
+        if (Object.keys(body).some(k => !['items', 'config'].includes(k))) throw new Error('Invalid cart selection.');
+        const items=cartItems(body.items),lines=[];
+        const config=body.config||{};
+        for(const item of items){
+          const product=await retrieve(item.id,{apiKey:channel3Key,selection:item.selection,websiteIds:item.websiteIds,config,userId});
+          if(item.expectedOffer){
+            const expected=item.expectedOffer, keys=['retailer','price','currency','condition','availability','purchaseUrl'];
+            if(!expected||typeof expected!=='object'||Array.isArray(expected)||Object.keys(expected).length!==keys.length||Object.keys(expected).some(key=>!keys.includes(key))||typeof expected.retailer!=='string'||(expected.price!==null&&(typeof expected.price!=='number'||!Number.isFinite(expected.price)))||keys.slice(2).some(key=>expected[key]!==null&&typeof expected[key]!=='string'))throw new Error('Invalid expected seller offer.');
+            const fresh=item.websiteIds.length?product.offers?.find(offer=>item.websiteIds.includes(offer.retailer)):product.offers?.[0];
+            if(!fresh||keys.some(key=>(fresh[key]??null)!==(expected[key]??null))) {const error=new Error('A cart seller offer changed. Refresh product details and review the current offer before checkout.');error.status=409;throw error;}
+          }
+          lines.push({product,quantity:item.quantity,websiteIds:item.websiteIds});
+        }
+        const product=cartQuote(lines),signedQuote=signQuote(product,token);
+        if(signedQuote.length>11000)throw new Error('This cart has too much variant detail for checkout. Split it into smaller orders.');
+        send(201,{product,checkoutUrl:`${BASE}/checkout?quote=${encodeURIComponent(signedQuote)}`,expiresInSeconds:600});
+        return true;
+      }
       if (Object.keys(body).some(k => !['id', 'selection', 'websiteIds', 'config', 'expectedOffer'].includes(k))
           || typeof body.id !== 'string' || !/^[\w-]{1,160}$/.test(body.id)
           || (body.selection && (typeof body.selection !== 'object' || Array.isArray(body.selection) || Object.keys(body.selection).length > 12))
@@ -136,7 +156,8 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
           reference_id: product.id,
           custom_id: owner,
           description: product.name,
-          amount: { currency_code: product.currency, value: product.price }
+          ...(product.items ? { items: product.items.map(item=>({name:item.name,quantity:String(item.quantity),unit_amount:{currency_code:item.currency,value:item.price}})) } : {}),
+          amount: { currency_code: product.currency, value: product.price, ...(product.items?{breakdown:{item_total:{currency_code:product.currency,value:product.price}}}:{}) }
         }],
         application_context: {
           brand_name: 'BopIt',
