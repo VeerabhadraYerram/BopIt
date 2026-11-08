@@ -27,7 +27,8 @@ export async function searchChannel3(queryOrAttributes, {
   apiUrl = CHANNEL3_API_URL,
   filters,
   image,
-  config
+  config,
+  userId
 } = {}) {
   if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
     const error = new Error('Channel3 API key is missing or not configured.');
@@ -61,7 +62,7 @@ export async function searchChannel3(queryOrAttributes, {
       signal: AbortSignal.timeout(timeoutMs),
       headers: {
         'content-type': 'application/json',
-        'x-api-key': apiKey.trim()
+        'x-api-key': apiKey.trim(),...(userId?{'x-user-id':userId}:{})
       },
       body: JSON.stringify(payload)
     });
@@ -124,14 +125,15 @@ export async function searchChannel3(queryOrAttributes, {
   };
 }
 
-export async function retrieveChannel3(id, { apiKey, selection = {}, fetcher = fetch } = {}) {
+export async function retrieveChannel3(id, { apiKey, selection = {}, fetcher = fetch, config, userId } = {}) {
   if (!/^[a-zA-Z0-9_-]{1,160}$/.test(id)) throw new Error('Invalid product ID');
   const url = new URL(`https://api.trychannel3.com/v1/products/${encodeURIComponent(id)}`);
+  if(config)for(const key of ['country','currency'])if(config[key])url.searchParams.set(key,config[key]);
   for (const [key, value] of Object.entries(selection)) {
     if (typeof value !== 'string' || key.length > 100 || value.length > 160) throw new Error('Invalid variant');
     url.searchParams.set(`option_${key}`, value);
   }
-  const response = await fetcher(url, { headers: { 'x-api-key': apiKey }, signal: AbortSignal.timeout(20000) });
+  const response = await fetcher(url, { headers: { 'x-api-key': apiKey, ...(userId?{'x-user-id':userId}:{}) }, signal: AbortSignal.timeout(20000) });
   if (!response.ok) throw new Error(`Channel3 product details unavailable (${response.status}).`);
   const data = await response.json();
   const { normalizeChannel3Product } = await import('../../packages/contracts/discovery.mjs');

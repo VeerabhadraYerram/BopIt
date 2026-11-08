@@ -1,19 +1,22 @@
 import { formatProductPrice, safeProductUrl } from './product-display.js';
 import { createShoppingTools } from './shopping-tools.js';
+import { createCommerceTools, shoppingIdentity } from './commerce-tools.js';
 import { searchPlan } from './contracts/profile.mjs';
 const $ = s => document.querySelector(s);
 const node = (tag, text, className) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; };
 const sourceLabel = { visible: 'Seen in frame', caption: 'Caption claim', video_speech: 'Video speech claim', viewer_note: 'Viewer-provided · unverified', inferred: 'Inference · unverified' };
-export function createInvestigator({ getCapture, crop, getSelected }) {
+export function createInvestigator({ getCapture, crop, getSelected, getObjects = () => [] }) {
   let generation = 0, controller = null, selected = null, intent = 'exact', current = null;
   let lastRendered = { products: [], assessments: [] };
-  const shopping = createShoppingTools(() => renderProducts(lastRendered.products,lastRendered.assessments));
+  const shopping = createShoppingTools(() => renderProducts(lastRendered.products,lastRendered.assessments),{openSeller:async product=>{const page=window.open('about:blank','_blank');if(!page)throw new Error('Allow the seller tab to open.');page.opener=null;try{const data=await api('commerce/details',{id:product.id,selection:Object.fromEntries((product.variants?.selected||[]).map(v=>[v.name,v.label])),config:market()});if(data.product.selectionChanges?.length)throw new Error('Saved variant changed. Inspect the listing before buying.');const url=safeProductUrl(data.product.purchaseUrl);if(!url)throw new Error('No current seller link is available.');page.location.replace(url);}catch(e){page.close();throw e;}}});
   const cache = new Map(), searches = new Map(), views = new Map();
+  const commerce=createCommerceTools({api,getContext:()=>({capture:getCapture(),object:selected,profile:current?.profile,image:()=>selected?crop(selected.box):null}),getMarket:market,getObjects,onResults:products=>{renderProducts(products);$('#products-notice').textContent=`${products.length} catalog options. Review identity, configuration and seller facts. We may earn a commission from retailer links.`;},onRefine:changeSearch});
   function cancel() { lastRendered = { products: [], assessments: [] };generation++; controller?.abort(); controller = null; $('#search-products-btn').disabled = false; }
-  function reset() { cancel(); cache.clear(); searches.clear(); views.clear(); selected = null; current = null; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#context-note').value = ''; $('#use-youtube').checked = false; }
+  function reset() { cancel(); cache.clear(); searches.clear(); views.clear(); selected = null; current = null; commerce.reset(); $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#context-note').value = ''; $('#use-youtube').checked = false; }
   async function api(path, body, signal) {
     const { pairingToken } = await chrome.storage.local.get('pairingToken');
     if (!pairingToken) throw new Error('Open Settings → Connect local server first.');
+    if(path.startsWith('commerce/')||['products/search','products/details','products/compare'].includes(path))body={...body,userId:await shoppingIdentity()};
     const response = await fetch(`http://127.0.0.1:4317/api/${path}`, { method: 'POST', headers: { 'content-type':'application/json','x-bopit-token':pairingToken }, body:JSON.stringify(body), signal });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || 'Request failed.');
@@ -52,7 +55,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   }
   async function select(object, force = false) {
     cancel(); const version = generation; controller = new AbortController(); const signal = controller.signal;
-    selected = object; current = null; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#products-container').replaceChildren();
+    selected = object; current = null; commerce.onSelect(); commerce.event('object_selected'); $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#products-container').replaceChildren();
     setContextInfo(); $('#view-status').textContent = `${(views.get(object.id)||[]).length} / 2 additional views. Use clear images of the same item.`; $('#clear-views').hidden = !(views.get(object.id)||[]).length; $('#investigation-status').textContent = '1 · Inspecting selected object & available context…'; $('#products-notice').textContent = 'Product search follows the detailed object investigation.';
     const c = getCapture(), ctx = context(), additionalImages = views.get(object.id)||[], key = JSON.stringify([c.captureId, object, ctx, additionalImages]);
     try {
@@ -79,17 +82,21 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   async function runSearch(version, signal, force) {
     if (!current) return;
     const plan = searchPlan(current.profile,intent,$('#budget').value), config = market();
-    const key = JSON.stringify([current.key,intent,$('#budget').value,config]);
+    plan.filters={...commerce.filters(),...plan.filters};
+    const key = JSON.stringify([current.key,intent,$('#budget').value,config,plan.filters]);
     $('#product-query').value = plan.query; $('#products-notice').textContent = `Searching ${intent === 'exact' ? 'identity candidates' : intent === 'look' ? 'similar appearances' : 'functional alternatives'}…`;
     $('#search-products-btn').disabled = true;
     try {
       let data = force ? null : searches.get(key);
       if (!data) {
-        data = await api('products/search', { query:plan.query,image:plan.useImage ? crop(current.object.box) : undefined,limit:12,filters:plan.filters,config }, signal);
+        const seed=current.exactSeed;
+        data = intent==='look'&&seed ? await api('commerce/similar',{id:seed.id,filters:plan.filters,config},signal) : await api('products/search', { query:plan.query,image:plan.useImage ? crop(current.object.box) : undefined,limit:12,filters:plan.filters,config }, signal);
+        if(intent==='exact'&&data.products?.length)current.exactSeed=data.products[0];
         if (version !== generation) return;
         searches.set(key,data);
       }
       if (version !== generation) return;
+      if(intent==='exact'&&data.products?.length)current.exactSeed=data.products[0];
       current.results = data; current.searchKey = key; renderProducts(data.products || [], data.assessments || []);
       $('#investigation-status').textContent = '1 ✓ Details extracted · 2 ✓ Catalog searched';
       if (intent === 'exact' && data.products?.length && !data.assessments) await compareCandidates(version,signal);
@@ -101,7 +108,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     const state = current;
     $('#investigation-status').textContent = '1 ✓ Details · 2 ✓ Catalog · 3 · Comparing identifiers & catalog evidence…';
     try {
-      const data = await api('products/compare',{ image:crop(state.object.box),profile:state.profile,ids:state.results.products.slice(0,3).map(p=>p.id) },signal);
+      const data = await api('products/compare',{ image:crop(state.object.box),profile:state.profile,ids:state.results.products.slice(0,3).map(p=>p.id),config:market() },signal);
       if (version !== generation || current !== state) return;
       const detailed = new Map(data.products.map(p=>[p.id,p]));
       state.results.products = state.results.products.map(p=>detailed.get(p.id)||p);state.results.assessments=data.assessments;state.results.comparedImageIds=data.comparedImageIds||[];
@@ -132,9 +139,10 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       info.append(shopping.actions(product));
       const assessment=ratings.get(product.id);
       if(assessment){const labels={identifier_match:'Identifier agrees · variant not verified',possible_match:'Possible match',similar:'Similar product',contradicted:'Conflicting evidence'};info.append(node('div',labels[assessment.verdict],'match-label'));const evidence=node('details');evidence.append(node('summary','Why this result?'));for(const [name,values] of [['Matches',assessment.matches],['Differences',assessment.differences],['Unknown',assessment.unknowns]])if(values.length)evidence.append(node('p',`${name}: ${values.join(' · ')}`));evidence.append(node('small',current?.results?.comparedImageIds?.includes(product.id) ? 'AI compared the video crop with catalog photos and listing text. This is supporting evidence, not proof of exact identity.' : 'AI compared the video crop with catalog text. A catalog photo was unavailable for this comparison.'));info.append(evidence);if(assessment.differences.length)info.append(node('small',`Difference: ${assessment.differences[0]}`));}else {info.append(node('small',product.matchType || 'Unverified catalog candidate')); if(product.matchExplanation) {const why=node('details');why.append(node('summary','Why this result?'),node('p',product.matchExplanation));info.append(why);}}
+      card.commerceProduct=product;info.append(commerce.productTools(()=>card.commerceProduct));
       card.checkoutAction=checkoutAction(() => card.checkoutSelection || { id: product.id },product);info.append(card.checkoutAction);
       const details=node('button','Specifications & variants','secondary');details.onclick=()=>showDetails(product,card,details);info.append(details);
-      const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','Buy from seller ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';info.append(link);}
+      const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','Buy from seller ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.addEventListener('click',()=>commerce.event('product_link',card.commerceProduct.id));info.append(link);}
       card.append(image,info);$('#products-container').append(card);
     }
   }
@@ -155,7 +163,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       if(!checkout){note.textContent='Allow this checkout tab to open, then try again.';return;}
       checkout.opener=null;button.disabled=true;note.textContent='Checking the selected listing and current catalog price…';
       try {
-        const data=await api('payments/quotes',selection());
+        const data=await api('payments/quotes',{...selection(),config:market()});
         const url=new URL(data.checkoutUrl);
         if(url.origin!=='http://127.0.0.1:4317'||url.pathname!=='/checkout')throw new Error('Invalid checkout address.');
         checkout.location.replace(url.href);
@@ -169,8 +177,8 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     const old=card.querySelector('.catalog-details');if(old&&Object.keys(selection).length===0){old.hidden=!old.hidden;return;}
     const box=old||node('div',undefined,'catalog-details');if(!old)card.append(box);box.hidden=false;box.replaceChildren(node('p','Loading catalog specifications…'));button.disabled=true;
     try {
-      const data=await api('products/details',{id:product.id,selection},controller?.signal);if(!card.isConnected)return;
-      const p=data.product;card.checkoutAction?.updateOffer(p);card.checkoutSelection = { id: p.id, selection: Object.fromEntries((p.variants?.selected || []).map(v=>[v.name,v.label])) };box.replaceChildren(node('p','Source: Channel3 / merchant listing. These specifications describe this catalog product; identity with the video object is not established.','muted'));
+      const data=await api('products/details',{id:product.id,selection,config:market()},controller?.signal);if(!card.isConnected)return;
+      const p=data.product;card.commerceProduct=p;card.checkoutAction?.updateOffer(p);card.checkoutSelection = { id: p.id, selection: Object.fromEntries((p.variants?.selected || []).map(v=>[v.name,v.label])) };box.replaceChildren(node('p','Source: Channel3 / merchant listing. These specifications describe this catalog product; identity with the video object is not established.','muted'));
       if(p.selectionChanges?.length)box.append(node('p',`Requested variant changed: ${p.selectionChanges.map(c=>`${c.name}: ${c.requested} → ${c.actual}`).join('; ')}. Review before continuing.`,'variant-warning'));
       box.append(node('p',p.description||'No description supplied.'));
       const dl=node('dl');for(const [k,v] of Object.entries(p.structuredAttributes||{})){dl.append(node('dt',k),node('dd',Array.isArray(v)?v.join(', '):String(v)));}box.append(dl);
@@ -179,7 +187,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       if(!measurements)box.append(node('p','Dimensions / weight: not supplied by this listing.','muted'));
       const effective=Object.fromEntries((p.variants?.selected||[]).map(v=>[v.name,v.label]));
       for(const option of p.variants?.options||[]){const label=node('label',option.name),sel=node('select');for(const v of option.values||[]){const opt=node('option',`${v.label}${!v.exists?' · different combination':v.available==='OutOfStock'?' · out of stock':v.available==null?' · stock unknown':''}`);opt.value=v.label;opt.selected=effective[option.name]===v.label;sel.append(opt);}sel.onchange=()=>{const value=option.values.find(v=>v.label===sel.value);showDetails({...p,id:value?.product_id||p.id},card,button,{...effective,[option.name]:sel.value});};label.append(sel);box.append(label);}
-      for(const offer of p.offers||[]){const url=safeProductUrl(offer.purchaseUrl);if(!url)continue;const a=node('a',`${offer.retailer} · ${formatProductPrice(offer.price,offer.currency)} · ${offer.availability||'Stock unknown'} ↗`);a.href=url;a.target='_blank';a.rel='noopener noreferrer';box.append(a);}
+      for(const offer of p.offers||[]){const url=safeProductUrl(offer.purchaseUrl);if(!url)continue;const a=node('a',`${offer.retailer} · ${formatProductPrice(offer.price,offer.currency)} · ${offer.availability||'Stock unknown'} ↗`);a.href=url;a.target='_blank';a.rel='noopener noreferrer';a.addEventListener('click',()=>commerce.event('product_link',p.id));box.append(a);}
       box.append(node('small','Compatibility is advisory; confirm the specifications for your equipment. Unknown stock is not confirmed availability.'));
     }catch(e){if(e.name!=='AbortError')box.replaceChildren(node('p',e.message));}finally{button.disabled=false;}
   }
@@ -187,7 +195,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     cancel();const version=generation;controller=new AbortController();const signal=controller.signal;query=(query||'').trim();
     if(!query){$('#products-notice').textContent='Enter a product query.';return;}
     $('#products-container').replaceChildren();$('#products-notice').textContent=`Searching Channel3 for “${query}”…`;$('#search-products-btn').disabled=true;
-    try{const plan=searchPlan({category:query,queries:{exact:query}},'exact',$('#budget').value);const data=await api('products/search',{query,limit:12,filters:plan.filters,config:market()},signal);if(version!==generation)return;renderProducts(data.products||[]);if(!preserveProfile)$('#investigation-status').textContent='Manual catalog search · not an identity verification';}
+    try{const plan=searchPlan({category:query,queries:{exact:query}},'exact',$('#budget').value);const data=await api('products/search',{query,limit:12,filters:{...commerce.filters(),...plan.filters},config:market()},signal);if(version!==generation)return;renderProducts(data.products||[]);if(!preserveProfile)$('#investigation-status').textContent='Manual catalog search · not an identity verification';}
     catch(e){if(version===generation&&e.name!=='AbortError')$('#products-notice').textContent=e.message;}
     finally{if(version===generation)$('#search-products-btn').disabled=false;}
   }

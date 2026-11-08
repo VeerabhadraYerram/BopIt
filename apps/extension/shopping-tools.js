@@ -2,7 +2,7 @@ import { normalizeSavedProducts, toggleSavedProduct, buildProductComparison, fil
 import { formatProductPrice, safeProductUrl } from './product-display.js';
 const $=s=>document.querySelector(s);
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-export function createShoppingTools(onChange) {
+export function createShoppingTools(onChange,{openSeller}={}) {
   let saved=[],ready=false,queue=Promise.resolve(),lastProducts=[],lastKey='';
   const catalog=new Map(),comparison=new Set(),pending=new Set();
   const initialized=chrome.storage.local.get('savedProducts').then(async data=>{
@@ -24,7 +24,7 @@ export function createShoppingTools(onChange) {
   }
   function renderSaved() {
     const target=$('#wishlist-container');target.replaceChildren();$('#wishlist-notice').textContent=saved.length?`${saved.length} saved on this device. Prices may have changed.`:'Save a find to come back to it.';
-    for(const product of saved){const card=el('article',undefined,'wishlist-item');card.append(el('strong',product.title||'Saved product'),el('small',formatProductPrice(product.price,product.currency)));const url=safeProductUrl(product.purchaseUrl);if(url){const link=el('a','View retailer ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}const remove=el('button','Remove','secondary');remove.onclick=()=>save(product);card.append(remove);target.append(card);}syncButtons();
+    for(const product of saved){const card=el('article',undefined,'wishlist-item');card.append(el('strong',product.title||'Saved product'),el('small',formatProductPrice(product.price,product.currency)));const url=safeProductUrl(product.purchaseUrl);if(url){const link=el('a','View retailer ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';if(openSeller)link.onclick=event=>{event.preventDefault();openSeller(product).catch(e=>$('#wishlist-notice').textContent=e.message);};card.append(link);}const remove=el('button','Remove','secondary');remove.onclick=()=>save(product);card.append(remove);target.append(card);}syncButtons();
   }
   function renderComparison() {
     const products=[...comparison].map(id=>catalog.get(id)).filter(Boolean),panel=$('#comparison-panel'),target=$('#comparison-container');panel.hidden=!products.length;target.replaceChildren();if(!products.length)return;

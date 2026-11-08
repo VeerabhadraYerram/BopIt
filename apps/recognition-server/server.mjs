@@ -9,6 +9,10 @@ import { validateContext, validateProfile } from '../../packages/contracts/profi
 import { validateImage } from './image.mjs';
 import { createPairingHandler } from './pairing.mjs';
 import { searchChannel3, retrieveChannel3, catalogImage } from './channel3.mjs';
+import { createChannel3Client } from './channel3-client.mjs';
+import { createCommerceHandler } from './commerce-routes.mjs';
+import { createCommerceStore } from './commerce-store.mjs';
+import { filters as validateFilters, locale as validateLocale, identity as validateIdentity } from '../../packages/contracts/commerce.mjs';
 import { createPaypalClient } from './paypal.mjs';
 import { handlePayment } from './payments.mjs';
 export { validateImage } from './image.mjs';
@@ -18,9 +22,11 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const MAX_BODY = 12 * 1024 * 1024;
 
-export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, segment = segmentObjects, paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
+export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, segment = segmentObjects, commerceClient, commerceStorePath, webhookSecret='', paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
   const pairing = createPairingHandler(token);
   const paymentOrders = new Map();
+  const usage=[];
+  const commerce=createCommerceHandler({token,client:commerceClient||createChannel3Client({apiKey:channel3Key,onRequest:entry=>{usage.push({...entry,at:new Date().toISOString()});if(usage.length>300)usage.shift();}}),store:createCommerceStore(commerceStorePath),webhookSecret,usage});
   const paymentsConfigured = Boolean(paypalClientId && paypalClientSecret && !/^(your_|replace_)/i.test(paypalClientId) && !/^(your_|replace_)/i.test(paypalClientSecret));
   let inFlight = 0;
   let lastRequest = 0;
@@ -43,6 +49,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Bopit-Token');
       res.writeHead(204); return res.end();
     }
+    if (await commerce(req,res,{send,extensionOrigin})) return;
     if (await handlePayment(req, res, { paypal, paymentOrders, paymentsConfigured, send, token, extensionOrigin, retrieve, channel3Key })) return;
     if (await pairing(req, res, { origin, extensionOrigin, send })) return;
     if (req.method === 'GET' && req.url === '/') {
@@ -76,7 +83,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
           if (!channel3Key) return send(503, { error: 'Channel3 key missing.' });
           if (body.selection && (typeof body.selection !== 'object' || Array.isArray(body.selection) || Object.keys(body.selection).length > 12)) return send(400, { error: 'Invalid variant selection.' });
           inFlight++;
-          try { return send(200, { product: await retrieve(body.id, { apiKey: channel3Key, selection: body.selection }) }); }
+          try { return send(200, { product: await retrieve(body.id, { apiKey: channel3Key, selection: body.selection, config:validateLocale(body.config),userId:validateIdentity(body.userId) }) }); }
           finally { inFlight--; }
         }
         if (!apiKey) return send(503, { error: 'Gemini key missing.' });
@@ -105,7 +112,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
         if (!channel3Key || !Array.isArray(body.ids) || !body.ids.length || body.ids.length > 6 || body.ids.some(id => typeof id !== 'string' || !/^[\w-]{1,160}$/.test(id))) return send(400, { error: 'Select up to six valid catalog products.' });
         inFlight++;
         try {
-          const products = await Promise.all(body.ids.map(id => retrieve(id, { apiKey: channel3Key })));
+          const products = await Promise.all(body.ids.map(id => retrieve(id, { apiKey: channel3Key,config:validateLocale(body.config),userId:validateIdentity(body.userId) })));
           const candidateImages = (await Promise.all(products.slice(0, 3).map(p => catalogImage(p)))).filter(Boolean);
           const assessments = await compare(crop.base64, profile, products, { apiKey, model, candidateImages });
           return send(200, { assessments, products, comparedImageIds: candidateImages.map(i => i.id), method: 'AI comparison of object crop, available catalog photos and listing text; not proof of exact identity' });
@@ -133,10 +140,8 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
         try {
           if (typeof query === 'string' && query.length > 4000) return send(400, { error: 'Search query too long.' });
           if (body.image) validateImage(body.image);
-          const config = { country: 'US', currency: 'USD' };
-          if (body.config?.country && /^[A-Z]{2}$/.test(body.config.country)) config.country = body.config.country;
-          if (body.config?.currency && /^[A-Z]{3}$/.test(body.config.currency)) config.currency = body.config.currency;
-          const results = await searchProducts(query, { apiKey: channel3Key, limit: body.limit, filters: body.filters, image: body.image, config });
+          const config=validateLocale(body.config);
+          const results = await searchProducts(query, { apiKey: channel3Key, limit: body.limit, filters: validateFilters(body.filters), image: body.image, config, userId:validateIdentity(body.userId) });
           return send(200, results);
         } catch (error) {
           const status = error.status && error.status >= 400 && error.status < 600 ? error.status : (error.code === 'INVALID_QUERY' ? 400 : 502);
@@ -182,7 +187,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const tokenPath = resolve(dir, 'pairing-token');
   let token;
   try { token = (await readFile(tokenPath, 'utf8')).trim(); } catch { token = randomBytes(32).toString('hex'); await writeFile(tokenPath, token, { mode: 0o600 }); }
-  const app = createApp({ token, apiKey: process.env.GEMINI_API_KEY, channel3Key: process.env.CHANNEL3_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', paypalClientId: process.env.PAYPAL_SANDBOX_CLIENT_ID, paypalClientSecret: process.env.PAYPAL_SANDBOX_CLIENT_SECRET });
+  const app = createApp({ token, apiKey: process.env.GEMINI_API_KEY, channel3Key: process.env.CHANNEL3_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', paypalClientId: process.env.PAYPAL_SANDBOX_CLIENT_ID, paypalClientSecret: process.env.PAYPAL_SANDBOX_CLIENT_SECRET, commerceStorePath:resolve(dir,'commerce-state.json'),webhookSecret:process.env.CHANNEL3_WEBHOOK_SECRET||'' });
   app.on('error', error => { console.error(error.code === 'EADDRINUSE' ? 'Port 4317 is already in use. Stop the other BopIt server first.' : 'Server could not start.'); process.exitCode = 1; });
   app.listen(PORT, '127.0.0.1', () => console.log(`BopIt setup: ${BASE}\nGemini key ${process.env.GEMINI_API_KEY ? 'configured; live call still needs verification' : 'missing; see README.md'}\nChannel3 key ${process.env.CHANNEL3_API_KEY ? 'configured' : 'missing; add CHANNEL3_API_KEY to .env'}. No images or credentials are logged.`));
 }

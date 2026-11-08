@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "BopIt \u2014 Explore this moment",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "Pause a video, explore objects and product evidence, discover retailer offers, and test selected-item PayPal Sandbox checkout.",
   "permissions": [
     "activeTab",
     "scripting",
-    "storage"
+    "storage",
+    "alarms"
   ],
   "host_permissions": [
     "http://127.0.0.1:4317/*"
@@ -40,5 +41,8 @@
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'none'; connect-src http://127.0.0.1:4317; img-src 'self' data: blob: https:; style-src 'self' 'unsafe-inline'"
-  }
+  },
+  "optional_permissions": [
+    "notifications"
+  ]
 }

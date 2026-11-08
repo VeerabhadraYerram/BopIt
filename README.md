@@ -4,7 +4,7 @@ A Chrome extension for discovering objects inside a paused video, investigating 
 
 **Pause → click the BopIt toolbar icon → scan on the video → select an object → details and shopping options.**
 
-This is a local developer prototype, not a Chrome Web Store release. Product identification is uncertain; no accuracy percentage or universal exact-match guarantee has been established. PayPal Sandbox checkout is available for selected catalog listings; rentals, cart management and creator payouts are not implemented.
+This is a local developer prototype, not a Chrome Web Store release. Product identification is uncertain; no accuracy percentage or universal exact-match guarantee has been established. PayPal Sandbox checkout is available for selected catalog listings; rentals and creator payouts are not implemented. A persistent cart supports itemized Sandbox checkout.
 
 ## Run it
 
@@ -169,3 +169,21 @@ PAYPAL_SANDBOX_CLIENT_SECRET=your_sandbox_app_secret
 Create/open an app under [PayPal Apps & Credentials → Sandbox](https://developer.paypal.com/dashboard/applications/sandbox). Approve checkout using a separate **Personal sandbox account** from [Sandbox Accounts](https://developer.paypal.com/dashboard/accounts), not your real buyer login. Full walkthrough: [Run the extension](docs/RUN_EXTENSION.md#test-paypal-sandbox).
 
 Validation: `npm test`, `npm run check`, `npm run build`, `npm run test:browser`, `npm run test:payments:browser`. Browser tests need Playwright (or `BOPIT_PLAYWRIGHT_MODULE`) and Chrome/Chromium. The payment browser test temporarily needs port 4317 free; it uses explicitly mocked PayPal and catalog responses. It covers selected-item quoting, approval, verified receipt, reload, cancellation, retries and missing credentials. Passing mocks does not establish that your PayPal account works; live Sandbox approval/capture must be tested separately.
+
+
+## Channel3 discovery and cart (v0.5)
+
+All shopping calls start from explicit selection or controls; hovering never searches. The initial scan remains Gemini detection followed by independent outline refinement.
+
+- **Similar look / More like this:** native Channel3 similar-product discovery from an existing candidate; generic search remains available when there is no seed.
+- **Refine matches:** category discovery and category-defined attributes, editable colour palettes, new/pre-owned condition and viewer-supplied width/height limits. Unknown listing data is never proof of condition or stock. India/INR was removed from the market selector because the documented catalog locale list does not support it; supported markets remain selectable.
+- **Explore more:** brand/category/seller Browse, merchant URL Lookup with viewer-supplied identity provenance, and budget-constrained multi-object scene candidates. Scene plans do not promise compatibility or a guaranteed visual/functional result.
+- **Tell us what matters:** buffered Channel3 Conversations with a per-session conversation ID, plus explicit agentic Search using the selected item's context. Neither runs while passively watching or hovering.
+- **Price history:** real dated prices and accessible chart/list, with explicit empty-history and provider-error states.
+- **Tracked moments:** target price and selected variant, real Channel3 product subscriptions, manual fresh-price checks, alternatives, removal and durable source-moment storage. A signed webhook connection is needed for automatic updates.
+- **Cart:** service-worker-serialized storage across extension panels; quantity, remove, original moment links, same-currency subtotals, fresh listing/variant review, advisory mount differences and itemized PayPal Sandbox quote/receipt. Mixed-currency checkout, out-of-stock quotes and unresolved variant substitutions are rejected; adding items remains independent of advisory compatibility warnings. Very large quotes may require smaller orders.
+- **Activity & attribution:** deduplicated BopIt interaction records, pseudonymous Channel3 request attribution, provider click/transaction reporting and actual request evidence. Records shown are scoped to the current installation identity. Provider reporting can be delayed; no creator royalty is inferred from a click, time proximity or Sandbox capture. This is not the proposed AG Studio creator dashboard.
+
+Saved retailer links are refreshed before navigation. No keys are shipped to Chrome. Tracking state/events are stored in ignored `.local/commerce-state.json`; cart data and the pseudonymous shopping identity are in trusted extension storage.
+
+See [full feature setup and verification](docs/CHANNEL3_FEATURES.md).
