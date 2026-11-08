@@ -106,6 +106,8 @@ button.addEventListener('click', async () => {
 });
 
 if (query.has('cancelled')) {
+  document.querySelector('h1').textContent = 'Checkout cancelled';
+  document.querySelector('.price').hidden = true;
   show('Payment cancelled in PayPal Sandbox. Return to your video tab, or reopen checkout to try again.', 'cancelled');
   button.hidden = true;
   try { sessionStorage.removeItem(storageKey); } catch { /* Optional storage. */ }

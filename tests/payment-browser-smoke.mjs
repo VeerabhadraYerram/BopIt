@@ -65,6 +65,7 @@ try {
   await viewer.locator('[data-action="sandbox-checkout"]').first().waitFor();
   const popup=context.waitForEvent('page');await viewer.locator('[data-action="sandbox-checkout"]').first().click();const checkout=await popup;
   await checkout.waitForURL(`${base}/checkout?quote=*`);
+  const quotedCheckoutUrl=checkout.url();
 
   await checkout.waitForFunction(() => !document.querySelector('#buy').disabled);
   assert.equal(await checkout.locator('h1').innerText(),'Fixture headphones');
@@ -85,6 +86,10 @@ try {
   await mkdir('test-results', { recursive: true });
   await checkout.screenshot({ path: 'test-results/paypal-receipt.png', fullPage: true });
 
+  await checkout.goto(`${quotedCheckoutUrl}&cancelled=1`);
+  assert.equal(await checkout.locator('h1').innerText(),'Checkout cancelled');
+  assert.equal(await checkout.locator('.price').isHidden(),true);
+  assert.equal(captures,1,'Cancelled quote return must not submit a capture');
   await checkout.goto(`${base}/checkout`);
   await checkout.waitForFunction(() => !document.querySelector('#buy').disabled);
   failCreate = true;

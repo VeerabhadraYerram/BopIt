@@ -13,7 +13,7 @@
     "test": "node --test tests/*.test.mjs",
     "check": "node scripts/check.mjs",
     "test:browser": "node tests/experience-smoke.mjs",
-    "demo": "node scripts/demo.mjs",
+    "demo": "node --env-file-if-exists=.env scripts/demo.mjs",
     "warm:outlines": "node scripts/warm-segmentation.mjs",
     "test:payments:browser": "node tests/payment-browser-smoke.mjs"
   },
