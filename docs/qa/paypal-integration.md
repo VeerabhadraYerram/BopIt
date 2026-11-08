@@ -19,7 +19,7 @@ The checkout identifies the simulation as **Fulfilled via BopIt Agentic Concierg
 - Payment browser test passed using the real BopIt checkout server with **mocked catalog and PayPal providers**: selected-item quote, approval, verified receipt, reload without a second capture, create retry, cancellation, pending retry after restart and configuration recovery.
 - Live Gemini + Channel3 walkthrough passed: catalog-photo demonstration clip with a supplied caption; two detected objects, 12 extracted attributes, 12 catalog candidates and a fresh USD 114.99 Sony MDR-7506 checkout quote. All nine recorded detection/segmentation/profile/catalog/quote requests succeeded; no browser errors. This is an integration check, not an accuracy benchmark on unseen video.
 - Supplied local Sandbox credentials successfully authenticated against PayPal (HTTP 200).
-- PayPal's actual Sandbox Orders API created a fresh USD 113.00 catalog-based test order and returned its approval URL. Buyer approval/capture is awaiting manual completion; this document does not yet claim an actual verified Sandbox capture.
+- PayPal's actual Sandbox Orders API created a fresh USD 113.00 catalog-based test order and returned its approval URL. The buyer subsequently approved the payment. BopIt displayed a verified receipt, and independent Sandbox Orders/Capture API reads confirmed order COMPLETED and capture `7WR846989B253972P` COMPLETED for USD 113.00. An earlier cancelled attempt was safely followed by approval without a reported duplicate capture.
 
 ## Artifacts and operation
 
