@@ -39,7 +39,12 @@ export async function structuredGemini(parts, schema, { apiKey, model, fetcher =
     headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { maxOutputTokens: 10000, responseMimeType: 'application/json', responseSchema: providerSchema(schema) } })
   });
-  if (!response.ok) throw new Error(`Gemini request failed (${response.status}). Check model access, quota and input availability.`);
+  if (!response.ok) {
+    const error = new Error(`Gemini request failed (${response.status}). Check model access, quota and input availability.`);
+    error.status = response.status;
+    error.code = response.status === 429 ? 'PROVIDER_RATE_LIMIT' : 'PROVIDER_ERROR';
+    throw error;
+  }
   const data = await response.json(), candidate = data.candidates?.[0];
   if (candidate?.finishReason !== 'STOP') throw new Error('Gemini did not finish a usable response. Try a clearer crop.');
   return JSON.parse(candidate.content.parts.filter(p => !p.thought && typeof p.text === 'string').map(p => p.text).join(''));
@@ -74,26 +79,40 @@ export async function compareWithGemini(crop, profile, candidates, options) {
     })) }));
 }
 
-export async function detectWithGemini(imageBase64, { apiKey, model, fetcher = fetch }) {
+export async function detectWithGemini(imageBase64, { apiKey, model, fetcher = fetch, onTiming = () => {} }) {
+  const timings = {};
+  const requestPreparationStarted = performance.now();
+  const requestBody = JSON.stringify({
+    contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: 'image/png', data: imageBase64 } }] }],
+    generationConfig: { maxOutputTokens: 8192, responseMimeType: 'application/json', responseSchema: providerSchema(detectionSchema) }
+  });
+  timings.geminiRequestPreparationMs = performance.now() - requestPreparationStarted;
+  const responseStarted = performance.now();
   const response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST', signal: AbortSignal.timeout(45000),
     headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: 'image/png', data: imageBase64 } }] }],
-      generationConfig: { maxOutputTokens: 8192, responseMimeType: 'application/json', responseSchema: providerSchema(detectionSchema) }
-    })
+    body: requestBody
   });
+  timings.geminiResponseMs = performance.now() - responseStarted;
   if (!response.ok) {
+    onTiming(timings);
     // Never relay upstream bodies: they may contain request or credential details.
     const messages = { 400: 'Gemini rejected the image or schema. Check the configured model supports image input and structured output.', 401: 'Gemini key was rejected. Replace the key locally.', 403: 'Gemini access denied. Check key restrictions, account eligibility and model access.', 404: 'Configured Gemini model was not found. Set GEMINI_MODEL to an available image-capable model.', 429: 'Gemini quota reached. Wait before retrying or check your account limits.' };
     const error = new Error(messages[response.status] || 'Gemini is unavailable. Please try again later.');
     error.code = response.status === 429 ? 'PROVIDER_RATE_LIMIT' : 'PROVIDER_ERROR';
     throw error;
   }
+  const parsingStarted = performance.now();
   const body = await response.json();
   const candidate = body.candidates?.[0];
   if (candidate?.finishReason !== 'STOP') throw new Error('Gemini did not finish a usable response. Try a clearer frame or a smaller area.');
   const output = candidate.content?.parts?.filter(p => !p.thought && typeof p.text === 'string').map(p => p.text).join('');
-  try { const result = validateDetections(JSON.parse(output)); result.objects.forEach(o => { o.contour = null; }); return result; }
+  try {
+    const result = validateDetections(JSON.parse(output));
+    result.objects.forEach(o => { o.contour = null; });
+    timings.responseParsingMs = performance.now() - parsingStarted;
+    onTiming(timings);
+    return result;
+  }
   catch { throw new Error('Gemini returned invalid detections. No highlights were accepted. Try a clearer frame or smaller area.'); }
 }

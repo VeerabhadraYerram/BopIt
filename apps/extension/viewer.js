@@ -3,7 +3,10 @@ import { clampLabel } from './label-layout.js';
 import { createInvestigator } from './investigation.js';
 import { createScenePlan, createSceneSearchRunner } from './scene-planning.mjs';
 import { formatProductPrice } from './product-display.js';
+import { prepareDetectionImage } from './detection-image.mjs';
+import { channel3ErrorMessage } from './ui-feedback.mjs';
 const $ = selector => document.querySelector(selector);
+const node = (tag, text, className) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; if (className) element.className = className; return element; };
 const embedded = new URLSearchParams(location.search).get('embedded') === '1';
 if (embedded) { document.body.classList.add('embedded'); $('#return').textContent = 'Back to video'; } else document.querySelector('.frame-tools').open = true;
 let capture = null, objects = [], result = null, selectedId = null, drawing = false, start = null, busy = false, revision = 0, controller = null;
@@ -47,33 +50,40 @@ async function refreshSubscriptionInbox() {
     const data = await investigator.listSubscriptionEvents();
     target.replaceChildren();
     if (!data.events?.length) {
-      target.append(node('p', 'No saved subscription events for this installation.', 'muted'));
-      $('#subscription-inbox-status').textContent = 'No events are currently in the backend inbox.';
+      target.append(node('p', 'No new price or availability updates.', 'empty-state'));
+      $('#subscription-inbox-status').textContent = 'No saved alert events are available for this installation.';
       return;
     }
-    for (const event of data.events) {
-      const item = node('article', undefined, `subscription-notification${event.read ? ' is-read' : ''}`);
-      const productId = event.data?.subject?.product_id || event.data?.offer?.product_id || 'Product ID not supplied';
-      item.append(
-        node('strong', `${event.type} · ${event.data?.subject?.domain || event.data?.offer?.domain || 'seller unknown'}`),
-        node('p', subscriptionEventText(event)),
-        node('small', `${productId} · ${new Date(event.timestamp).toLocaleString()} · ${event.read ? 'Read' : 'Unread'}`)
-      );
-      if (!event.read) {
-        const markRead = node('button', 'Mark read', 'secondary');
-        markRead.type = 'button';
-        markRead.addEventListener('click', async () => {
-          markRead.disabled = true;
-          try { await investigator.markSubscriptionEventsRead([event.eventId]); await refreshSubscriptionInbox(); }
-          catch (error) { $('#subscription-inbox-status').textContent = `Could not update inbox status: ${error.message}`; markRead.disabled = false; }
-        });
-        item.append(markRead);
+    for (const [read, heading] of [[false, 'New alert events'], [true, 'Previously viewed events']]) {
+      const events = data.events.filter(event => Boolean(event.read) === read);
+      if (!events.length) continue;
+      const group = node('section', undefined, `subscription-event-group${read ? ' is-read' : ''}`);
+      group.append(node('h3', heading));
+      for (const event of events) {
+        const item = node('article', undefined, `subscription-notification${read ? ' is-read' : ''}`);
+        const productId = event.data?.subject?.product_id || event.data?.offer?.product_id || 'Product ID not supplied';
+        item.append(
+          node('strong', `${event.type} · ${event.data?.subject?.domain || event.data?.offer?.domain || 'seller unknown'}`),
+          node('p', subscriptionEventText(event)),
+          node('small', `${productId} · ${new Date(event.timestamp).toLocaleString()} · ${read ? 'Previously viewed' : 'New alert'}`)
+        );
+        if (!read) {
+          const markRead = node('button', 'Mark as viewed', 'secondary');
+          markRead.type = 'button';
+          markRead.addEventListener('click', async () => {
+            markRead.disabled = true;
+            try { await investigator.markSubscriptionEventsRead([event.eventId]); await refreshSubscriptionInbox(); }
+            catch (error) { $('#subscription-inbox-status').textContent = channel3ErrorMessage(error, 'update the alert'); markRead.disabled = false; }
+          });
+          item.append(markRead);
+        }
+        group.append(item);
       }
-      target.append(item);
+      target.append(group);
     }
-    $('#subscription-inbox-status').textContent = `${data.events.length} persisted event${data.events.length === 1 ? '' : 's'} loaded. This inbox is polled on request; the browser has not received push delivery.`;
+    $('#subscription-inbox-status').textContent = `${data.events.length} persisted alert event${data.events.length === 1 ? '' : 's'} loaded. This inbox refreshes on request; no desktop push is implemented.`;
   } catch (error) {
-    target.replaceChildren(node('p', `Subscription inbox unavailable: ${error.message}`, 'variant-warning'));
+    target.replaceChildren(node('p', channel3ErrorMessage(error, 'load the alert inbox'), 'variant-warning'));
     $('#subscription-inbox-status').textContent = 'Could not load persisted alerts.';
   } finally { button.disabled = false; }
 }
@@ -331,19 +341,28 @@ function cropImage(box) {
 }
 async function analyze(area = full, replacingId = null) {
   if (!capture || busy) return;
+  const pipelineStarted = performance.now();
+  const current = ++revision;
+  controller?.abort(); controller = new AbortController();
+  setBusy(true);
+  notice('Preparing the captured frame…');
   sceneSearchController?.abort(); sceneSearchController = null; sceneSearchGeneration++;
   cancelProductSearch();
-  const { pairingToken } = await chrome.storage.local.get('pairingToken');
-  if (!pairingToken) { const message = 'Connect first: open Settings → Connect local server, then Explore again.'; notice(message, true); publish({ scanning: false, error: message }); return; }
-  const cropped = cropImage(area);
-  if (area.width * $('#frame').naturalWidth < 16 || area.height * $('#frame').naturalHeight < 16) { notice('Choose an area at least 16 pixels wide and tall.', true); return; }
-  const current = ++revision;
-  controller?.abort(); controller = new AbortController(); setBusy(true);
-  notice('Finding selectable objects in your moment…');
-  publish({ scanning: true });
   try {
-    const response = await fetch('http://127.0.0.1:4317/api/detect', { method: 'POST', headers: { 'content-type': 'application/json', 'x-bopit-token': pairingToken }, body: JSON.stringify({ captureId: capture.captureId, image: cropped.image }), signal: controller.signal });
+    const { pairingToken } = await chrome.storage.local.get('pairingToken');
+    if (!pairingToken) throw new Error('Connect first: open Settings → Connect local server, then Explore again.');
+    if (area.width * $('#frame').naturalWidth < 16 || area.height * $('#frame').naturalHeight < 16) throw new Error('Choose an area at least 16 pixels wide and tall.');
+    const preprocessStarted = performance.now();
+    const cropped = prepareDetectionImage(capture.image, area, full, cropImage);
+    const imagePreprocessMs = performance.now() - preprocessStarted;
+    publish({ scanning: true });
+    notice('Sending the frame to Gemini…');
+    const requestStarted = performance.now();
+    const requestBody = JSON.stringify({ captureId: capture.captureId, image: cropped.image });
+    const requestPreparationMs = performance.now() - requestStarted;
+    const response = await fetch('http://127.0.0.1:4317/api/detect', { method: 'POST', headers: { 'content-type': 'application/json', 'x-bopit-token': pairingToken }, body: requestBody, signal: controller.signal });
     const data = await response.json();
+    const requestRoundTripMs = performance.now() - requestStarted;
     if (current !== revision) return;
     if (!response.ok) throw new Error(data.error || 'Analysis failed.');
     if (data.captureId !== capture.captureId) throw new Error('Stale capture response was ignored.');
@@ -351,20 +370,38 @@ async function analyze(area = full, replacingId = null) {
     if (area === full) objects = mapped;
     else if (mapped.length) objects = [...objects.filter(o => o.id !== replacingId), ...mapped];
     result = { ...data, crop: cropped.crop, objects };
-    $('#mode').textContent = `${data.mode === 'live' ? 'Live Gemini' : 'Test fixture · no live inference'} · ${data.model} · ${(data.elapsedMs / 1000).toFixed(1)}s`;
     $('#scene').textContent = `${area === full ? '' : 'Inspected area: '}${data.sceneObservation || 'No clear scene observation.'}`;
     $('#activity').textContent = data.possibleActivity ? `Possible activity (inferred): ${data.possibleActivity}` : '';
     $('#warnings').textContent = data.warnings.join(' ');
     selectedId = null; $('#detail').hidden = true; showAll(); render();
+    const objectsVisibleMs = performance.now() - pipelineStarted;
+    const timing = {
+      framePreparationMs: capture.captureTiming?.framePreparationMs ?? null,
+      captureAndStorageMs: capture.captureTiming?.captureAndStorageMs ?? null,
+      imagePreprocessMs,
+      requestPreparationMs,
+      requestRoundTripMs,
+      server: data.timings || {},
+      objectsVisibleMs,
+      imageReused: cropped.reused,
+      imagePayloadBytes: cropped.image.length
+    };
+    console.info('[bopit-detection-timing]', JSON.stringify({ stage: 'detection', ...timing }));
+    $('#mode').textContent = `${data.mode === 'live' ? 'Live Gemini' : 'Test fixture · no live inference'} · ${data.model} · visible ${(objectsVisibleMs / 1000).toFixed(1)}s`;
     if (mapped.length) refineMasks(current, objects);
     notice(mapped.length ? `${objects.length} finds in this moment. Choose one to explore.` : 'No reliably distinguishable objects returned. Existing highlights are preserved for an empty refinement. Try another moment or select an area.');
   } catch (error) {
-    if (current === revision && error.name !== 'AbortError') { const message = error instanceof TypeError ? 'Cannot reach the local server. Run npm start, then check Settings.' : error.message; notice(message, true); publish({ scanning: false, error: message }); }
+    if (current === revision && error.name !== 'AbortError') {
+      const message = error instanceof TypeError ? 'Cannot reach the local server. Run npm start, then check Settings.' : error.message;
+      console.info('[bopit-detection-timing]', JSON.stringify({ stage: 'detection', outcome: 'error', elapsedMs: performance.now() - pipelineStarted }));
+      notice(message, true); publish({ scanning: false, error: message });
+    }
   } finally {
     if (current === revision) { setBusy(false); publish({ scanning: false }); }
   }
 }
 async function refineMasks(currentRevision, targets) {
+  const started = performance.now();
   $('#outline-status').textContent = 'Refining highlights…';
   try {
     const { pairingToken } = await chrome.storage.local.get('pairingToken');
@@ -372,6 +409,7 @@ async function refineMasks(currentRevision, targets) {
     if(!response.ok)throw new Error('Outlines unavailable');
     const data=await response.json();if(revision!==currentRevision)return;
     for(const item of data.regions||[]) { const object=objects.find(o=>o.id===item.id);if(object)object.contours=item.contours; }
+    console.info('[bopit-detection-timing]', JSON.stringify({ stage: 'segmentation', clientElapsedMs: performance.now() - started, server: data.timings || {}, regionCount: targets.length }));
     $('#outline-status').textContent = 'Select a find here or on the video.'; publish();
   } catch { if(revision===currentRevision) $('#outline-status').textContent = 'Choose a card to explore this moment.'; }
 }

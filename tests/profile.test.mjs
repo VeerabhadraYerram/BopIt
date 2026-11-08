@@ -5,6 +5,8 @@ import vm from 'node:vm';
 import { validateProfile, validateContext, searchPlan } from '../packages/contracts/profile.mjs';
 import { inspectWithGemini, compareWithGemini } from '../apps/recognition-server/gemini.mjs';
 import { searchChannel3, retrieveChannel3, catalogImage } from '../apps/recognition-server/channel3.mjs';
+import { fitProfileImage, prepareProfileImages } from '../apps/extension/profile-images.mjs';
+import { searchAfterProfileFailure } from '../apps/extension/profile-fallback.mjs';
 import { rawProfile, makePng } from './helpers.mjs';
 const response = value => new Response(JSON.stringify({candidates:[{finishReason:'STOP',content:{parts:[{text:JSON.stringify(value)}]}}]}));
 test('profiles retain evidence and unknown measurements, reject fabricated source types',()=>{
@@ -24,6 +26,27 @@ test('intent plans keep function search distinct and budget explicit',()=>{
 test('profile adapter sends selected crop, scene and provided caption context',async()=>{
  let sent;const p=await inspectWithGemini('crop',{scene:'scene',context:{timestamp:5,cues:[{start:4,end:6,text:'current camera'}]},label:'Camera',apiKey:'test',model:'fixture',fetcher:async(_u,o)=>{sent=JSON.parse(o.body);return response(rawProfile());}});
  assert.equal(p.category,'Camera body');assert.equal(sent.contents[0].parts.filter(p=>p.inlineData).length,2);assert.match(sent.contents[0].parts[0].text,/current camera/);assert.equal(sent.contents[0].parts.some(p=>p.fileData),false);
+});
+test('profile image preparation preserves in-budget images and resizes only oversized PNG data URLs', async () => {
+ const original='data:image/png;base64,AA==';let bitmapCalls=0,drawn;
+ const unchanged=await fitProfileImage(original,100,{createBitmap:async()=>{bitmapCalls++;throw new Error('must not decode');}});
+ assert.equal(unchanged,original);assert.equal(bitmapCalls,0);
+ const large=`data:image/png;base64,${'A'.repeat(1000)}`;
+ const resized=await fitProfileImage(large,100,{
+  createBitmap:async blob=>{bitmapCalls++;assert.equal(blob.type,'image/png');return {width:1000,height:500,close(){}}},
+  createCanvas:()=>({getContext:()=>({drawImage(_image,_x,_y,width,height){drawn={width,height};}}),toDataURL:()=>original})
+ });
+ assert.equal(resized,original);assert.ok(drawn.width<1000&&drawn.height<500);assert.equal(bitmapCalls,1);
+ const images=await prepareProfileImages({crop:original,scene:original,additionalImages:[original]},{createBitmap:async()=>{throw new Error('in-budget images must remain unchanged');}});
+ assert.deepEqual(images,{crop:original,scene:original,additionalImages:[original]});
+});
+test('failed profile investigation falls back once to catalog search without retrying profile analysis', async () => {
+ const calls=[];
+ const profile=async()=>{calls.push('profile');throw new Error('profile failed');};
+ const search=async(query,preserve)=>{calls.push(['search',query,preserve]);};
+ try { await profile(); } catch { await searchAfterProfileFailure('camera black',search); }
+ assert.deepEqual(calls,['profile',['search','camera black',true]]);
+ assert.equal(await searchAfterProfileFailure('  ',search),false);
 });
 test('comparison sends catalog photos only when actually available',async()=>{
  let sent;const a=await compareWithGemini('crop',validateProfile(rawProfile()),[{id:'camera',title:'Camera'}],{apiKey:'test',model:'fixture',candidateImages:[{id:'camera',mimeType:'image/jpeg',data:'photo'}],fetcher:async(_u,o)=>{sent=JSON.parse(o.body);return response({assessments:[{id:'camera',verdict:'possible_match',matches:['shape'],differences:[],unknowns:['model']}]});}});

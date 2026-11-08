@@ -17,6 +17,7 @@ function fetch(url, options = {}) {
 }
 
 const token = 'test-only-pairing-code';
+let inspectCalls = 0, releaseInspect = null;
 async function withServer(options, fn) {
   const app = createApp({ token, ...options });
   await new Promise(resolve => app.listen(0, '127.0.0.1', resolve));
@@ -41,7 +42,24 @@ test('invalid image never reaches provider; validated response retains capture i
   assert.equal(invalid.status, 400);
   const response = await fetch(`${base}/api/detect`, { method: 'POST', headers, body: JSON.stringify({ captureId: 'capture-1', image: makePng() }) });
   assert.equal(response.status, 200); const data = await response.json(); assert.equal(data.captureId, 'capture-1'); assert.equal(data.mode, 'live'); assert.equal(data.objects.length, 2);
+  assert.ok(data.timings.requestReadMs >= 0);
+  assert.ok(data.timings.imageValidationMs >= 0);
+  assert.ok(data.timings.serverDetectionMs >= 0);
+  assert.equal(data.timings.geminiResponseMs, undefined, 'mock provider does not fabricate Gemini timings');
   assert.equal((await fetch(`${base}/api/detect`, { method: 'POST', headers, body: JSON.stringify({ captureId: 'capture-1', image: makePng() }) })).status, 429);
+}));
+test('segmentation reports its independent validation and model timing', () => withServer({
+  segment: async (_image, regions) => ({ regions: regions.map(({ id }) => ({ id, contours: [] })) })
+}, async base => {
+  const response = await fetch(`${base}/api/segment`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ image: makePng(), regions: [{ id: 'object-1', box: { x: .1, y: .1, width: .5, height: .5 } }] })
+  });
+  assert.equal(response.status, 200);
+  const data = await response.json();
+  assert.equal(data.regions[0].id, 'object-1');
+  assert.ok(data.timings.imageValidationMs >= 0);
+  assert.ok(data.timings.segmentationMs >= 0);
 }));
 test('automatic pairing requires local approval, binds origin/nonce and is single use', () => withServer({}, async base => {
   const nonce = 'b'.repeat(64);
@@ -69,4 +87,65 @@ test('profile API authenticates and validates context before invoking multimodal
 test('unavailable public video context falls back to frames and discloses the missing speech',()=>withServer({apiKey:'test',inspect:async(_image,{context})=>{if(context.youtubeUrl)throw new Error('Video unavailable');return {summary:'Frame only'};}},async base=>{
  const result=await fetch(`${base}/api/profile`,{method:'POST',headers,body:JSON.stringify({label:'Camera',image:makePng(),context:{timestamp:1,youtubeUrl:'https://www.youtube.com/watch?v=abcdefghijk'}})});
  assert.equal(result.status,200);const body=await result.json();assert.equal(body.contextUsed.youtubeRequested,false);assert.match(body.contextWarning,/unavailable/);
+}));
+test('profile endpoint identifies missing and malformed crop images', () => withServer({ apiKey: 'test' }, async base => {
+  for (const image of [undefined, 'not-an-image']) {
+    const body = await fetch(`${base}/api/profile`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ label: 'Camera', ...(image === undefined ? {} : { image }), scene: makePng(), context: {} })
+    });
+    assert.equal(body.status, 400);
+    assert.equal((await body.json()).code, 'INVALID_CROP_IMAGE');
+  }
+}));
+test('profile endpoint rejects an oversized crop with a specific validation code', () => withServer({ apiKey: 'test' }, async base => {
+  const oversized = `data:image/png;base64,${'A'.repeat(11_185_000)}`;
+  const response = await fetch(`${base}/api/profile`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ label: 'Camera', image: oversized, context: {} })
+  });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).code, 'INVALID_CROP_IMAGE');
+}));
+test('profile endpoint reports Gemini failures without exposing provider response bodies', () => withServer({
+  apiKey: 'test',
+  inspect: async () => { throw Object.assign(new Error('Gemini request failed (503). Check model access, quota and input availability.'), { code: 'PROVIDER_ERROR', status: 503 }); }
+}, async base => {
+  const response = await fetch(`${base}/api/profile`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ label: 'Camera', image: makePng(), scene: makePng(), context: {} })
+  });
+  assert.equal(response.status, 502);
+  assert.equal((await response.json()).code, 'PROFILE_ANALYSIS_FAILED');
+}));
+test('profile endpoint preserves Gemini rate-limit status and does not retry it without video context', () => withServer({
+  apiKey: 'test',
+  inspect: async () => { throw Object.assign(new Error('Gemini request failed (429). Check model access, quota and input availability.'), { code: 'PROVIDER_RATE_LIMIT', status: 429 }); }
+}, async base => {
+  const response = await fetch(`${base}/api/profile`, {
+    method: 'POST', headers,
+    body: JSON.stringify({ label: 'Camera', image: makePng(), context: { youtubeUrl: 'https://www.youtube.com/watch?v=abcdefghijk' } })
+  });
+  assert.equal(response.status, 429);
+  assert.equal((await response.json()).code, 'PROVIDER_RATE_LIMIT');
+}));
+test('concurrent identical profile requests share one Gemini call', () => withServer({
+  apiKey: 'test',
+  inspect: async () => {
+    inspectCalls++;
+    await new Promise(resolve => { releaseInspect = resolve; });
+    return { profile: 'fixture' };
+  }
+}, async base => {
+  inspectCalls = 0; releaseInspect = null;
+  const requestBody = JSON.stringify({ label: 'Camera', image: makePng(), context: {} });
+  const send = () => fetch(`${base}/api/profile`, { method: 'POST', headers, body: requestBody });
+  const first = send();
+  while (!releaseInspect) await new Promise(resolve => setImmediate(resolve));
+  const second = send();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  releaseInspect();
+  const responses = await Promise.all([first, second]);
+  assert.deepEqual(responses.map(response => response.status), [200, 200]);
+  assert.equal(inspectCalls, 1);
 }));

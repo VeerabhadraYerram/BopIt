@@ -3,10 +3,22 @@ import { createShoppingTools } from './shopping-tools.js';
 import { searchPlan } from './contracts/profile.mjs';
 import { extractColorPalette } from './contracts/discovery.mjs';
 import { chooseSearchStrategy, searchWithAgenticFallback } from './search-orchestration.mjs';
+import { createSubscriptionPager } from './subscription-pagination.mjs';
+import { extractPaletteFromDataUrl } from './palette-image.mjs';
+import { prepareProfileImages } from './profile-images.mjs';
+import { searchAfterProfileFailure } from './profile-fallback.mjs';
+import { channel3ErrorMessage, profileErrorMessage, searchErrorMessage } from './ui-feedback.mjs';
 const $ = s => document.querySelector(s);
 const node = (tag, text, className) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; };
 const logOrchestration = entry => console.info('[bopit-orchestration]', JSON.stringify(entry));
 const sourceLabel = { visible: 'Seen in frame', caption: 'Caption claim', video_speech: 'Video speech claim', viewer_note: 'Viewer-provided · unverified', inferred: 'Inference · unverified' };
+const progressStages = {
+  preparation: 'Preparing selected object',
+  identification: 'Identifying object with Gemini',
+  attributes: 'Extracting details and optional colour palette',
+  search: 'Searching Channel3',
+  comparison: 'Comparing available listings'
+};
 export function createInvestigator({ getCapture, crop, getSelected }) {
   let generation = 0, controller = null, selected = null, intent = 'exact', current = null, activeSimilar = null;
   let conversationScope = null, conversationId = null, conversationHistory = [], conversationGeneration = 0, selectedProductContext = null;
@@ -23,6 +35,19 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   const detailGenerations = new WeakMap();
   let palette = [], activeSearch = null, activeBrowse = null;
   let brandCursor = null, categoryPage = 1, categoryTotal = 0;
+  function setStage(name, state) {
+    const item = $(`#investigation-stages [data-stage="${name}"]`);
+    if (!item) return;
+    item.dataset.state = state;
+    item.setAttribute('aria-label', `${progressStages[name]}: ${state}`);
+    let status = item.querySelector('.stage-state');
+    if (!status) { status = node('span', undefined, 'stage-state'); item.append(status); }
+    status.textContent = state === 'complete' ? 'Done' : state === 'active' ? 'In progress' : state === 'error' ? 'Needs attention' : state === 'skipped' ? 'Skipped' : 'Waiting';
+  }
+  function resetStages() {
+    for (const name of Object.keys(progressStages)) setStage(name, 'pending');
+    setStage('preparation', 'active');
+  }
   function cancel() { lastRendered = { products: [], assessments: [] };generation++; controller?.abort(); controller = null; $('#search-products-btn').disabled = false; }
   function reset() { cancel(); cache.clear(); searches.clear(); views.clear(); selected = null; current = null; conversationGeneration++; conversationScope = null; conversationId = null; conversationHistory = []; selectedProductContext = null; $('#conversation-tools').hidden = true; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#context-note').value = ''; $('#use-youtube').checked = false; }
   function getChannel3UserId() {
@@ -42,9 +67,20 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     const { pairingToken } = await chrome.storage.local.get('pairingToken');
     if (!pairingToken) throw new Error('Open Settings → Connect local server first.');
     const userId = await getChannel3UserId();
-    const response = await fetch(`http://127.0.0.1:4317/api/${path}`, { method: 'POST', headers: { 'content-type':'application/json','x-bopit-token':pairingToken,'x-bopit-user-id':userId }, body:JSON.stringify(body), signal });
+    const requestBody = JSON.stringify(body);
+    const response = await fetch(`http://127.0.0.1:4317/api/${path}`, { method: 'POST', headers: { 'content-type':'application/json','x-bopit-token':pairingToken,'x-bopit-user-id':userId }, body:requestBody, signal });
     const data = await response.json();
     if (!response.ok) {
+      if (path === 'profile') console.warn('[bopit-profile-client]', JSON.stringify({
+        status: response.status,
+        code: data.code || 'UNKNOWN',
+        requestBytes: new Blob([requestBody]).size,
+        imagePayloadBytes: {
+          crop: typeof body.image === 'string' ? body.image.length : null,
+          scene: typeof body.scene === 'string' ? body.scene.length : null,
+          additional: Array.isArray(body.additionalImages) ? body.additionalImages.map(image => typeof image === 'string' ? image.length : null) : []
+        }
+      }));
       const error = new Error(data.error || 'Request failed.');
       error.status = response.status; error.code = data.code;
       throw error;
@@ -198,50 +234,61 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   async function select(object, force = false) {
     cancel(); const version = generation; controller = new AbortController(); const signal = controller.signal;
     selected = object; selectedProductContext = null; current = null; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#products-container').replaceChildren();
+    palette = []; renderPalette(); resetStages();
+    $('#investigation-status').textContent = 'Preparing your selection…';
     await restoreConversation(object);
     if (version !== generation) return;
-    setContextInfo(); $('#view-status').textContent = `${(views.get(object.id)||[]).length} / 2 additional views. Use clear images of the same item.`; $('#clear-views').hidden = !(views.get(object.id)||[]).length; $('#investigation-status').textContent = '1 · Inspecting selected object & available context…'; $('#products-notice').textContent = 'Product search follows the detailed object investigation.';
+    setContextInfo(); $('#view-status').textContent = `${(views.get(object.id)||[]).length} / 2 additional views. Use clear images of the same item.`; $('#clear-views').hidden = !(views.get(object.id)||[]).length; $('#products-notice').textContent = 'Product search follows the detailed object investigation.';
     const c = getCapture(), ctx = context(), additionalImages = views.get(object.id)||[], key = JSON.stringify([c.captureId, object, ctx, additionalImages]);
     try {
       let record = force ? null : cache.get(key);
       if (!record) {
-        record = await api('profile', { label:object.label,image:crop(object.box),scene:c.image,context:ctx,additionalImages }, signal);
+        const profileImages = await prepareProfileImages({ crop:crop(object.box),scene:c.image,additionalImages });
+        if (version !== generation) return;
+        setStage('preparation', 'complete');
+        setStage('identification', 'active');
+        $('#investigation-status').textContent = 'Identifying the object with Gemini…';
+        record = await api('profile', { label:object.label,image:profileImages.crop,scene:profileImages.scene,context:ctx,additionalImages:profileImages.additionalImages }, signal);
         if (version !== generation) return;
         cache.set(key, record);
+      } else {
+        setStage('preparation', 'complete');
+        setStage('identification', 'complete');
       }
       if (version !== generation) return;
       current = { ...record, key, object };
-      palette = [];
-      await preparePalette(object);
-      if (version !== generation) return;
-      renderProfile(record); $('#investigation-status').textContent = '1 ✓ Object details extracted · 2 · Searching catalog…';
+      setStage('identification', 'complete');
+      setStage('attributes', 'active');
+      renderProfile(record);
+      $('#investigation-status').textContent = 'Object details are ready. Colour matching is optional; products will not wait for it.';
+      void preparePalette(object, version);
       await runSearch(version, signal, force);
     } catch (e) {
       if (version !== generation || e.name === 'AbortError') return;
-      $('#investigation-status').textContent = e instanceof TypeError ? 'Cannot reach local server. Run npm start.' : `Detailed investigation unavailable: ${e.message}`;
+      setStage('identification', 'error');
+      setStage('attributes', 'skipped');
+      $('#investigation-status').textContent = `${profileErrorMessage(e)} Searching by the visible description instead.`;
       $('#profile-summary').append(node('p','You can still search the visible category. No exact identity established.','muted'));
       const fallback = [object.visibleText,object.label,...object.visibleAttributes].filter(Boolean).join(' ');
       $('#product-query').value = fallback;
-      await manual(fallback, true);
+      await searchAfterProfileFailure(fallback, manual);
     }
   }
   function market() { const [country,currency] = $('#market').value.split(':'); return { country,currency }; }
-  async function preparePalette(object) {
+  async function preparePalette(object, version) {
     try {
       const source = crop(object.box);
-      const bitmap = await createImageBitmap(await (await fetch(source)).blob());
-      try {
-        const canvas = document.createElement('canvas');
-        canvas.width = canvas.height = 48;
-        const context = canvas.getContext('2d', { willReadFrequently: true });
-        context.drawImage(bitmap, 0, 0, 48, 48);
-        palette = extractColorPalette(context.getImageData(0, 0, 48, 48).data).map(color => ({ ...color, enabled: true }));
-        renderPalette();
-        $('#palette-status').textContent = palette.length ? 'Colour filtering is optional and uses Channel3 Beta.' : 'No usable colours were found in this crop.';
-      } finally { bitmap.close(); }
+      const colors = (await extractPaletteFromDataUrl(source, extractColorPalette)).map(color => ({ ...color, enabled: true }));
+      if (version !== generation) return;
+      palette = colors;
+      renderPalette();
+      $('#palette-status').textContent = palette.length ? 'Colour filtering is optional and uses Channel3 Beta.' : 'No usable colours were found in this crop.';
+      setStage('attributes', 'complete');
     } catch (error) {
+      if (version !== generation) return;
       palette = []; renderPalette();
-      $('#palette-status').textContent = `Could not derive a palette from this crop: ${error.message}`;
+      $('#palette-status').textContent = 'Colour matching is unavailable for this crop. Product search is unaffected.';
+      setStage('attributes', 'error');
     }
   }
   function renderPalette() {
@@ -333,8 +380,8 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       item.append(node('span', label), node('strong', value === null || value === undefined ? 'Not supplied' : String(value)));
       metrics.append(item);
     };
-    metric('Total clicks', clicks);
-    metric('Attributed transactions', transactions);
+    metric('Product clicks', clicks);
+    metric('Attributed purchases', transactions);
     metric('Conversion rate', clicks > 0 && transactions !== null && transactions !== undefined
       ? `${(transactions / clicks * 100).toFixed(1)}%` : clicks === 0 ? 'N/A · no clicks' : null);
     const dates = clickReport?.startDate && clickReport?.endDate
@@ -366,6 +413,9 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     const withCurrency = transactionsPage.filter(item => item.orderAmount !== null && item.currency);
     const amounts = new Map();
     for (const item of withCurrency) amounts.set(item.currency, (amounts.get(item.currency) || 0) + item.orderAmount);
+    if (clicks === 0 && transactions === 0) {
+      values.append(node('p', 'No affiliate activity found for this reporting period. Product clicks and attributed purchases will appear here when Channel3 reports them.', 'empty-state'));
+    }
     if (amounts.size) {
       for (const [currency, total] of amounts) values.append(node('p', `Transaction value on loaded page · ${formatProductPrice(total, currency)} (${transactionsPage.length} loaded records).`));
     } else if (transactionsPage.some(item => item.orderAmount !== null)) {
@@ -415,9 +465,9 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     renderReporting();
     const failures = results.filter(result => result.status === 'rejected');
     $('#reporting-status').textContent = failures.length
-      ? `Some reporting data could not be loaded: ${failures.map(result => result.reason.message).join(' · ')}`
+      ? 'Some affiliate report data could not be loaded. Check your connection or try again.'
       : clickReport?.totalClicks === 0 && transactionReport?.totalTransactions === 0
-        ? 'No clicks or attributed transactions were reported in this period.'
+        ? 'No affiliate activity was reported for this period.'
         : 'Channel3 reporting loaded for this period. Attribution depends on merchant tracking and approval.';
     $('#load-reporting').disabled = false;
   }
@@ -435,7 +485,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       renderReporting();
       $('#reporting-status').textContent = `${kind === 'clicks' ? 'Click' : 'Transaction'} page ${next.page} loaded.`;
     } catch (error) {
-      $('#reporting-status').textContent = `Could not load more ${kind}: ${error.message}`;
+      $('#reporting-status').textContent = channel3ErrorMessage(error, `the next ${kind === 'clicks' ? 'click report page' : 'purchase report page'}`);
     } finally { button.disabled = false; }
   }
   function setMoreProducts(token, loader) {
@@ -629,6 +679,8 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   async function runSearch(version, signal, force) {
     if (!current) return;
     activeSearch=null;activeBrowse=null;activeSimilar=null;
+    setStage('search', 'active');
+    $('#investigation-status').textContent = 'Finding matching products on Channel3…';
     const plan = searchPlan(current.profile,intent,$('#budget').value), config = market();
     const filters = searchFilters(plan.filters);
     const key = JSON.stringify([current.key,intent,$('#budget').value,config,filters]);
@@ -651,15 +703,27 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       if (version !== generation) return;
       activeSearch = { request, products:data.products || [], assessments:data.assessments || [], nextPageToken:data.nextPageToken || data.pageToken };
       current.results = data; current.searchKey = key; renderProducts(data.products || [], data.assessments || [], { nextPageToken:data.nextPageToken || data.pageToken, loadMore:loadMoreSearch });
-      $('#investigation-status').textContent = '1 ✓ Details extracted · 2 ✓ Catalog searched';
-      if (intent === 'exact' && data.products?.length && !data.assessments) await compareCandidates(version,signal);
+      setStage('search', 'complete');
+      if (intent === 'exact' && data.products?.length && !data.assessments) {
+        setStage('comparison', 'active');
+        $('#investigation-status').textContent = 'Products are displayed. Comparing available listings…';
+        void compareCandidates(version,signal);
+      } else {
+        setStage('comparison', 'skipped');
+        $('#investigation-status').textContent = 'Your results are ready!';
+      }
     } catch (e) {
-      if (version === generation && e.name !== 'AbortError') { $('#products-notice').textContent = e.message; $('#investigation-status').textContent = 'Object details ready · catalog search needs retry'; }
+      if (version === generation && e.name !== 'AbortError') {
+        setStage('search', 'error');
+        setStage('comparison', 'skipped');
+        $('#products-notice').textContent = searchErrorMessage(e);
+        $('#investigation-status').textContent = `${searchErrorMessage(e)} Use Search to retry.`;
+      }
     } finally { if (version === generation) $('#search-products-btn').disabled = false; }
   }
   async function compareCandidates(version, signal) {
     const state = current;
-    $('#investigation-status').textContent = '1 ✓ Details · 2 ✓ Catalog · 3 · Comparing identifiers & catalog evidence…';
+    $('#investigation-status').textContent = 'Comparing available listings…';
     try {
       const data = await api('products/compare',{ image:crop(state.object.box),profile:state.profile,ids:state.results.products.slice(0,3).map(p=>p.id) },signal);
       if (version !== generation || current !== state) return;
@@ -668,9 +732,13 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       searches.set(state.searchKey,state.results);
       if(activeSearch){activeSearch.products=state.results.products;activeSearch.assessments=data.assessments;}
       renderProducts(state.results.products,data.assessments,{nextPageToken:activeSearch?.nextPageToken,loadMore:loadMoreSearch});
-      $('#investigation-status').textContent = '1 ✓ Details · 2 ✓ Catalog · 3 ✓ Catalog evidence compared';
+      setStage('comparison', 'complete');
+      $('#investigation-status').textContent = 'Your results are ready! Available listings were compared.';
     } catch(e) {
-      if(version===generation&&e.name!=='AbortError') { $('#investigation-status').textContent = `Matches loaded · deeper comparison unavailable: ${e.message}`; }
+      if(version===generation&&e.name!=='AbortError') {
+        setStage('comparison', 'error');
+        $('#investigation-status').textContent = 'Your results are ready. Deeper comparison could not finish; review listing details before buying.';
+      }
     }
   }
   function renderProducts(products, assessments = [], { nextPageToken = null, loadMore = loadMoreSearch, target = $('#products-container'), sceneObject = null } = {}) {
@@ -700,7 +768,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       if(assessment){const labels={identifier_match:'Identifier agrees · variant not verified',possible_match:'Possible match',similar:'Similar product',contradicted:'Conflicting evidence'};info.append(node('div',labels[assessment.verdict],'match-label'));const evidence=node('details');evidence.append(node('summary','Why this result?'));for(const [name,values] of [['Matches',assessment.matches],['Differences',assessment.differences],['Unknown',assessment.unknowns]])if(values.length)evidence.append(node('p',`${name}: ${values.join(' · ')}`));evidence.append(node('small',current?.results?.comparedImageIds?.includes(product.id) ? 'AI compared the video crop with catalog photos and listing text. This is supporting evidence, not proof of exact identity.' : 'AI compared the video crop with catalog text. A catalog photo was unavailable for this comparison.'));info.append(evidence);if(assessment.differences.length)info.append(node('small',`Difference: ${assessment.differences[0]}`));}else {info.append(node('small',product.matchType || 'Unverified catalog candidate')); if(product.matchExplanation) {const why=node('details');why.append(node('summary','Why this result?'),node('p',product.matchExplanation));info.append(why);}}
       card.checkoutSelection={id:product.id,selection:Object.fromEntries((product.variants?.selected||[]).map(v=>[v.name,v.label])),websiteIds:product.retailer?[product.retailer]:[],config:market(),expectedOffer:offerSnapshot(product)};
       card.checkoutAction=checkoutAction(() => card.checkoutSelection,product);info.append(card.checkoutAction);
-      const details=node('button','Specifications & variants','secondary');details.onclick=()=>showDetails(product,card,details);info.append(details);
+      const details=node('button','View specifications','secondary');details.onclick=()=>showDetails(product,card,details);info.append(details);
       const similar=node('button','Find similar products','secondary');similar.onclick=()=>findSimilar(product);info.append(similar);
       const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','Buy from seller ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';info.append(link);}
       card.append(image,info);target.append(card);
@@ -832,8 +900,8 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   }
   async function renderProductSubscriptions(target, product, unavailableSelection) {
     const panel = node('section', undefined, 'subscription-controls');
-    panel.append(node('h3', 'Price & availability alerts'));
-    panel.append(node('p', 'Channel3 subscriptions use English / US / USD. Events arrive when catalog refreshes detect a change, not instantly.', 'muted'));
+    panel.append(node('h3', 'Price & Availability Alerts'));
+    panel.append(node('p', 'Choose supported price or availability updates, review active subscriptions below, and check the alert inbox for changes. Updates depend on Channel3 provider support and webhook delivery; they are not desktop notifications.', 'muted'));
     const eventTypes = [
       ['offer.price.changed', 'Price changes', true],
       ['offer.availability.changed', 'Availability changes', true],
@@ -866,17 +934,38 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     create.type = 'button'; create.disabled = Boolean(unavailableSelection);
     const status = node('p', 'No subscription request made.', 'muted');
     const active = node('div', undefined, 'active-subscriptions');
+    const cancelled = node('div', undefined, 'cancelled-subscriptions');
+    const cancelledItems = [];
+    function renderCancelled() {
+      cancelled.replaceChildren();
+      if (!cancelledItems.length) {
+        cancelled.append(node('p', 'No cancelled subscriptions for this product.', 'muted'));
+        return;
+      }
+      for (const item of cancelledItems) {
+        const row = node('div', undefined, 'cancelled-subscription');
+        row.append(node('strong', `Cancelled · ${item.label}`), node('p', item.message, 'muted'));
+        cancelled.append(row);
+      }
+    }
     const refresh = node('button', 'Refresh subscriptions', 'secondary');
     refresh.type = 'button';
-    async function load() {
-      active.replaceChildren(node('p', 'Loading subscriptions…', 'muted'));
+    const loadMore = node('button', 'Load more subscriptions', 'secondary');
+    loadMore.type = 'button'; loadMore.hidden = true;
+    const pager = createSubscriptionPager(cursor => api('subscriptions/list', {
+      status: 'active', limit: 100, ...(cursor ? { cursor } : {})
+    }), product.id);
+    async function load(reset = true) {
+      if (reset) {
+        pager.reset();
+        active.replaceChildren(node('p', 'Loading subscriptions…', 'muted'));
+      } else active.querySelectorAll('.subscription-page-notice, .subscription-load-error').forEach(item => item.remove());
       refresh.disabled = true;
+      loadMore.disabled = true;
       try {
-        const data = await api('subscriptions/list', { status: 'active', limit: 100 });
-        const items = (data.items || []).filter(item => item.canonicalProductId === product.id && item.ownerStatus !== 'cancelled');
-        active.replaceChildren();
-        if (!items.length) active.append(node('p', 'No active alerts for this product in this BopIt installation.', 'muted'));
-        for (const item of items) {
+        const page = await pager.next();
+        if (reset) active.replaceChildren();
+        for (const item of page.items) {
           const row = node('div', undefined, 'active-subscription');
           const variant = item.variantSelection?.map(option => `${option.name}: ${option.label}`).join(' · ');
           row.append(node('p', `${item.events.join(', ')}${variant ? ` · ${variant}` : ''}`));
@@ -890,19 +979,35 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
                 ? 'Alerts were removed from this installation; another installation still owns the shared Channel3 subscription.'
                 : cancelled.unavailable ? 'Channel3 no longer has this subscription; local ownership was closed.'
                   : 'Channel3 subscription cancelled.';
+              cancelledItems.push({
+                label: `${item.events.join(', ')}${variant ? ` · ${variant}` : ''}`,
+                message: status.textContent
+              });
+              renderCancelled();
               await load();
             } catch (error) {
-              status.textContent = `Could not cancel this subscription: ${error.message}`;
+              status.textContent = channel3ErrorMessage(error, 'cancel the subscription');
               cancelButton.disabled = false;
             }
           });
           row.append(cancelButton);
           active.append(row);
         }
-        if (data.nextCursor) active.append(node('p', 'More account subscriptions exist; only subscriptions owned by this installation are shown on this page.', 'muted'));
+        const displayed = active.querySelectorAll('.active-subscription').length;
+        if (!displayed) {
+          const notice = node('p', page.hasMore
+            ? 'No subscriptions for this product on this page; more pages may contain matching alerts.'
+            : 'You haven’t subscribed to this product for alerts yet. Your subscriptions will appear here.', 'empty-state');
+          notice.classList.add('subscription-page-notice');
+          active.append(notice);
+        }
+        loadMore.hidden = !page.hasMore;
       } catch (error) {
-        active.replaceChildren(node('p', `Subscriptions unavailable: ${error.message}`, 'variant-warning'));
-      } finally { refresh.disabled = false; }
+        if (reset) active.replaceChildren();
+        const notice = node('p', channel3ErrorMessage(error, 'load subscriptions'), 'variant-warning');
+        notice.classList.add('subscription-load-error');
+        active.append(notice);
+      } finally { refresh.disabled = false; loadMore.disabled = false; }
     }
     create.addEventListener('click', async () => {
       const events = eventTypes.map(([event]) => event).filter(event => selectedEvents.includes(event));
@@ -920,11 +1025,13 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
           : 'Channel3 subscription saved. Alerts arrive when a catalog refresh detects a change.';
         await load();
       } catch (error) {
-        status.textContent = `Could not create subscription: ${error.message}`;
+        status.textContent = channel3ErrorMessage(error, 'create the subscription');
       } finally { create.disabled = Boolean(unavailableSelection); }
     });
     refresh.addEventListener('click', load);
-    panel.append(create, status, refresh, active);
+    loadMore.addEventListener('click', () => load(false));
+    panel.append(create, status, refresh, node('h4', 'Active subscriptions'), active, node('h4', 'Cancelled subscriptions'), cancelled);
+    renderCancelled();
     target.append(panel);
     await load();
   }
@@ -992,6 +1099,10 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     if(/^https?:\/\//i.test(query)){$('#product-url').value=query;lookupProductUrl();return;}
     cancel();const version=generation;controller=new AbortController();const signal=controller.signal;
     activeSearch=null;activeBrowse=null;activeSimilar=null;
+    if (preserveProfile) {
+      setStage('search', 'active');
+      $('#investigation-status').textContent = 'Searching Channel3 using the visible description…';
+    }
     $('#products-container').replaceChildren();$('#products-notice').textContent=`Searching Channel3 for “${query}”…`;$('#search-products-btn').disabled=true;
     try{
       const plan=searchPlan({category:query,queries:{exact:query}},'exact',$('#budget').value);
@@ -1000,9 +1111,13 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       activeSearch={request,products:data.products||[],assessments:[],nextPageToken:data.nextPageToken||data.pageToken};
       activeBrowse=null;
       renderProducts(activeSearch.products,[],{nextPageToken:activeSearch.nextPageToken,loadMore:loadMoreSearch});
-      if(!preserveProfile)$('#investigation-status').textContent='Manual catalog search · not an identity verification';
+      if (preserveProfile) {
+        setStage('search', 'complete');
+        setStage('comparison', 'skipped');
+        $('#investigation-status').textContent = 'Fallback search results are ready. Product identity has not been verified.';
+      } else $('#investigation-status').textContent='Manual catalog search · not an identity verification';
     }
-    catch(e){if(version===generation&&e.name!=='AbortError')$('#products-notice').textContent=e.message;}
+    catch(e){if(version===generation&&e.name!=='AbortError')$('#products-notice').textContent=searchErrorMessage(e);}
     finally{if(version===generation)$('#search-products-btn').disabled=false;}
   }
   async function lookupProductUrl() {

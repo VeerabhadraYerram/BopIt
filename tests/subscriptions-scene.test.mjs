@@ -223,6 +223,17 @@ test('subscription ownership and notifications reload from persistent file', asy
   assert.equal(inbox.length, 1);
   assert.equal(inbox[0].eventId, 'event-01');
   assert.equal(inbox[0].notificationDeliveryStatus, 'persisted-inbox-not-pushed');
+  await withServer(t, { subscriptionStore: afterRestart }, async ({ post }) => {
+    const loaded = await post('/api/subscriptions/events', { limit: 10 });
+    assert.equal(loaded.status, 200);
+    assert.equal((await loaded.json()).events[0].eventId, 'event-01');
+    assert.equal((await post('/api/subscriptions/events/read', { eventIds: ['event-01', 'event-01'] })).status, 200);
+    assert.equal((await (await post('/api/subscriptions/events', { limit: 10 })).json()).events[0].read, true);
+    assert.equal((await post('/api/subscriptions/events/read', { eventIds: ['event-01', '../bad'] })).status, 400);
+    const noInstallation = { ...extensionHeaders };
+    delete noInstallation['x-bopit-user-id'];
+    assert.equal((await post('/api/subscriptions/events', { limit: 10 }, noInstallation)).status, 400);
+  });
 });
 
 test('Svix signature verifier checks raw body, timestamp window, and event structure', () => {

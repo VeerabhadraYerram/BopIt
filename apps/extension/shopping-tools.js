@@ -1,5 +1,6 @@
 import { normalizeSavedProducts, toggleSavedProduct, compareSavedOffer, applySavedOffer, buildProductComparison, filterDiscoveryProducts, resolveBudgetMaximum, rankDiscoveryProducts } from './contracts/discovery.mjs';
 import { formatProductPrice, safeProductUrl } from './product-display.js';
+import { availableReplacementVariantValues, retrieveReplacementVariant, persistSavedOfferUpdate } from './saved-offer-recovery.mjs';
 const $=s=>document.querySelector(s);
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 export function createShoppingTools(onChange, api, market, makeCheckoutAction) {
@@ -11,8 +12,8 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction) {
     renderSaved();syncButtons();
   }).catch(()=>{$('#wishlist-notice').textContent='Saved items could not be loaded. Reload before changing saved items.';});
   function syncButtons() {
-    document.querySelectorAll('[data-save-product]').forEach(b=>{const id=b.dataset.saveProduct;b.textContent=saved.some(p=>p.id===id)?'Saved ♥':'Save ♡';b.setAttribute('aria-pressed',String(saved.some(p=>p.id===id)));b.disabled=pending.has(id);});
-    document.querySelectorAll('[data-compare-product]').forEach(b=>{const id=b.dataset.compareProduct;b.textContent=comparison.has(id)?'Remove comparison':'Compare';b.setAttribute('aria-pressed',String(comparison.has(id)));b.disabled=!comparison.has(id)&&comparison.size>=3;});
+    document.querySelectorAll('[data-save-product]').forEach(b=>{const id=b.dataset.saveProduct;b.textContent=saved.some(p=>p.id===id)?'Saved product':'Save product';b.setAttribute('aria-pressed',String(saved.some(p=>p.id===id)));b.disabled=pending.has(id);});
+    document.querySelectorAll('[data-compare-product]').forEach(b=>{const id=b.dataset.compareProduct;b.textContent=comparison.has(id)?'Remove from comparison':'Compare sellers';b.setAttribute('aria-pressed',String(comparison.has(id)));b.disabled=!comparison.has(id)&&comparison.size>=3;});
     $('#saved-count').textContent=String(saved.length);
   }
   async function save(product) {
@@ -23,6 +24,79 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction) {
     }catch(e){$('#wishlist-notice').textContent=`Could not save: ${e.message}`;}
     finally{pending.delete(product.id);syncButtons();}
   }
+  async function persistSavedOffer(product, current, offer, result) {
+    const next=queue.then(async()=>{
+      saved=await persistSavedOfferUpdate(saved,product,current,offer,updated=>chrome.storage.local.set({savedProducts:updated}),applySavedOffer);
+    });
+    queue=next.catch(()=>{});
+    try { await next; renderSaved(); }
+    catch(error) { result.append(el('p',`Could not save the selected offer: ${error.message}`,'variant-warning')); throw error; }
+  }
+  function renderCurrentOffers(product,current,result,variantSwitch=false) {
+    const same=compareSavedOffer(product,current).status==='current'&&!variantSwitch;
+    const variantSummary=(current.variants?.selected||[]).map(item=>`${item.name}: ${item.label}`).join(' · ');
+    result.append(el('p',same?'The saved seller offer still matches the current catalog details.':'The saved offer or variant changed. Review an offer below; BopIt will not switch sellers or variants automatically.',same?'muted':'variant-warning'));
+    if(variantSwitch)result.append(el('p',`Channel3 confirmed this variant: ${variantSummary}. Nothing has been saved yet.`,'muted'));
+    for(const offer of current.offers||[]) {
+      const row=el('div',undefined,'seller-offer');
+      row.append(el('span',`${offer.retailer||'Seller not supplied'} · ${formatProductPrice(offer.price,offer.currency)} · ${offer.condition||'Condition unknown'} · ${offer.availability||'Availability unknown'}`));
+      const url=safeProductUrl(offer.purchaseUrl);
+      if(url){const link=el('a','View seller ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';row.append(link);}
+      if(offer.retailer) {
+        const confirm=el('button',variantSwitch?`Confirm variant & use ${offer.retailer}`:`Confirm and use ${offer.retailer}`,'secondary');
+        confirm.dataset.confirmSavedOffer='true';
+        confirm.onclick=async()=>{
+          const changedSeller=offer.retailer!==product.retailer;
+          const effectiveVariant=Object.fromEntries((current.variants?.selected||[]).map(v=>[v.name,v.label]));
+          const changedVariant=JSON.stringify(product.variantSelection||{})!==JSON.stringify(effectiveVariant);
+          const summary=`Update saved product to ${variantSwitch||changedVariant?`${variantSummary||'the confirmed replacement variant'} and `:''}${offer.retailer} at ${formatProductPrice(offer.price,offer.currency)} · ${offer.availability||'availability unknown'}${offer.condition?` · ${offer.condition}`:''}${changedSeller?` instead of ${product.retailer||'the saved seller'}`:''}?`;
+          if(!window.confirm(summary)||pending.has(product.id))return;
+          pending.add(product.id);result.querySelectorAll('[data-confirm-saved-offer]').forEach(button=>{button.disabled=true;});
+          try { await persistSavedOffer(product,current,offer,result); }
+          catch { result.querySelectorAll('[data-confirm-saved-offer]').forEach(button=>{button.disabled=false;}); }
+          finally { pending.delete(product.id);syncButtons(); }
+        };
+        row.append(confirm);
+      }
+      result.append(row);
+    }
+    if(!(current.offers||[]).length)result.append(el('p','Channel3 did not return current seller offers. No replacement is available.','muted'));
+  }
+  function renderVariantRecovery(product,substitutedProduct,result) {
+    const options=substitutedProduct.variants?.options||[];
+    result.append(el('p',`Saved variant unavailable or substituted: ${substitutedProduct.selectionChanges.map(v=>`${v.name}: ${v.requested} → ${v.actual}`).join('; ')}. No alternative was selected.`,'variant-warning'));
+    if(!options.length) {
+      result.append(el('p','Channel3 did not supply replacement variant options. The saved variant cannot be changed here.','muted'));
+      return;
+    }
+    const controls=el('div',undefined,'saved-variant-controls'),selects=new Map();
+    for(const option of options) {
+      const label=el('label',option.name),select=document.createElement('select');
+      select.add(new Option(`Choose ${option.name}…`,''));
+      for(const value of availableReplacementVariantValues(option)) {
+        const stock=value.available==='InStock'?' · in stock':' · stock unknown';
+        select.add(new Option(`${value.label}${stock}`,value.label));
+      }
+      selects.set(option.name,select);
+      label.append(select);controls.append(label);
+    }
+    const review=el('button','Review selected variant','secondary'),status=el('p','Choose every available option, then review the current seller offers.','muted');
+    review.type='button';
+    review.onclick=async()=>{
+      review.disabled=true;selects.forEach(select=>{select.disabled=true;});
+      status.textContent='Refreshing details and offers for the explicitly selected variant…';
+      try {
+        const selectedValues=Object.fromEntries([...selects].map(([name,select])=>[name,select.value]));
+        const current=await retrieveReplacementVariant({product:substitutedProduct,selectedValues,api,config:market()});
+        result.replaceChildren(el('p','Replacement variant and current offers were re-fetched. Nothing has been saved; choose an offer and confirm the update.','muted'));
+        renderCurrentOffers(product,current,result,true);
+      } catch(error) {
+        status.textContent=`Could not verify replacement variant: ${error.message}`;
+        review.disabled=false;selects.forEach(select=>{select.disabled=false;});
+      }
+    };
+    result.append(controls,review,status);
+  }
   async function refreshSaved(product, result) {
     if(!api){result.textContent='Offer refresh is unavailable in this extension session.';return;}
     result.replaceChildren(el('p','Refreshing saved product and current seller offers…','muted'));
@@ -30,40 +104,18 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction) {
       const data=await api('products/details',{id:product.id,selection:product.variantSelection||{},config:market()});
       const current=data.product;
       if(current.selectionChanges?.length) {
-        result.replaceChildren(el('p',`Saved variant unavailable or substituted: ${current.selectionChanges.map(v=>`${v.name}: ${v.requested} → ${v.actual}`).join('; ')}. No alternative was selected.`,'variant-warning'));
+        result.replaceChildren();
+        renderVariantRecovery(product,current,result);
         return;
       }
-      const reconciliation=compareSavedOffer(product,current);
-      const same=reconciliation.status==='current';
-      result.replaceChildren(el('p',same?'The saved seller offer still matches the current catalog details.':'The saved offer is unavailable or changed. Review an offer below; BopIt will not switch sellers or variants automatically.',same?'muted':'variant-warning'));
-      for(const offer of current.offers||[]) {
-        const row=el('div',undefined,'seller-offer');
-        row.append(el('span',`${offer.retailer||'Seller not supplied'} · ${formatProductPrice(offer.price,offer.currency)} · ${offer.condition||'Condition unknown'} · ${offer.availability||'Availability unknown'}`));
-        const url=safeProductUrl(offer.purchaseUrl);
-        if(url){const link=el('a','View seller ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';row.append(link);}
-        if(offer.retailer) {
-          const confirm=el('button',`Confirm and use ${offer.retailer}`,'secondary');
-          confirm.onclick=async()=>{
-            const changedSeller=offer.retailer!==product.retailer;
-            const changedVariant=JSON.stringify(product.variantSelection||{})!==JSON.stringify(Object.fromEntries((current.variants?.selected||[]).map(v=>[v.name,v.label])));
-            const summary=`Use ${offer.retailer} at ${formatProductPrice(offer.price,offer.currency)}${offer.condition?` (${offer.condition})`:''}${changedSeller?` instead of ${product.retailer||'the saved seller'}`:''}${changedVariant?' with the currently returned variant':''}?`;
-            if(!window.confirm(summary))return;
-            const selected={...applySavedOffer(product,current,offer),refreshedAt:new Date().toISOString()};
-            const next=queue.then(async()=>{const updated=saved.map(item=>item.id===product.id?selected:item);await chrome.storage.local.set({savedProducts:updated});saved=updated;});
-            queue=next.catch(()=>{});
-            try{await next;renderSaved();}catch(error){result.append(el('p',`Could not save the selected offer: ${error.message}`,'variant-warning'));}
-          };
-          row.append(confirm);
-        }
-        result.append(row);
-      }
-      if(!(current.offers||[]).length)result.append(el('p','Channel3 did not return current seller offers. No replacement is available.','muted'));
+      result.replaceChildren();
+      renderCurrentOffers(product,current,result);
     } catch(error) {
       result.replaceChildren(el('p',`Offer refresh failed: ${error.message}`,'variant-warning'));
     }
   }
   function renderSaved() {
-    const target=$('#wishlist-container');target.replaceChildren();$('#wishlist-notice').textContent=saved.length?`${saved.length} saved on this device. Prices may have changed.`:'Save a find to come back to it.';
+    const target=$('#wishlist-container');target.replaceChildren();$('#wishlist-notice').textContent=saved.length?`${saved.length} product${saved.length===1?'':'s'} saved on this device. Prices and availability may have changed.`:'Save products you want to revisit. Saved products stay on this device.';
     for(const product of saved){
       const card=el('article',undefined,'wishlist-item');
       card.append(el('strong',product.title||'Saved product'),el('small',`${formatProductPrice(product.price,product.currency)} · ${product.retailer||'Seller unknown'} · ${product.availability||'Availability unknown'}`));
@@ -83,8 +135,8 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction) {
     const body=el('tbody');for(const [label,value] of [['Price',p=>formatProductPrice(p.price,p.currency)],['Brand',p=>p.brand||'Not supplied'],['Retailer',p=>p.retailer||'Not supplied'],['Availability',p=>p.availability||'Not supplied'],['Category',p=>p.category||'Not supplied'],['Attributes',p=>p.attributes?.join(' · ')||p.condition||'Not supplied']]){const row=el('tr');row.append(el('th',label));products.forEach(p=>row.append(el('td',value(p))));body.append(row);}table.append(body);target.append(table);
   }
   function actions(product) {
-    catalog.set(product.id,product);const row=el('div',undefined,'product-actions');const saveButton=el('button','Save ♡','save-product secondary');saveButton.dataset.saveProduct=product.id;saveButton.onclick=()=>save(product);
-    const compareButton=el('button','Compare','compare-product secondary');compareButton.dataset.compareProduct=product.id;compareButton.onclick=()=>{if(comparison.has(product.id))comparison.delete(product.id);else if(comparison.size<3)comparison.add(product.id);renderComparison();syncButtons();};row.append(saveButton,compareButton);queueMicrotask(syncButtons);return row;
+    catalog.set(product.id,product);const row=el('div',undefined,'product-actions');const saveButton=el('button','Save product','save-product secondary');saveButton.dataset.saveProduct=product.id;saveButton.onclick=()=>save(product);
+    const compareButton=el('button','Compare sellers','compare-product secondary');compareButton.dataset.compareProduct=product.id;compareButton.onclick=()=>{if(comparison.has(product.id))comparison.delete(product.id);else if(comparison.size<3)comparison.add(product.id);renderComparison();syncButtons();};row.append(saveButton,compareButton);queueMicrotask(syncButtons);return row;
   }
   function prepare(products,selection,mode) {
     lastProducts=products;products.forEach(p=>catalog.set(p.id,p));const key=products.map(p=>`${p.id}:${p.price}:${p.currency}`).join('|');

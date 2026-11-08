@@ -55,7 +55,7 @@ try{
  const listFrame=page.frames().find(f=>f.url().includes('/viewer.html?'));await listFrame.locator('#objects button').first().waitFor();assert.equal(await listFrame.locator('body').getAttribute('data-view'),'all');await listFrame.locator('#objects button').first().click();
  await page.locator('#bopit-results-panel').waitFor({state:'visible'});
  const inspector=page.frames().find(f=>f.url().includes('/viewer.html?'));
- await inspector.locator('.product-card').first().waitFor();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('3 ✓'));
+ await inspector.locator('.product-card').first().waitFor();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));
  assert.equal(await inspector.locator('[data-action="sandbox-checkout"]').first().innerText(),'Pay with PayPal');
  assert.equal(await inspector.locator('[data-product-id="camera-4"] [data-action="sandbox-checkout"]').isDisabled(),true);
  assert.doesNotMatch(await inspector.locator('#products-container').innerText(),/Try PayPal|Sandbox|Test money/);
@@ -80,15 +80,15 @@ try{
  await inspector.locator('#cheaper-alternatives').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
  assert.match(await inspector.locator('#products-notice').innerText(),/original price unknown/);
  await inspector.locator('[data-intent="exact"]').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
- await inspector.locator('#wishlist-panel summary').click();await inspector.locator('#wishlist-container button').first().click();await inspector.waitForFunction(()=>document.querySelector('#saved-count').textContent==='0');
+ await inspector.locator('#wishlist-panel summary').click();await inspector.locator('#wishlist-container .wishlist-item button').last().click();await inspector.waitForFunction(()=>document.querySelector('#saved-count').textContent==='0');
  const firstProfiles=calls.filter(c=>c.path.endsWith('/profile')).length;
- await inspector.locator('#back-to-items').click();assert.equal(await inspector.locator('#detail').isVisible(),false);await inspector.locator('#objects button').nth(1).click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('3 ✓'));
- await inspector.locator('#back-to-items').click();await inspector.locator('#objects button').first().click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('Catalog searched'));
+ await inspector.locator('#back-to-items').click();assert.equal(await inspector.locator('#detail').isVisible(),false);await inspector.locator('#objects button').nth(1).click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));
+ await inspector.locator('#back-to-items').click();await inspector.locator('#objects button').first().click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));
  assert.equal(calls.filter(c=>c.path.endsWith('/profile')).length,firstProfiles+1,'object switching reuses cached profiles');
  await inspector.locator('[data-intent="function"]').click();await inspector.locator('.product-card').first().waitFor();
  const functionSearch=calls.filter(c=>c.path.endsWith('/search')).at(-1);assert.equal(functionSearch.body.query,'camera for video recording');assert.equal(functionSearch.body.image,undefined);
  await inspector.locator('#budget').fill('150');const budgetResponse=page.waitForResponse(r=>r.url().endsWith('/api/products/search')&&r.request().postDataJSON().filters?.price?.max_price===150);await inspector.locator('#budget').dispatchEvent('change');await budgetResponse;await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);assert.equal(calls.filter(c=>c.path.endsWith('/search')).at(-1).body.filters.price.max_price,150);
- await page.waitForTimeout(150);await inspector.getByRole('button',{name:'Specifications & variants'}).first().click();await inspector.locator('.catalog-details select').waitFor();await inspector.locator('.catalog-details select').selectOption('White');await inspector.locator('.variant-warning').waitFor();assert.match(await inspector.locator('.variant-warning').innerText(),/White → Black/);
+ await page.waitForTimeout(150);await inspector.getByRole('button',{name:'View specifications'}).first().click();await inspector.locator('.catalog-details select').first().waitFor();await inspector.locator('.catalog-details select').first().selectOption('White');await inspector.getByText(/Requested variant changed:/).waitFor();assert.match(await inspector.getByText(/Requested variant changed:/).innerText(),/White → Black/);
  await inspector.locator('#product-query').fill('slow-A');await inspector.locator('#product-query').press('Enter');await page.waitForTimeout(60);await inspector.locator('#product-query').fill('fast-B');await inspector.locator('#product-query').press('Enter');await inspector.waitForFunction(()=>document.querySelector('.product-title')?.textContent==='fast-B');await page.waitForTimeout(450);assert.deepEqual(await inspector.locator('.product-title').allTextContents(),['fast-B']);
  assert.equal(context.pages().length,pages);assert.equal(page.url(),sourceURL);assert.equal(await page.locator('video').evaluate((v,t)=>v.paused&&Math.abs(v.currentTime-t)<.02,time),true);
  // Additional-view input is resized, attached, and re-investigated with evidence.

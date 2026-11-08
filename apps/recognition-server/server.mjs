@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
@@ -150,6 +150,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
   const pairing = createPairingHandler(token);
   const paymentOrders = new Map();
   const priceHistoryCache = new Map();
+  const profileRequests = new Map();
   const paymentsConfigured = Boolean(paypalClientId && paypalClientSecret && !/^(your_|replace_)/i.test(paypalClientId) && !/^(your_|replace_)/i.test(paypalClientSecret));
   let inFlight = 0, webhookInFlight = 0;
   let lastRequest = 0;
@@ -447,52 +448,127 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
       const supplied = Buffer.from(String(req.headers['x-bopit-token'] || '')), expected = Buffer.from(token || '');
       if (!extensionOrigin || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'Pair the extension first.' });
       if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required.' });
-      if (inFlight >= 2) return send(429, { error: 'Two analyses are running. Please wait.' });
       let size = 0;
       try {
         const chunks = [];
         for await (const chunk of req) {
           size += chunk.length;
-          if (size > MAX_BODY) { send(413, { error: 'Request too large.' }); req.destroy(); return; }
+          if (size > MAX_BODY) {
+            if (req.url === '/api/profile') console.warn('[bopit-profile]', JSON.stringify({ stage: 'request-body', status: 413, code: 'REQUEST_TOO_LARGE', requestBytes: size }));
+            send(413, { code: 'REQUEST_TOO_LARGE', error: 'Request too large.' }); req.destroy(); return;
+          }
           chunks.push(chunk);
         }
-        const body = JSON.parse(Buffer.concat(chunks).toString());
+        const requestBody = Buffer.concat(chunks);
+        let body;
+        try { body = JSON.parse(requestBody.toString()); }
+        catch {
+          if (req.url === '/api/profile') console.warn('[bopit-profile]', JSON.stringify({ stage: 'request-json', status: 400, code: 'INVALID_JSON', requestBytes: size }));
+          return send(400, { code: 'INVALID_JSON', error: 'Invalid JSON request.' });
+        }
         if (req.url === '/api/segment') {
-          const image = validateImage(body.image), regions = validateRegions(body.regions);
+          const imageValidationStarted = performance.now();
+          const image = validateImage(body.image);
+          const imageValidationMs = performance.now() - imageValidationStarted;
+          const regionValidationStarted = performance.now();
+          const regions = validateRegions(body.regions);
+          const regionValidationMs = performance.now() - regionValidationStarted;
+          if (inFlight >= 2) return send(429, { error: 'Two analyses are running. Please wait.' });
           inFlight++;
-          try { return send(200, await segment(image.base64, regions)); } finally { inFlight--; }
+          try {
+            const segmentationStarted = performance.now();
+            const result = await segment(image.base64, regions);
+            const timings = { imageValidationMs, regionValidationMs, segmentationMs: performance.now() - segmentationStarted };
+            console.info('[bopit-detection-timing]', JSON.stringify({ stage: 'server-segmentation', ...timings, regionCount: regions.length }));
+            return send(200, { ...result, timings });
+          } finally { inFlight--; }
         }
         if (req.url === '/api/products/details') {
           if (!channel3Key) return send(503, { error: 'Channel3 key missing.' });
           if (body.selection && (typeof body.selection !== 'object' || Array.isArray(body.selection) || Object.keys(body.selection).length > 12)) return send(400, { error: 'Invalid variant selection.' });
           const config = validateLocale(body.config);
           if (body.websiteIds !== undefined && (!Array.isArray(body.websiteIds) || body.websiteIds.length > 25 || body.websiteIds.some(site => typeof site !== 'string' || site.length > 200))) return send(400, { error: 'Invalid seller selection.' });
+          if (inFlight >= 2) return send(429, { error: 'Two analyses are running. Please wait.' });
           inFlight++;
           try { return send(200, { product: await retrieve(body.id, { apiKey: channel3Key, selection: body.selection, config, websiteIds: body.websiteIds || [], userId: validateChannel3UserId(req.headers['x-bopit-user-id']) }) }); }
           finally { inFlight--; }
         }
+        if (req.url === '/api/profile') {
+          const imagePayloadBytes = {
+            crop: typeof body.image === 'string' ? Buffer.byteLength(body.image) : null,
+            scene: typeof body.scene === 'string' ? Buffer.byteLength(body.scene) : null,
+            additional: Array.isArray(body.additionalImages) ? body.additionalImages.map(image => typeof image === 'string' ? Buffer.byteLength(image) : null) : []
+          };
+          const rejectProfile = (stage, error, status = 400, code = 'INVALID_PROFILE_REQUEST') => {
+            console.warn('[bopit-profile]', JSON.stringify({ stage, status, code, requestBytes: size, imagePayloadBytes, error: error.message }));
+            return send(status, { code, error: error.message });
+          };
+          if (!apiKey) return rejectProfile('configuration', new Error('Gemini key missing.'), 503, 'KEY_MISSING');
+          let crop;
+          try { crop = validateImage(body.image); }
+          catch (error) { return rejectProfile('crop-image', error, 400, 'INVALID_CROP_IMAGE'); }
+          let scene;
+          try { scene = body.scene ? validateImage(body.scene).base64 : undefined; }
+          catch (error) { return rejectProfile('scene-image', error, 400, 'INVALID_SCENE_IMAGE'); }
+          let context;
+          try { context = validateContext(body.context); }
+          catch (error) { return rejectProfile('context', error, 400, 'INVALID_PROFILE_CONTEXT'); }
+          if (body.additionalImages !== undefined && (!Array.isArray(body.additionalImages) || body.additionalImages.length > 2)) {
+            return rejectProfile('additional-images', new Error('Use at most two additional views.'), 400, 'INVALID_ADDITIONAL_IMAGES');
+          }
+          const additionalImages = [];
+          for (let index = 0; index < (body.additionalImages || []).length; index++) {
+            try { additionalImages.push(validateImage(body.additionalImages[index]).base64); }
+            catch (error) { return rejectProfile(`additional-image-${index + 1}`, error, 400, 'INVALID_ADDITIONAL_IMAGE'); }
+          }
+          if (typeof body.label !== 'string' || body.label.length > 100) {
+            return rejectProfile('label', new Error('Invalid selected object.'), 400, 'INVALID_SELECTED_OBJECT');
+          }
+          const requestKey = createHash('sha256').update(requestBody).digest('hex');
+          let profileRequest = profileRequests.get(requestKey);
+          if (!profileRequest) {
+            if (inFlight >= 2) {
+              return rejectProfile('concurrency', new Error('Two analyses are running. Please wait.'), 429, 'ANALYSIS_BUSY');
+            }
+            inFlight++;
+            profileRequest = Promise.resolve().then(async () => {
+              try {
+                let profile, usedVideo = Boolean(context.youtubeUrl), contextWarning = '';
+                const options = { scene, context, additionalImages, label: body.label, apiKey, model };
+                try { profile = await inspect(crop.base64, options); }
+                catch (error) {
+                  const retryableVideoFailure = context.youtubeUrl && /video|youtube|media|unavailable/i.test(error.message || '');
+                  if (!retryableVideoFailure) throw error;
+                  profile = await inspect(crop.base64, { ...options, context: { ...context, youtubeUrl: '' } });
+                  usedVideo = false; contextWarning = 'Public video context was unavailable. Used supplied frames, captions and notes only.';
+                }
+                return { profile, contextWarning, contextUsed: { captions: context.cues.length, youtubeRequested: usedVideo, viewerNote: Boolean(context.note), additionalViews: additionalImages.length }, model };
+              } finally {
+                inFlight--;
+                profileRequests.delete(requestKey);
+              }
+            });
+            profileRequests.set(requestKey, profileRequest);
+          } else {
+            console.info('[bopit-profile]', JSON.stringify({ stage: 'deduplicated', status: 200, requestBytes: size, imagePayloadBytes }));
+          }
+          try {
+            const result = await profileRequest;
+            console.info('[bopit-profile]', JSON.stringify({ stage: 'complete', status: 200, code: 'OK', requestBytes: size, imagePayloadBytes }));
+            return send(200, result);
+          } catch (error) {
+            const retryableVideoFailure = context.youtubeUrl && /video|youtube|media|unavailable/i.test(error.message || '');
+            const code = error.name === 'TimeoutError' ? 'PROFILE_TIMEOUT'
+              : error.code === 'PROVIDER_RATE_LIMIT' ? 'PROVIDER_RATE_LIMIT'
+                : retryableVideoFailure ? 'VIDEO_CONTEXT_FAILED' : 'PROFILE_ANALYSIS_FAILED';
+            const status = code === 'PROFILE_TIMEOUT' ? 504 : code === 'PROVIDER_RATE_LIMIT' ? 429 : 502;
+            console.warn('[bopit-profile]', JSON.stringify({ stage: 'gemini', status, code, requestBytes: size, imagePayloadBytes, error: error.message || 'Profile analysis failed.' }));
+            return send(status, { code, error: error.name === 'TimeoutError' ? 'Analysis timed out. Try again without video context.' : error.message || 'Profile analysis failed.' });
+          }
+        }
+        if (inFlight >= 2) return send(429, { error: 'Two analyses are running. Please wait.' });
         if (!apiKey) return send(503, { error: 'Gemini key missing.' });
         const crop = validateImage(body.image);
-        if (req.url === '/api/profile') {
-          const scene = body.scene ? validateImage(body.scene).base64 : undefined;
-          const context = validateContext(body.context);
-          if (body.additionalImages && (!Array.isArray(body.additionalImages) || body.additionalImages.length > 2)) return send(400, { error: 'Use at most two additional views.' });
-          const additionalImages = (body.additionalImages || []).map(image => validateImage(image).base64);
-          if (typeof body.label !== 'string' || body.label.length > 100) return send(400, { error: 'Invalid selected object.' });
-          inFlight++;
-          try {
-            let profile, usedVideo = Boolean(context.youtubeUrl), contextWarning = '';
-            const options = { scene, context, additionalImages, label: body.label, apiKey, model };
-            try { profile = await inspect(crop.base64, options); }
-            catch (error) {
-              if (!context.youtubeUrl) throw error;
-              profile = await inspect(crop.base64, { ...options, context: { ...context, youtubeUrl: '' } });
-              usedVideo = false; contextWarning = 'Public video context was unavailable. Used supplied frames, captions and notes only.';
-            }
-            return send(200, { profile, contextWarning, contextUsed: { captions: context.cues.length, youtubeRequested: usedVideo, viewerNote: Boolean(context.note), additionalViews: additionalImages.length }, model });
-          }
-          finally { inFlight--; }
-        }
         const profile = validateProfile(body.profile);
         if (!channel3Key || !Array.isArray(body.ids) || !body.ids.length || body.ids.length > 6 || body.ids.some(id => typeof id !== 'string' || !/^[\w-]{1,160}$/.test(id))) return send(400, { error: 'Select up to six valid catalog products.' });
         inFlight++;
@@ -552,6 +628,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
     if (!apiKey) return send(503, { code: 'KEY_MISSING', error: 'Add GEMINI_API_KEY to the server .env file, restart it, and try again.' });
     if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required.' });
     if (inFlight >= 2 || Date.now() - lastRequest < 1000) return send(429, { error: 'A request is running or was just sent. Wait a moment.' });
+    const requestStarted = performance.now();
     let size = 0;
     try {
       const chunks = [];
@@ -562,13 +639,31 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
       }
       const body = JSON.parse(Buffer.concat(chunks).toString());
       if (typeof body.captureId !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.captureId)) return send(400, { error: 'Invalid capture ID.' });
+      const requestReadMs = performance.now() - requestStarted;
       let image;
+      const imageValidationStarted = performance.now();
       try { image = validateImage(body.image); } catch (error) { return send(400, { error: error.message }); }
+      const imageValidationMs = performance.now() - imageValidationStarted;
       inFlight++; lastRequest = Date.now();
       try {
-        const started = Date.now();
-        const result = await detect(image.base64, { apiKey, model });
-        send(200, { ...result, captureId: body.captureId, mode: 'live', model, elapsedMs: Date.now() - started, image: { width: image.width, height: image.height } });
+        const detectionStarted = performance.now(), geminiTimings = {};
+        const result = await detect(image.base64, { apiKey, model, onTiming: value => Object.assign(geminiTimings, value) });
+        const timings = {
+          requestReadMs,
+          imageValidationMs,
+          ...geminiTimings,
+          serverDetectionMs: performance.now() - detectionStarted
+        };
+        console.info('[bopit-detection-timing]', JSON.stringify({
+          stage: 'server-detection',
+          ...timings,
+          requestBytes: size,
+          imageBytes: Buffer.byteLength(image.base64, 'base64'),
+          imageWidth: image.width,
+          imageHeight: image.height,
+          objectCount: result.objects.length
+        }));
+        send(200, { ...result, captureId: body.captureId, mode: 'live', model, elapsedMs: timings.serverDetectionMs, timings, image: { width: image.width, height: image.height } });
       } catch (error) {
         send(502, { code: error.code || 'DETECTION_FAILED', error: error.name === 'TimeoutError' ? 'Gemini timed out. Your frame is preserved; try a smaller area.' : error.message || 'Detection failed.' });
       } finally { inFlight--; }

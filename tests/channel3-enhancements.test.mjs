@@ -13,7 +13,7 @@ import {
   normalizePriceHistory, normalizeClicksReport, normalizeTransactionsReport
 } from '../packages/contracts/discovery.mjs';
 import { chooseSearchStrategy, searchWithAgenticFallback } from '../apps/extension/search-orchestration.mjs';
-import { makePng } from './helpers.mjs';
+import { makePng, rawProfile } from './helpers.mjs';
 
 const json = value => new Response(JSON.stringify(value));
 const offer = (domain, price) => ({ domain, price: { amount: price, currency: 'USD' }, availability: 'InStock', condition: 'new', url: `https://${domain}/item` });
@@ -316,6 +316,40 @@ test('paired catalog routes proxy similar, lookup and browse while rejecting mal
   const invalid = await call('/api/products/search', { query: 'camera', filters: { colors: { palette: [{ hex: 'red' }] } } });
   assert.equal(invalid.status, 400);
 }));
+
+test('paired category, brand, product detail, and comparison routes validate and preserve provider response shapes', () => {
+  const calls = [];
+  return withServer({ apiKey: 'fixture-gemini',
+    searchCategories: async (query, options) => { calls.push(['category-search', query, options.limit]); return { categories: [{ slug: 'cameras' }] }; },
+    listCategories: async options => { calls.push(['category-list', options.rootsOnly, options.page]); return { categories: [{ slug: 'cameras' }] }; },
+    retrieveCategory: async (slug) => { calls.push(['category-details', slug]); return { slug, attributes: [{ slug: 'sensor-size', values: ['APS-C'] }] }; },
+    searchBrands: async (query, options) => { calls.push(['brand-search', query, options.categoryIds, options.country]); return { brands: [{ id: 'brand-1' }] }; },
+    listBrands: async options => { calls.push(['brand-list', options.cursor, options.country]); return { brands: [{ id: 'brand-1' }], nextCursor: 'brand-next' }; },
+    retrieveBrand: async (id, options) => { calls.push(['brand-details', id, options.country]); return { id, name: 'Fixture Brand' }; },
+    retrieve: async (id, options) => { calls.push(['details', id, options.selection, options.websiteIds, options.config]); return { ...product, id, variants: { selected: [{ name: 'Color', label: 'Black' }] } }; },
+    compare: async (_image, profile, products) => { calls.push(['compare', profile.category, products.map(item => item.id)]); return [{ id: 'camera-1', verdict: 'possible_match' }]; }
+  }, async call => {
+    const userId = 'bopit_00000000-0000-4000-8000-000000000001';
+    assert.equal((await call('/api/catalog/categories/search', { query: 'camera', limit: 8 })).body.categories[0].slug, 'cameras');
+    assert.equal((await call('/api/catalog/categories/list', { rootsOnly: true, page: 2, pageSize: 10 })).body.categories.length, 1);
+    assert.equal((await call('/api/catalog/categories/details', { slug: 'cameras' })).body.attributes[0].slug, 'sensor-size');
+    assert.equal((await call('/api/catalog/brands/search', { query: 'fixture', categoryIds: ['cameras'], config: { country: 'GB' } })).body.brands[0].id, 'brand-1');
+    assert.equal((await call('/api/catalog/brands/list', { cursor: 'brand-cursor', config: { country: 'CA' } })).body.nextCursor, 'brand-next');
+    assert.equal((await call('/api/catalog/brands/details', { id: 'brand-1', config: { country: 'IN' } })).body.name, 'Fixture Brand');
+    const details = await call('/api/products/details', { id: 'camera-1', selection: { Color: 'Black' }, websiteIds: ['shop.example'], config: { country: 'US', currency: 'USD' } }, { 'x-bopit-user-id': userId });
+    assert.equal(details.status, 200);
+    assert.equal(details.body.product.variants.selected[0].label, 'Black');
+    assert.equal((await call('/api/products/details', { id: 'camera-1', websiteIds: 'shop.example' })).status, 400);
+    const compared = await call('/api/products/compare', { image: makePng(), profile: rawProfile(), ids: ['camera-1'] }, { 'x-bopit-user-id': userId });
+    assert.equal(compared.status, 200);
+    assert.equal(compared.body.assessments[0].verdict, 'possible_match');
+    assert.deepEqual(calls.filter(entry => ['category-search', 'category-list', 'category-details', 'brand-search', 'brand-list', 'brand-details'].includes(entry[0])).map(entry => entry[0]), [
+      'category-search', 'category-list', 'category-details', 'brand-search', 'brand-list', 'brand-details'
+    ]);
+    assert.equal(calls.find(entry => entry[0] === 'brand-search')[3], 'GB');
+    assert.equal(calls.find(entry => entry[0] === 'details')[2].Color, 'Black');
+  });
+});
 
 test('paired conversation route creates then reuses sessions and validates image/context before forwarding', () => {
   const turns = [];

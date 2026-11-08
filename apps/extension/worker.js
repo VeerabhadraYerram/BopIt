@@ -25,6 +25,7 @@ chrome.action.onClicked.addListener(async tab => {
 });
 
 async function capture(tab) {
+  const captureStarted = performance.now();
   const before = await chrome.tabs.query({ active: true, windowId: tab.windowId });
   if (before[0]?.id !== tab.id) throw new Error('Tab changed. Return to the video and try again.');
   const frame = await chrome.tabs.sendMessage(tab.id, { type: 'BOPIT_PREPARE' });
@@ -55,9 +56,14 @@ async function capture(tab) {
   const finalTab = (await chrome.tabs.query({ active: true, windowId: tab.windowId }))[0];
   if (finalTab?.id !== tab.id || finalTab?.url !== tab.url) throw new Error('The source tab changed. Capture the moment again.');
   // The full viewport never leaves worker memory; only the video crop is stored.
-  const record = { captureId: frame.captureId, image, mode, context: frame.context, source: { tabId: tab.id, documentUrl: tab.url, timestamp: frame.timestamp }, createdAt: Date.now() };
+  const captureTiming = {
+    framePreparationMs: Number.isFinite(frame.framePreparationMs) ? frame.framePreparationMs : null,
+    captureAndStorageMs: performance.now() - captureStarted
+  };
+  const record = { captureId: frame.captureId, image, mode, context: frame.context, captureTiming, source: { tabId: tab.id, documentUrl: tab.url, timestamp: frame.timestamp }, createdAt: Date.now() };
   // One temporary capture keeps session memory bounded.
   await chrome.storage.session.set({ currentCapture: record });
+  console.info('[bopit-detection-timing]', JSON.stringify({ stage: 'capture', ...captureTiming, imagePayloadBytes: image.length }));
   await showInspector(tab, record.captureId);
 }
 

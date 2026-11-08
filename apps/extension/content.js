@@ -149,6 +149,7 @@
     if (msg?.type === 'BOPIT_START') { respond(startFromToolbar()); }
     if (msg?.type === 'BOPIT_PREPARE') {
       if (!selected?.isConnected || !selected.paused || selected.readyState < 2) { respond({error:'Pause the video first.'}); return; }
+      const framePreparationStarted = performance.now();
       const v=selected,r=v.getBoundingClientRect(),css=getComputedStyle(v);
       if(document.pictureInPictureElement || v.mediaKeys || document.fullscreenElement?.tagName==='VIDEO'){respond({error:'Protected media, Picture-in-Picture and native video-only fullscreen are unsupported. Use the normal player.'});return;}
       const id=crypto.randomUUID(); let directImage=null;
@@ -157,7 +158,7 @@
       if(!directImage){if(r.left<0||r.top<0||r.right>innerWidth||r.bottom>innerHeight||!['contain','fill'].includes(css.objectFit)){respond({error:'For this cross-origin player, keep the whole video visible with contain/fill positioning.'});return;}rect=globalThis.BopitGeometry.imageRect(r,v.videoWidth,v.videoHeight,css.objectFit);}
       pending={captureId:id,timestamp:v.currentTime,video:v,rect:r.toJSON(),viewport:{width:innerWidth,height:innerHeight}};
       host.style.visibility='hidden';overlay.style.display='none';if(panel)panel.hidden=true;
-      requestAnimationFrame(()=>requestAnimationFrame(()=>respond({captureId:id,directImage,rect,viewport:pending.viewport,timestamp:v.currentTime,context:{timestamp:v.currentTime,cues:captions(v),note:''}})));
+      requestAnimationFrame(()=>requestAnimationFrame(()=>respond({captureId:id,directImage,rect,viewport:pending.viewport,timestamp:v.currentTime,context:{timestamp:v.currentTime,cues:captions(v),note:''},framePreparationMs:performance.now()-framePreparationStarted})));
       return true;
     }
     if(msg?.type==='BOPIT_CONFIRM'){const r=selected?.getBoundingClientRect();respond({valid:Boolean(pending?.captureId===msg.captureId&&selected?.paused&&Math.abs(selected.currentTime-pending.timestamp)<.02&&r&&['x','y','width','height'].every(k=>Math.abs(r[k]-pending.rect[k])<.5)&&innerWidth===pending.viewport.width&&innerHeight===pending.viewport.height)});}
