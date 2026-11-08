@@ -12,13 +12,17 @@ import {
   searchChannel3, similarChannel3, lookupChannel3, browseChannel3,
   searchCategoriesChannel3, listCategoriesChannel3, retrieveCategoryChannel3,
   searchBrandsChannel3, listBrandsChannel3, retrieveBrandChannel3,
-  retrieveChannel3, catalogImage, converseChannel3, priceHistoryChannel3, reportingChannel3
+  retrieveChannel3, catalogImage, converseChannel3, priceHistoryChannel3, reportingChannel3,
+  createProductSubscriptionChannel3, listProductSubscriptionsChannel3,
+  getProductSubscriptionChannel3, cancelProductSubscriptionChannel3
 } from './channel3.mjs';
 import {
   normalizeColorPalette, normalizePriceHistory, normalizeClicksReport, normalizeTransactionsReport
 } from '../../packages/contracts/discovery.mjs';
 import { createPaypalClient } from './paypal.mjs';
 import { handlePayment } from './payments.mjs';
+import { createSubscriptionStore } from './subscription-store.mjs';
+import { PRODUCT_SUBSCRIPTION_EVENTS, verifyChannel3Webhook } from './channel3-webhooks.mjs';
 export { validateImage } from './image.mjs';
 
 export const PORT = 4317;
@@ -26,6 +30,8 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const MAX_BODY = 12 * 1024 * 1024;
 const MAX_PAGE_TOKEN = 4096;
+const MAX_WEBHOOK_BODY = 1024 * 1024;
+const DEFAULT_SUBSCRIPTION_STORE = createSubscriptionStore(resolve(root, '.local/channel3-subscriptions.json'));
 
 function validateDiscoveryFilters(filters) {
   if (filters === undefined) return undefined;
@@ -68,6 +74,56 @@ function validateChannel3UserId(value) {
   return value;
 }
 
+function validateSubscriptionRequest(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)
+      || typeof body.productId !== 'string' || !/^[a-zA-Z0-9_-]{1,160}$/.test(body.productId)) {
+    throw new Error('A canonical Channel3 product ID is required.');
+  }
+  if (!Array.isArray(body.events) || body.events.length < 1 || body.events.length > PRODUCT_SUBSCRIPTION_EVENTS.length
+      || body.events.some(event => !PRODUCT_SUBSCRIPTION_EVENTS.includes(event))
+      || new Set(body.events).size !== body.events.length) throw new Error('Choose one or more supported subscription events.');
+  if (body.selection !== undefined && (!Array.isArray(body.selection) || body.selection.length < 1 || body.selection.length > 12
+      || body.selection.some(option => !option || typeof option !== 'object' || Array.isArray(option)
+        || typeof option.name !== 'string' || !option.name.trim() || option.name.length > 120
+        || typeof option.label !== 'string' || !option.label.trim() || option.label.length > 200)
+      || new Set(body.selection.map(option => option.name)).size !== body.selection.length)) throw new Error('Variant selection must contain unique option names and selected labels.');
+  if (body.domains !== undefined && (!Array.isArray(body.domains) || body.domains.length > 25
+      || body.domains.some(domain => typeof domain !== 'string'
+        || !/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))+$/.test(domain)))) {
+    throw new Error('Merchant filters must be up to 25 bare DNS domains.');
+  }
+  return {
+    productId: body.productId,
+    events: [...body.events].sort(),
+    ...(body.selection ? { selection: body.selection.map(option => ({ name: option.name.trim(), label: option.label.trim() })) } : {}),
+    ...(body.domains ? { domains: [...new Set(body.domains.map(domain => domain.toLowerCase()))].sort() } : {})
+  };
+}
+
+function validateSubscriptionId(value) {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,256}$/.test(value)) throw new Error('A valid Channel3 subscription ID is required.');
+  return value;
+}
+
+function validateSubscriptionResponse(value) {
+  if (!value || typeof value !== 'object' || typeof value.subscription_id !== 'string'
+      || typeof value.product_id !== 'string' || !Array.isArray(value.events)
+      || value.events.some(event => !PRODUCT_SUBSCRIPTION_EVENTS.includes(event))
+      || !['active', 'cancelled'].includes(value.status)
+      || typeof value.created_at !== 'string' || !Number.isFinite(Date.parse(value.created_at))) {
+    const error = new Error('Channel3 returned an invalid product subscription response.');
+    error.code = 'INVALID_RESPONSE';
+    throw error;
+  }
+  return value;
+}
+
+function publicSubscription(subscription) {
+  if (!subscription) return subscription;
+  const { owners, ...safe } = subscription;
+  return safe;
+}
+
 function validateLocale(config = {}) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('Invalid market configuration.');
   const result = {};
@@ -90,18 +146,51 @@ function validateLocale(config = {}) {
   return result;
 }
 
-export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, similarProducts = similarChannel3, lookupProduct = lookupChannel3, browseProducts = browseChannel3, searchCategories = searchCategoriesChannel3, listCategories = listCategoriesChannel3, retrieveCategory = retrieveCategoryChannel3, searchBrands = searchBrandsChannel3, listBrands = listBrandsChannel3, retrieveBrand = retrieveBrandChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, converse = converseChannel3, priceHistory = priceHistoryChannel3, reporting = reportingChannel3, segment = segmentObjects, paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
+export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, similarProducts = similarChannel3, lookupProduct = lookupChannel3, browseProducts = browseChannel3, searchCategories = searchCategoriesChannel3, listCategories = listCategoriesChannel3, retrieveCategory = retrieveCategoryChannel3, searchBrands = searchBrandsChannel3, listBrands = listBrandsChannel3, retrieveBrand = retrieveBrandChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, converse = converseChannel3, priceHistory = priceHistoryChannel3, reporting = reportingChannel3, segment = segmentObjects, createSubscription = createProductSubscriptionChannel3, listSubscriptions = listProductSubscriptionsChannel3, getSubscription = getProductSubscriptionChannel3, cancelSubscription = cancelProductSubscriptionChannel3, subscriptionStore = DEFAULT_SUBSCRIPTION_STORE, webhookSecret = '', verifyWebhook = verifyChannel3Webhook, paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
   const pairing = createPairingHandler(token);
   const paymentOrders = new Map();
   const priceHistoryCache = new Map();
   const paymentsConfigured = Boolean(paypalClientId && paypalClientSecret && !/^(your_|replace_)/i.test(paypalClientId) && !/^(your_|replace_)/i.test(paypalClientSecret));
-  let inFlight = 0;
+  let inFlight = 0, webhookInFlight = 0;
   let lastRequest = 0;
   return http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'; form-action 'none'");
     const send = (status, value) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); };
+    if (req.method === 'POST' && req.url === '/webhooks/channel3') {
+      if (webhookInFlight >= 16) return send(503, { error: 'Webhook receiver is busy. Channel3 may retry delivery.' });
+      webhookInFlight++;
+      try {
+      if (!webhookSecret) return send(503, { error: 'Webhook endpoint is not configured.' });
+      if (String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() !== 'https') {
+        return send(400, { error: 'Webhook delivery requires an HTTPS reverse proxy.' });
+      }
+      const chunks = [];
+      let size = 0, event;
+      try {
+        for await (const chunk of req) {
+          size += chunk.length;
+          if (size > MAX_WEBHOOK_BODY) return send(413, { error: 'Webhook body is too large.' });
+          chunks.push(chunk);
+        }
+        event = verifyWebhook({
+          rawBody: Buffer.concat(chunks),
+          headers: req.headers,
+          secret: webhookSecret
+        });
+      } catch {
+        return send(400, { error: 'Webhook signature or event validation failed.' });
+      }
+      try {
+        const result = await subscriptionStore.persistWebhookEvent(event);
+        return send(200, { received: true, duplicate: result.duplicate });
+      } catch {
+        return send(503, { error: 'Webhook event could not be persisted. Channel3 may retry delivery.' });
+      }
+      } finally { webhookInFlight--; }
+    }
+    if (req.method === 'POST' && req.url === '/webhooks/channel3') return send(405, { error: 'Method not allowed.' });
     const origin = req.headers.origin;
     const extensionOrigin = typeof origin === 'string' && /^chrome-extension:\/\/[a-p]{32}$/.test(origin);
     if (req.headers.host !== `127.0.0.1:${PORT}`) return send(403, { error: 'Use the loopback address 127.0.0.1:4317.' });
@@ -131,7 +220,10 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
       '/api/catalog/categories/search', '/api/catalog/categories/list', '/api/catalog/categories/details',
       '/api/catalog/brands/search', '/api/catalog/brands/list', '/api/catalog/brands/details',
       '/api/conversations/turn', '/api/products/price-history',
-      '/api/reporting/clicks', '/api/reporting/transactions'
+      '/api/reporting/clicks', '/api/reporting/transactions',
+      '/api/subscriptions/create', '/api/subscriptions/list',
+      '/api/subscriptions/get', '/api/subscriptions/cancel',
+      '/api/subscriptions/events', '/api/subscriptions/events/read'
     ];
     if (req.method === 'POST' && catalogRoutes.includes(req.url)) {
       const supplied = Buffer.from(String(req.headers['x-bopit-token'] || ''));
@@ -218,6 +310,126 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
               apiKey: channel3Key, startDate, endDate, page, limit, userId
             });
             data = req.url.endsWith('/clicks') ? normalizeClicksReport(raw) : normalizeTransactionsReport(raw);
+          } else if (req.url.startsWith('/api/subscriptions/')) {
+            const installationId = userId;
+            if (!installationId) {
+              const error = new Error('An anonymous BopIt installation ID is required for subscriptions.');
+              error.code = 'INVALID_REQUEST';
+              throw error;
+            }
+            if (req.url === '/api/subscriptions/create') {
+              const subscriptionRequest = validateSubscriptionRequest(body);
+              let existing = await subscriptionStore.findDuplicate(installationId, subscriptionRequest);
+              if (existing) {
+                try {
+                  const provider = validateSubscriptionResponse(await getSubscription(existing.subscriptionId, { apiKey: channel3Key }));
+                  await subscriptionStore.updateSubscription(provider);
+                  if (provider.status === 'active') data = { subscription: publicSubscription({ ...existing, status: 'active' }), duplicate: true };
+                  else {
+                    await subscriptionStore.markOwnerCancelled(existing.subscriptionId, installationId, provider);
+                    existing = null;
+                  }
+                } catch (error) {
+                  if (error.code !== 'NOT_FOUND') throw error;
+                  const cancelled = { subscription_id: existing.subscriptionId, status: 'cancelled' };
+                  await subscriptionStore.updateSubscription(cancelled);
+                  await subscriptionStore.markOwnerCancelled(existing.subscriptionId, installationId, cancelled);
+                  existing = null;
+                }
+              }
+              if (!existing) {
+                const provider = validateSubscriptionResponse(await createSubscription({
+                  product_id: subscriptionRequest.productId,
+                  events: subscriptionRequest.events,
+                  ...(subscriptionRequest.selection ? { selection: subscriptionRequest.selection } : {}),
+                  ...(subscriptionRequest.domains ? { domains: subscriptionRequest.domains } : {})
+                }, { apiKey: channel3Key }));
+                try {
+                  const stored = await subscriptionStore.upsertSubscription(provider, subscriptionRequest, installationId);
+                  data = { subscription: publicSubscription(stored), duplicate: false };
+                } catch (storageError) {
+                  let cleanupError;
+                  try { await cancelSubscription(provider.subscription_id, { apiKey: channel3Key }); }
+                  catch (error) { cleanupError = error; }
+                  const error = new Error(cleanupError
+                    ? 'Channel3 created this subscription, but local ownership could not be saved and automatic cancellation failed. Review it in the Channel3 dashboard.'
+                    : 'Channel3 created this subscription, but local ownership could not be saved. It was cancelled with Channel3.');
+                  error.code = 'SUBSCRIPTION_STORAGE_FAILED';
+                  error.cause = storageError;
+                  throw error;
+                }
+              }
+            } else if (req.url === '/api/subscriptions/list') {
+              const status = body.status ?? 'active', limit = body.limit ?? 100;
+              if (!['active', 'cancelled'].includes(status) || !Number.isInteger(limit) || limit < 1 || limit > 100
+                  || (body.cursor !== undefined && (typeof body.cursor !== 'string' || body.cursor.length > 2048))) {
+                throw new Error('Invalid subscription list status, page size, or cursor.');
+              }
+              const remote = await listSubscriptions({ apiKey: channel3Key, status, cursor: body.cursor, limit });
+              if (!remote || !Array.isArray(remote.items) || (remote.next_cursor != null && typeof remote.next_cursor !== 'string')) {
+                const error = new Error('Channel3 returned an invalid subscription list response.');
+                error.code = 'INVALID_RESPONSE';
+                throw error;
+              }
+              const owned = new Map((await subscriptionStore.listOwnedSubscriptions(installationId))
+                .map(item => [item.subscriptionId, item]));
+              const items = [];
+              for (const raw of remote.items) {
+                const provider = validateSubscriptionResponse(raw);
+                const local = owned.get(provider.subscription_id);
+                if (!local) continue;
+                await subscriptionStore.updateSubscription(provider);
+                if ((local.ownerCancelledAt ? 'cancelled' : provider.status) === status) {
+                  items.push(publicSubscription({ ...local, status: provider.status, ownerStatus: local.ownerCancelledAt ? 'cancelled' : provider.status }));
+                }
+              }
+              data = { items, nextCursor: remote.next_cursor || null };
+            } else if (req.url === '/api/subscriptions/get' || req.url === '/api/subscriptions/cancel') {
+              const subscriptionId = validateSubscriptionId(body.subscriptionId);
+              const local = await subscriptionStore.getOwnedSubscription(subscriptionId, installationId);
+              if (!local) {
+                const error = new Error('This subscription does not belong to this BopIt installation.');
+                error.code = 'NOT_FOUND';
+                throw error;
+              }
+              if (req.url === '/api/subscriptions/get') {
+                try {
+                  const provider = validateSubscriptionResponse(await getSubscription(subscriptionId, { apiKey: channel3Key }));
+                  await subscriptionStore.updateSubscription(provider);
+                  data = { subscription: publicSubscription({ ...local, status: provider.status }) };
+                } catch (error) {
+                  if (error.code !== 'NOT_FOUND') throw error;
+                  await subscriptionStore.updateSubscription({ subscription_id: subscriptionId, status: 'cancelled' });
+                  await subscriptionStore.markOwnerCancelled(subscriptionId, installationId, { status: 'cancelled' });
+                  data = { subscription: publicSubscription({ ...local, status: 'cancelled', ownerStatus: 'cancelled' }), unavailable: true };
+                }
+              } else {
+                const activeOwners = await subscriptionStore.activeOwnerCount(subscriptionId);
+                if (activeOwners > 1) {
+                  data = { subscription: publicSubscription(await subscriptionStore.markOwnerCancelled(subscriptionId, installationId)), shared: true };
+                } else {
+                  try {
+                    const provider = validateSubscriptionResponse(await cancelSubscription(subscriptionId, { apiKey: channel3Key }));
+                    data = { subscription: publicSubscription(await subscriptionStore.markOwnerCancelled(subscriptionId, installationId, provider)), shared: false };
+                  } catch (error) {
+                    if (error.code !== 'NOT_FOUND') throw error;
+                    const cancelled = { subscription_id: subscriptionId, status: 'cancelled' };
+                    await subscriptionStore.updateSubscription(cancelled);
+                    data = { subscription: publicSubscription(await subscriptionStore.markOwnerCancelled(subscriptionId, installationId, cancelled)), unavailable: true, shared: false };
+                  }
+                }
+              }
+            } else if (req.url === '/api/subscriptions/events') {
+              const limit = body.limit ?? 100;
+              if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Notification page size must be between 1 and 100.');
+              data = { events: await subscriptionStore.listEvents(installationId, limit) };
+            } else if (req.url === '/api/subscriptions/events/read') {
+              if (!Array.isArray(body.eventIds) || body.eventIds.length > 100
+                  || body.eventIds.some(id => typeof id !== 'string' || !/^[a-zA-Z0-9_-]{1,256}$/.test(id))) {
+                throw new Error('Invalid notification IDs.');
+              }
+              data = await subscriptionStore.markEventsRead(installationId, [...new Set(body.eventIds)]);
+            }
           }
           return send(200, data);
         } finally { inFlight--; }
@@ -226,6 +438,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
           ? error.status : error.code === 'KEY_MISSING' ? 503
             : error.code === 'RATE_LIMIT_EXCEEDED' ? 429
               : error.code === 'NOT_FOUND' ? 404
+                : error.code === 'SUBSCRIPTION_STORAGE_FAILED' ? 500
                 : error.code === 'NETWORK_ERROR' || error.code === 'TIMEOUT' || error.code === 'PROVIDER_ERROR' || error.code === 'INVALID_RESPONSE' ? 502 : 400;
         return send(status, { code: error.code || 'INVALID_REQUEST', error: error.message || 'Catalog request failed.' });
       }
@@ -369,7 +582,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const tokenPath = resolve(dir, 'pairing-token');
   let token;
   try { token = (await readFile(tokenPath, 'utf8')).trim(); } catch { token = randomBytes(32).toString('hex'); await writeFile(tokenPath, token, { mode: 0o600 }); }
-  const app = createApp({ token, apiKey: process.env.GEMINI_API_KEY, channel3Key: process.env.CHANNEL3_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', paypalClientId: process.env.PAYPAL_SANDBOX_CLIENT_ID, paypalClientSecret: process.env.PAYPAL_SANDBOX_CLIENT_SECRET });
+  const dataDir = resolve(root, process.env.BOPIT_DATA_DIR || '.local');
+  const app = createApp({ token, apiKey: process.env.GEMINI_API_KEY, channel3Key: process.env.CHANNEL3_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', webhookSecret: process.env.CHANNEL3_WEBHOOK_SECRET || '', subscriptionStore: createSubscriptionStore(resolve(dataDir, 'channel3-subscriptions.json')), paypalClientId: process.env.PAYPAL_SANDBOX_CLIENT_ID, paypalClientSecret: process.env.PAYPAL_SANDBOX_CLIENT_SECRET });
   app.on('error', error => { console.error(error.code === 'EADDRINUSE' ? 'Port 4317 is already in use. Stop the other BopIt server first.' : 'Server could not start.'); process.exitCode = 1; });
   app.listen(PORT, '127.0.0.1', () => console.log(`BopIt setup: ${BASE}\nGemini key ${process.env.GEMINI_API_KEY ? 'configured; live call still needs verification' : 'missing; see README.md'}\nChannel3 key ${process.env.CHANNEL3_API_KEY ? 'configured' : 'missing; add CHANNEL3_API_KEY to .env'}. No images or credentials are logged.`));
 }

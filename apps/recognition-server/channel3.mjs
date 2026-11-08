@@ -367,3 +367,23 @@ export async function catalogImage(product, fetcher = fetch) {
     return signature ? { id: product.id, mimeType, data: bytes.toString('base64') } : null;
   } catch { return null; }
 }
+
+export async function createProductSubscriptionChannel3(request, { apiKey, fetcher = fetch } = {}) {
+  return requestChannel3('/v1/product-subscriptions', { apiKey, method: 'POST', body: request, fetcher });
+}
+
+export async function listProductSubscriptionsChannel3({ apiKey, status = 'active', cursor, limit = 100, fetcher = fetch } = {}) {
+  return requestChannel3('/v1/product-subscriptions', {
+    apiKey,
+    query: { status, cursor, limit },
+    fetcher
+  });
+}
+
+export async function getProductSubscriptionChannel3(subscriptionId, { apiKey, fetcher = fetch } = {}) {
+  return requestChannel3(`/v1/product-subscriptions/${encodeURIComponent(subscriptionId)}`, { apiKey, fetcher });
+}
+
+export async function cancelProductSubscriptionChannel3(subscriptionId, { apiKey, fetcher = fetch } = {}) {
+  return requestChannel3(`/v1/product-subscriptions/${encodeURIComponent(subscriptionId)}`, { apiKey, method: 'DELETE', fetcher });
+}

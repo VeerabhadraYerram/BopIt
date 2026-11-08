@@ -22,6 +22,8 @@ Setup preserves or creates `.env`, builds `dist/extension`, and starts the local
 GEMINI_API_KEY=your_own_key
 GEMINI_MODEL=gemini-3.5-flash-lite
 CHANNEL3_API_KEY=your_own_key
+CHANNEL3_WEBHOOK_SECRET=
+BOPIT_DATA_DIR=.local
 ```
 
 If the server was already running, restart it after editing `.env`:
@@ -109,6 +111,20 @@ Simple searches keep deterministic Channel3 search. BopIt selects `config.mode =
 
 Operation selection stays bounded and understandable: a submitted retailer URL uses URL lookup; a similar-products request with a selected canonical listing uses native similarity; explicitly browsing a selected category or brand uses the catalog browse endpoint; opening specifications or changing an option retrieves that product/variant; and natural-language follow-ups use the conversation thread. Otherwise BopIt retains the existing intent-based text/image search rather than guessing extra tool calls.
 
+### Product subscriptions and scene planning
+
+Open **Specifications & variants** on a product card to create a Channel3 alert subscription for price changes, availability changes, newly created offers or removed offers. Pick event types and, for products with variants, BopIt passes every option and the currently selected value. A substituted or incomplete variant cannot be subscribed until you choose a supported configuration. The subscription panel lists and cancels subscriptions owned by this browser installation. Channel3 de-duplicates matching active subscriptions.
+
+Product subscriptions use Channel3's documented `POST /v1/product-subscriptions`, `GET /v1/product-subscriptions`, and `GET` / `DELETE /v1/product-subscriptions/{subscription_id}` operations. These subscriptions currently use Channel3's English / US / USD locale regardless of BopIt's search market. Channel3 refreshes subscribed products on a priority daily schedule; event arrival is not real-time stock monitoring.
+
+Configure a webhook endpoint in the [Channel3 dashboard](https://channel3.ai/dashboard/webhooks), enable the event types you want, and set its `whsec_...` signing secret as `CHANNEL3_WEBHOOK_SECRET` in the server `.env`. Point the endpoint at `https://YOUR_PUBLIC_HOST/webhooks/channel3`. The server binds to loopback by default, so Channel3 cannot reach it directly: deploy behind a public HTTPS reverse proxy or use a trusted HTTPS tunnel for development. The proxy must terminate TLS and overwrite `X-Forwarded-Proto` with `https`; do not accept that header directly from untrusted clients. BopIt verifies the raw body with Channel3's documented Svix/Standard Webhooks HMAC-SHA256 scheme and five-minute timestamp window, persists the event before acknowledging it, and de-duplicates stable event IDs.
+
+Subscription ownership and inbox events are stored atomically in `.local/channel3-subscriptions.json` with restrictive local permissions; no external database is required for this single-process prototype. Keep `.local` on a durable, access-controlled volume in deployment, or set `BOPIT_DATA_DIR` to another persistent directory. Back up this directory. Do not mount it read-only or share it between concurrent server processes; this JSON store is not a multi-process database. Keep `CHANNEL3_WEBHOOK_SECRET` and `CHANNEL3_API_KEY` server-side.
+
+Use the extension's **Product alert inbox → Refresh alerts** to view persisted events and mark them read. This is a pull-based inbox, not browser push delivery; a webhook being accepted does not mean a notification was delivered to a closed browser. Test delivery through a disposable Channel3 webhook endpoint or its dashboard test-event/replay tools and confirm the event appears in the inbox. Never use unsigned locally fabricated requests as proof of provider delivery. For local development, expose only the webhook path through an HTTPS tunnel, for example `cloudflared tunnel --url http://127.0.0.1:4317`, configure the resulting HTTPS URL plus `/webhooks/channel3` in the Channel3 dashboard, and confirm the tunnel forwards or sets `X-Forwarded-Proto: https`.
+
+When Gemini detects multiple objects in one frame, **Plan this scene** presents them as separate, selectable searches. BopIt uses each existing detection and crop; searches reuse the current market/filters and existing product cards, with at most two searches in flight. Results remain grouped per object, partial failures do not discard successful groups, and products can use existing details and comparison actions. Scene relationships are shown only when the visual description explicitly relates detected labels; notes are unverified and are not compatibility guarantees. BopIt does not invent combinations when the scene supplies no evidence.
+
 ## Supported surfaces and limitations
 
 - Ordinary top-level HTML5 video after explicit toolbar activation; no permanent access to every site.
@@ -123,9 +139,9 @@ Operation selection stays bounded and understandable: a submitted retailer URL u
 
 - `apps/extension/content.js`: page controls, scan, highlights, manual regions and panel shell.
 - `apps/extension/worker.js`: active-tab capture and source-bound message routing.
-- `apps/extension/viewer.js`: recognition, corrections, gallery and inspector state.
-- `apps/extension/investigation.js`: profiles, evidence, search intents, caching and catalog details.
-- `apps/recognition-server/`: local HTTP server, Gemini/Channel3 adapters and pairing.
+- `apps/extension/viewer.js`: recognition, corrections, gallery, scene planning and inspector state.
+- `apps/extension/investigation.js`: profiles, evidence, search intents, subscriptions, caching and catalog details.
+- `apps/recognition-server/`: local HTTP server, Gemini/Channel3 adapters, pairing and webhook processing.
 - `packages/contracts/`: validated detection/profile shapes and catalog normalization.
 
 The extension-owned iframe holds the paired server token in trusted extension storage. The page never receives provider keys or the token. Capture access and relayed messages are bound to the originating tab, URL and capture ID. The server validates image formats, origins and request limits. Catalog-image downloads are restricted to HTTPS `cdn.trychannel3.com`, reject redirects, and have size/time limits.

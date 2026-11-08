@@ -1,12 +1,17 @@
 import { mapCropBox } from './contracts/recognition.mjs';
 import { clampLabel } from './label-layout.js';
 import { createInvestigator } from './investigation.js';
+import { createScenePlan, createSceneSearchRunner } from './scene-planning.mjs';
+import { formatProductPrice } from './product-display.js';
 const $ = selector => document.querySelector(selector);
 const embedded = new URLSearchParams(location.search).get('embedded') === '1';
 if (embedded) { document.body.classList.add('embedded'); $('#return').textContent = 'Back to video'; } else document.querySelector('.frame-tools').open = true;
 let capture = null, objects = [], result = null, selectedId = null, drawing = false, start = null, busy = false, revision = 0, controller = null;
 let searchRevision = 0, searchController = null;
 const investigator = createInvestigator({ getCapture: () => capture, crop: box => cropImage(box).image, getSelected: () => objects.find(o => o.id === selectedId) });
+const sceneSearchRunner = createSceneSearchRunner({ concurrency: 2 });
+let scenePlan = null, scenePlanSignature = '', sceneSearchController = null, sceneSearchGeneration = 0;
+const sceneElements = new Map();
 function publish(extra = {}) { if (embedded && capture?.source) chrome.runtime.sendMessage({ type: 'BOPIT_OVERLAY_STATE', captureId: capture.captureId, objects: objects.map(({id,label,box,contour,contours}) => ({id,label,box,contour,contours})), selectedId, ...extra }).catch(() => {}); }
 function cancelProductSearch() {
   searchRevision++; searchController?.abort(); searchController = null;
@@ -23,6 +28,55 @@ function setBusy(value) {
 }
 const full = { x: 0, y: 0, width: 1, height: 1 };
 function notice(text, error = false) { $('#notice').textContent = text; $('#notice').classList.toggle('error', error); }
+function subscriptionEventText(event) {
+  const data = event.data || {}, subject = data.subject || {}, domain = subject.domain || 'seller not supplied';
+  if (event.type === 'offer.price.changed') return `${formatProductPrice(data.previous?.price, data.previous?.currency)} → ${formatProductPrice(data.current?.price, data.current?.currency)} at ${domain}`;
+  if (event.type === 'offer.availability.changed') return `${String(data.previous)} → ${String(data.current)} at ${domain}`;
+  if (event.type === 'offer.created' || event.type === 'offer.deleted') {
+    const offer = data.offer || {};
+    const state = offer.price ? `${formatProductPrice(offer.price.price, offer.price.currency)} · ${offer.availability || 'availability unknown'}` : 'Offer details not supplied';
+    return `${event.type === 'offer.created' ? 'New offer' : 'Offer removed'} at ${offer.domain || domain} · ${state}`;
+  }
+  return 'Unrecognized Channel3 event type. It was stored without triggering an action.';
+}
+async function refreshSubscriptionInbox() {
+  const button = $('#refresh-subscription-inbox'), target = $('#subscription-inbox-items');
+  button.disabled = true;
+  $('#subscription-inbox-status').textContent = 'Loading saved Channel3 events…';
+  try {
+    const data = await investigator.listSubscriptionEvents();
+    target.replaceChildren();
+    if (!data.events?.length) {
+      target.append(node('p', 'No saved subscription events for this installation.', 'muted'));
+      $('#subscription-inbox-status').textContent = 'No events are currently in the backend inbox.';
+      return;
+    }
+    for (const event of data.events) {
+      const item = node('article', undefined, `subscription-notification${event.read ? ' is-read' : ''}`);
+      const productId = event.data?.subject?.product_id || event.data?.offer?.product_id || 'Product ID not supplied';
+      item.append(
+        node('strong', `${event.type} · ${event.data?.subject?.domain || event.data?.offer?.domain || 'seller unknown'}`),
+        node('p', subscriptionEventText(event)),
+        node('small', `${productId} · ${new Date(event.timestamp).toLocaleString()} · ${event.read ? 'Read' : 'Unread'}`)
+      );
+      if (!event.read) {
+        const markRead = node('button', 'Mark read', 'secondary');
+        markRead.type = 'button';
+        markRead.addEventListener('click', async () => {
+          markRead.disabled = true;
+          try { await investigator.markSubscriptionEventsRead([event.eventId]); await refreshSubscriptionInbox(); }
+          catch (error) { $('#subscription-inbox-status').textContent = `Could not update inbox status: ${error.message}`; markRead.disabled = false; }
+        });
+        item.append(markRead);
+      }
+      target.append(item);
+    }
+    $('#subscription-inbox-status').textContent = `${data.events.length} persisted event${data.events.length === 1 ? '' : 's'} loaded. This inbox is polled on request; the browser has not received push delivery.`;
+  } catch (error) {
+    target.replaceChildren(node('p', `Subscription inbox unavailable: ${error.message}`, 'variant-warning'));
+    $('#subscription-inbox-status').textContent = 'Could not load persisted alerts.';
+  } finally { button.disabled = false; }
+}
 function sizeStage() {
   const image = $('#frame');
   if (!image.naturalWidth) return;
@@ -64,7 +118,170 @@ function render() {
   }
   $('#export').disabled = !result && !objects.length;
   document.querySelectorAll('.object-box.active').forEach(positionLabel);
+  syncScenePlan();
   publish();
+}
+function renderScenePlan() {
+  const section = $('#scene-planning');
+  if (!scenePlan || objects.length < 2) { section.hidden = true; return; }
+  section.hidden = false;
+  $('#scene-object-count').textContent = `${scenePlan.objects.length} planned`;
+  $('#scene-observation').textContent = scenePlan.sceneObservation
+    ? `Scene observation · ${scenePlan.sceneObservation}`
+    : 'No scene-level observation was supplied.';
+  const relationships = $('#scene-relationships');
+  relationships.replaceChildren();
+  const evidence = scenePlan.objects.filter(item => item.relationshipEvidence);
+  if (!evidence.length) {
+    relationships.append(node('p', 'No object relationships were reported. BopIt will not infer compatibility or combinations.', 'muted'));
+  } else {
+    relationships.append(node('p', 'Visual relationship notes · unverified, not product compatibility:', 'muted'));
+    for (const item of evidence) relationships.append(node('p', `${item.label}: ${item.relationshipEvidence.description}`, 'muted'));
+  }
+  const combinations = $('#scene-combinations');
+  combinations.replaceChildren();
+  const plannedIds = new Set(scenePlan.objects.map(item => item.id));
+  const suggestions = scenePlan.combinations.filter(item => item.objectIds.every(id => plannedIds.has(id)));
+  if (suggestions.length) {
+    combinations.append(node('p', 'Possible related finds · grouped only because the visual description explicitly named both objects:', 'muted'));
+    for (const suggestion of suggestions) {
+      const labels = suggestion.objectIds.map(id => scenePlan.objects.find(item => item.id === id)?.label).filter(Boolean);
+      combinations.append(node('p', `${labels.join(' + ')} · ${suggestion.evidence} · not a compatibility claim.`, 'muted'));
+    }
+  } else {
+    combinations.append(node('p', 'No evidence-backed object combinations were supplied; no combinations are suggested.', 'muted'));
+  }
+  const target = $('#scene-plan-objects');
+  target.replaceChildren();
+  sceneElements.clear();
+  for (const item of scenePlan.objects) {
+    const article = node('article', undefined, 'scene-object-plan');
+    const heading = node('div', undefined, 'scene-object-heading');
+    const chooseLabel = node('label');
+    const choose = document.createElement('input');
+    choose.type = 'checkbox'; choose.checked = item.selected;
+    choose.addEventListener('change', () => {
+      item.selected = choose.checked;
+      $('#scene-plan-status').textContent = `${item.label} ${item.selected ? 'included in' : 'excluded from'} the next scene search.`;
+      $('#run-scene-plan').textContent = scenePlan.objects.some(object => object.status !== 'not-searched')
+        ? 'Rerun scene plan' : 'Discover selected objects';
+    });
+    const thumb = node('img'); thumb.alt = ''; thumb.src = item.crop;
+    chooseLabel.append(choose, thumb, node('span', item.label));
+    const remove = node('button', 'Remove from plan', 'secondary');
+    remove.type = 'button';
+    remove.addEventListener('click', () => {
+      scenePlan.objects = scenePlan.objects.filter(object => object.id !== item.id);
+      renderScenePlan();
+      $('#scene-plan-status').textContent = `${item.label} removed from this plan; the detected find is unchanged.`;
+    });
+    heading.append(chooseLabel, remove);
+    const details = node('details', undefined, 'scene-object-results');
+    details.open = true;
+    const summary = node('summary', `${item.label} · results`);
+    const status = node('p', sceneSearchStatus(item), 'muted');
+    const rerun = node('button', 'Rerun this object', 'secondary');
+    rerun.type = 'button';
+    const resultTarget = node('div', undefined, 'products-container scene-products');
+    rerun.addEventListener('click', () => discoverScenePlan([item.id], true));
+    details.append(summary, status, rerun, resultTarget);
+    article.append(heading, details);
+    target.append(article);
+    sceneElements.set(item.id, { status, results: resultTarget, details });
+    if (item.results) investigator.renderSceneResults(item, resultTarget);
+  }
+  $('#run-scene-plan').textContent = scenePlan.objects.some(item => item.status !== 'not-searched')
+    ? 'Rerun scene plan' : 'Discover selected objects';
+}
+function sceneSearchStatus(item) {
+  if (item.status === 'searching') return 'Searching Channel3…';
+  if (item.status === 'error') return `Search failed: ${item.error || 'Channel3 request failed.'}`;
+  if (item.status === 'complete') return item.results?.length
+    ? `${item.results.length} Channel3 products returned for this detected object.`
+    : 'Channel3 returned no products for this object.';
+  return item.confidence === null ? 'Detected object · confidence not supplied. Not searched yet.' : `Detected object · confidence ${item.confidence}. Not searched yet.`;
+}
+function syncScenePlan() {
+  const signature = JSON.stringify([
+    capture?.captureId,
+    result?.sceneObservation || '',
+    objects.map(item => [item.id, item.label, item.box])
+  ]);
+  if (signature === scenePlanSignature) return;
+  const previous = new Map((scenePlan?.objects || []).map(item => [item.id, item]));
+  scenePlanSignature = signature;
+  if (!capture || objects.length < 2) {
+    scenePlan = null;
+    renderScenePlan();
+    return;
+  }
+  scenePlan = createScenePlan({
+    sceneId: capture.captureId,
+    sceneObservation: result?.sceneObservation || '',
+    sceneImageReference: `capture:${capture.captureId}`,
+    objects,
+    cropForObject: object => cropImage(object.box).image
+  });
+  for (const item of scenePlan.objects) {
+    const old = previous.get(item.id);
+    if (old && JSON.stringify(old.box) === JSON.stringify(item.box)) {
+      item.selected = old.selected;
+      item.results = old.results;
+      item.status = old.status;
+      item.error = old.error;
+    }
+  }
+  renderScenePlan();
+}
+async function discoverScenePlan(objectIds = scenePlan?.objects.filter(item => item.selected).map(item => item.id) || [], force = false) {
+  if (!scenePlan) return;
+  if (!objectIds.length) { $('#scene-plan-status').textContent = 'Select at least one detected object to search.'; return; }
+  if (sceneSearchController) {
+    $('#scene-plan-status').textContent = 'A scene search is already running. Wait for it to finish before starting another.';
+    return;
+  }
+  const controller = new AbortController();
+  sceneSearchController = controller;
+  const version = ++sceneSearchGeneration;
+  for (const item of scenePlan.objects) if (objectIds.includes(item.id)) {
+    item.status = 'searching';
+    const elements = sceneElements.get(item.id);
+    if (elements) elements.status.textContent = sceneSearchStatus(item);
+  }
+  const button = $('#run-scene-plan');
+  button.disabled = true;
+  $('#scene-plan-status').textContent = `Searching ${objectIds.length} selected object${objectIds.length === 1 ? '' : 's'} with at most two concurrent requests…`;
+  try {
+    const requestContext = investigator.sceneSearchContext();
+    const results = await sceneSearchRunner.run(
+      scenePlan,
+      (item, signal) => investigator.discoverSceneObject(item, sceneElements.get(item.id)?.results, signal, requestContext),
+      {
+        selectedIds: objectIds, signal: controller.signal, force,
+        keyForObject: item => investigator.sceneSearchCacheKey(item, requestContext)
+      }
+    );
+    if (version !== sceneSearchGeneration || sceneSearchController !== controller) return;
+    for (const outcome of results) {
+      const item = scenePlan.objects.find(object => object.id === outcome.objectId);
+      const elements = sceneElements.get(outcome.objectId);
+      if (item && elements) elements.status.textContent = sceneSearchStatus(item);
+    }
+    const errors = results.filter(outcome => outcome.status === 'error').length;
+    const returned = results.filter(outcome => outcome.status === 'complete' && outcome.products.length).length;
+    $('#scene-plan-status').textContent = errors
+      ? `${errors} object search${errors === 1 ? '' : 'es'} failed; successful object results remain available.`
+      : `${returned} of ${results.length} object searches returned products. Results stay grouped by detected object.`;
+  } catch (error) {
+    if (version === sceneSearchGeneration && error.name !== 'AbortError') {
+      $('#scene-plan-status').textContent = `Scene search could not run: ${error.message}`;
+    }
+  } finally {
+    if (version === sceneSearchGeneration) {
+      button.disabled = false;
+      sceneSearchController = null;
+    }
+  }
 }
 function select(id) {
   cancelProductSearch();
@@ -86,6 +303,9 @@ function select(id) {
   investigator.select(object);
 }
 async function loadFrame(record) {
+  sceneSearchController?.abort(); sceneSearchController = null; sceneSearchGeneration++;
+  sceneSearchRunner.clear(capture?.captureId || '');
+  scenePlan = null; scenePlanSignature = ''; sceneElements.clear();
   cancelProductSearch();
   revision++; controller?.abort(); setBusy(false);
   drawing = false; start = null; $('#stage').classList.remove('drawing'); $('#draw').textContent = 'Select an area'; $('#draft').hidden = true;
@@ -111,6 +331,7 @@ function cropImage(box) {
 }
 async function analyze(area = full, replacingId = null) {
   if (!capture || busy) return;
+  sceneSearchController?.abort(); sceneSearchController = null; sceneSearchGeneration++;
   cancelProductSearch();
   const { pairingToken } = await chrome.storage.local.get('pairingToken');
   if (!pairingToken) { const message = 'Connect first: open Settings → Connect local server, then Explore again.'; notice(message, true); publish({ scanning: false, error: message }); return; }
@@ -236,6 +457,13 @@ chrome.runtime.onMessage.addListener(message => {
 });
 
 document.querySelectorAll('[data-jump]').forEach(button => button.onclick = () => document.getElementById(button.dataset.jump).scrollIntoView({ block: 'start', behavior: 'smooth' }));
+$('#run-scene-plan').addEventListener('click', () => discoverScenePlan());
+$('#rebuild-scene-plan').addEventListener('click', () => {
+  scenePlanSignature = '';
+  syncScenePlan();
+  $('#scene-plan-status').textContent = 'Plan rebuilt from the current detected finds. Select objects and start discovery.';
+});
+$('#refresh-subscription-inbox').addEventListener('click', refreshSubscriptionInbox);
 
 const query = new URLSearchParams(location.search);
 if (query.has('capture')) {

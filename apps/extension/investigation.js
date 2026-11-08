@@ -20,6 +20,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   },api,market,product=>checkoutAction(
     ()=>({id:product.id,selection:product.variantSelection||{},websiteIds:product.retailer?[product.retailer]:[],config:market(),expectedOffer:offerSnapshot(product)}),product));
   const cache = new Map(), searches = new Map(), views = new Map();
+  const detailGenerations = new WeakMap();
   let palette = [], activeSearch = null, activeBrowse = null;
   let brandCursor = null, categoryPage = 1, categoryTotal = 0;
   function cancel() { lastRendered = { products: [], assessments: [] };generation++; controller?.abort(); controller = null; $('#search-products-btn').disabled = false; }
@@ -672,19 +673,22 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       if(version===generation&&e.name!=='AbortError') { $('#investigation-status').textContent = `Matches loaded · deeper comparison unavailable: ${e.message}`; }
     }
   }
-  function renderProducts(products, assessments = [], { nextPageToken = null, loadMore = loadMoreSearch } = {}) {
-    lastRendered = {products,assessments};
-    $('#products-container').replaceChildren();
+  function renderProducts(products, assessments = [], { nextPageToken = null, loadMore = loadMoreSearch, target = $('#products-container'), sceneObject = null } = {}) {
+    const sceneResults = Boolean(sceneObject);
+    if (!sceneResults) lastRendered = {products,assessments};
+    target.replaceChildren();
     let priceSorted=false;
-    try { const prepared=shopping.prepare(products, current?.object || selected || {}, intent);products=prepared.products;priceSorted=prepared.priceSorted; }
-    catch(e){$('#products-notice').textContent=e.message;return;}
+    try { const prepared=shopping.prepare(products, sceneObject || current?.object || selected || {}, sceneResults ? 'look' : intent);products=prepared.products;priceSorted=prepared.priceSorted; }
+    catch(e){if(!sceneResults)$('#products-notice').textContent=e.message;return;}
 
-    $('#products-notice').textContent = products.length ? `${products.length} ${intent==='exact'?'identity candidates':intent==='look'?'similar-looking products':intent==='cheaper'?'alternatives sorted by price (original price unknown)':'functional alternatives'}. Exact identity is not verified. We may earn a commission from retailer links.` : 'No catalog matches found. Try another intent, increase your budget, or edit the query. An absent listing does not mean the item does not exist.';
+    if (!sceneResults) {
+      $('#products-notice').textContent = products.length ? `${products.length} ${intent==='exact'?'identity candidates':intent==='look'?'similar-looking products':intent==='cheaper'?'alternatives sorted by price (original price unknown)':'functional alternatives'}. Exact identity is not verified. We may earn a commission from retailer links.` : 'No catalog matches found. Try another intent, increase your budget, or edit the query. An absent listing does not mean the item does not exist.';
+    }
     const ratings = new Map(assessments.map(a=>[a.id,a]));
     const rank = { identifier_match:0,possible_match:1,similar:2,contradicted:3 };
     const relevance = p => (rank[ratings.get(p.id)?.verdict] ?? 2) * 100 + (ratings.get(p.id)?.differences.length || 0) * 3 + (intent === 'exact' && /bundle|with.*stand|w\/stand/i.test(p.title) ? 12 : 0);
     const ordered=priceSorted ? products : [...products].sort((a,b)=>relevance(a)-relevance(b));
-    setMoreProducts(nextPageToken, loadMore);
+    if (!sceneResults) setMoreProducts(nextPageToken, loadMore);
     for(const product of ordered) {
       const card=node('article',undefined,'product-card');card.dataset.productId=product.id;
       const image=node('img',undefined,'product-thumb');image.alt=product.title;image.referrerPolicy='no-referrer';image.loading='lazy';
@@ -699,9 +703,33 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       const details=node('button','Specifications & variants','secondary');details.onclick=()=>showDetails(product,card,details);info.append(details);
       const similar=node('button','Find similar products','secondary');similar.onclick=()=>findSimilar(product);info.append(similar);
       const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','Buy from seller ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';info.append(link);}
-      card.append(image,info);$('#products-container').append(card);
+      card.append(image,info);target.append(card);
     }
   }
+  function sceneSearchContext() {
+    return { filters: searchFilters(), config: market() };
+  }
+  function sceneSearchCacheKey(sceneObject, requestContext) {
+    return JSON.stringify([sceneObject.searchIntent.query, requestContext]);
+  }
+  async function discoverSceneObject(sceneObject, target, signal, requestContext = sceneSearchContext()) {
+    const request = {
+      query: sceneObject.searchIntent.query,
+      image: sceneObject.searchIntent.useImage ? sceneObject.crop : undefined,
+      limit: 8,
+      filters: requestContext.filters,
+      config: requestContext.config
+    };
+    const outcome = await discoverySearch(request, signal);
+    const products = outcome.data.products || [];
+    renderProducts(products, [], { target, sceneObject });
+    return products;
+  }
+  function renderSceneResults(sceneObject, target) {
+    renderProducts(sceneObject.results || [], [], { target, sceneObject });
+  }
+  function listSubscriptionEvents() { return api('subscriptions/events', { limit: 100 }); }
+  function markSubscriptionEventsRead(eventIds) { return api('subscriptions/events/read', { eventIds }); }
   function checkoutAction(selection, product) {
     const group=node('div',undefined,'sandbox-action'), button=node('button','Pay with PayPal','secondary'), note=node('small');
     let eligible=true;
@@ -802,12 +830,112 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       target.replaceChildren(node('p', `Price history unavailable: ${error.message}`));
     } finally { button.disabled = false; }
   }
+  async function renderProductSubscriptions(target, product, unavailableSelection) {
+    const panel = node('section', undefined, 'subscription-controls');
+    panel.append(node('h3', 'Price & availability alerts'));
+    panel.append(node('p', 'Channel3 subscriptions use English / US / USD. Events arrive when catalog refreshes detect a change, not instantly.', 'muted'));
+    const eventTypes = [
+      ['offer.price.changed', 'Price changes', true],
+      ['offer.availability.changed', 'Availability changes', true],
+      ['offer.created', 'New seller offers', false],
+      ['offer.deleted', 'Seller offers removed', false]
+    ];
+    const selectedEvents = [];
+    for (const [event, title, checked] of eventTypes) {
+      const label = node('label', undefined, 'subscription-event');
+      const input = document.createElement('input');
+      input.type = 'checkbox'; input.checked = checked;
+      input.addEventListener('change', () => {
+        if (input.checked && !selectedEvents.includes(event)) selectedEvents.push(event);
+        if (!input.checked) {
+          const index = selectedEvents.indexOf(event);
+          if (index >= 0) selectedEvents.splice(index, 1);
+        }
+      });
+      if (checked) selectedEvents.push(event);
+      label.append(input, node('span', title));
+      panel.append(label);
+    }
+    if (product.variants?.options?.length) {
+      const variant = (product.variants.selected || []).map(option => `${option.name}: ${option.label}`).join(' · ');
+      panel.append(node('p', unavailableSelection
+        ? 'This response substituted or omitted a variant. Choose a complete supported configuration and refresh before creating an alert.'
+        : `Variant being watched: ${variant || 'No complete variant selection was supplied.'}`, unavailableSelection ? 'variant-warning' : 'muted'));
+    }
+    const create = node('button', 'Create alert subscription', 'secondary');
+    create.type = 'button'; create.disabled = Boolean(unavailableSelection);
+    const status = node('p', 'No subscription request made.', 'muted');
+    const active = node('div', undefined, 'active-subscriptions');
+    const refresh = node('button', 'Refresh subscriptions', 'secondary');
+    refresh.type = 'button';
+    async function load() {
+      active.replaceChildren(node('p', 'Loading subscriptions…', 'muted'));
+      refresh.disabled = true;
+      try {
+        const data = await api('subscriptions/list', { status: 'active', limit: 100 });
+        const items = (data.items || []).filter(item => item.canonicalProductId === product.id && item.ownerStatus !== 'cancelled');
+        active.replaceChildren();
+        if (!items.length) active.append(node('p', 'No active alerts for this product in this BopIt installation.', 'muted'));
+        for (const item of items) {
+          const row = node('div', undefined, 'active-subscription');
+          const variant = item.variantSelection?.map(option => `${option.name}: ${option.label}`).join(' · ');
+          row.append(node('p', `${item.events.join(', ')}${variant ? ` · ${variant}` : ''}`));
+          const cancelButton = node('button', 'Cancel alerts', 'secondary');
+          cancelButton.type = 'button';
+          cancelButton.addEventListener('click', async () => {
+            cancelButton.disabled = true;
+            try {
+              const cancelled = await api('subscriptions/cancel', { subscriptionId: item.subscriptionId });
+              status.textContent = cancelled.shared
+                ? 'Alerts were removed from this installation; another installation still owns the shared Channel3 subscription.'
+                : cancelled.unavailable ? 'Channel3 no longer has this subscription; local ownership was closed.'
+                  : 'Channel3 subscription cancelled.';
+              await load();
+            } catch (error) {
+              status.textContent = `Could not cancel this subscription: ${error.message}`;
+              cancelButton.disabled = false;
+            }
+          });
+          row.append(cancelButton);
+          active.append(row);
+        }
+        if (data.nextCursor) active.append(node('p', 'More account subscriptions exist; only subscriptions owned by this installation are shown on this page.', 'muted'));
+      } catch (error) {
+        active.replaceChildren(node('p', `Subscriptions unavailable: ${error.message}`, 'variant-warning'));
+      } finally { refresh.disabled = false; }
+    }
+    create.addEventListener('click', async () => {
+      const events = eventTypes.map(([event]) => event).filter(event => selectedEvents.includes(event));
+      if (!events.length) { status.textContent = 'Select at least one event type.'; return; }
+      create.disabled = true;
+      status.textContent = 'Creating Channel3 product subscription…';
+      try {
+        const request = { productId: product.id, events };
+        if (product.variants?.options?.length) {
+          request.selection = (product.variants.selected || []).map(({ name, label }) => ({ name, label }));
+        }
+        const data = await api('subscriptions/create', request);
+        status.textContent = data.duplicate
+          ? 'This installation already has the matching active subscription.'
+          : 'Channel3 subscription saved. Alerts arrive when a catalog refresh detects a change.';
+        await load();
+      } catch (error) {
+        status.textContent = `Could not create subscription: ${error.message}`;
+      } finally { create.disabled = Boolean(unavailableSelection); }
+    });
+    refresh.addEventListener('click', load);
+    panel.append(create, status, refresh, active);
+    target.append(panel);
+    await load();
+  }
   async function showDetails(product, card, button, selection = {}) {
     selectedProductContext = product;
     const old=card.querySelector('.catalog-details');if(old&&Object.keys(selection).length===0){old.hidden=!old.hidden;return;}
+    const revision = (detailGenerations.get(card) || 0) + 1;
+    detailGenerations.set(card, revision);
     const box=old||node('div',undefined,'catalog-details');if(!old)card.append(box);box.hidden=false;box.replaceChildren(node('p','Loading catalog specifications…'));button.disabled=true;
     try {
-      const data=await api('products/details',{id:product.id,selection,config:market()},controller?.signal);if(!card.isConnected)return;
+      const data=await api('products/details',{id:product.id,selection,config:market()},controller?.signal);if(!card.isConnected||detailGenerations.get(card)!==revision)return;
       const p=data.product;
       selectedProductContext = p;
       logOrchestration({ strategy: 'product-details', reason: 'user opened product details or changed a variant', operations: ['GET /v1/products/{id}'], fallbackUsed: false, outcome: p.selectionChanges?.length ? 'variant-substituted' : 'success' });
@@ -852,6 +980,9 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       historyControls.append(historyLabel,historyButton,historyContent);
       box.append(node('h3','Price history'),node('p','History is fetched only on request and is for the canonical product; the provider does not identify a selected variant in this endpoint.','muted'),historyControls);
       if(p.selectionChanges?.length)box.append(node('p','Seller offers above describe the server-selected variant, not the requested variant. They are not comparable to your selection; choose a supported variant and refresh.','variant-warning'));
+      const variantIncomplete = Boolean(p.variants?.options?.length && (p.variants.selected || []).length !== p.variants.options.length);
+      await renderProductSubscriptions(box, p, Boolean(p.selectionChanges?.length) || variantIncomplete);
+      if (detailGenerations.get(card) !== revision) return;
       box.append(node('small','Compatibility is advisory; confirm the specifications for your equipment. Unknown stock is not confirmed availability.'));
     }catch(e){if(e.name!=='AbortError'){box.replaceChildren(node('p',e.message));logOrchestration({strategy:'product-details',reason:'user opened product details or changed a variant',operations:['GET /v1/products/{id}'],fallbackUsed:false,outcome:'error'});}}finally{button.disabled=false;}
   }
@@ -943,6 +1074,6 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   $('#load-reporting').onclick=loadReporting;
   $('#more-clicks').onclick=()=>loadMoreReport('clicks');
   $('#more-transactions').onclick=()=>loadMoreReport('transactions');
-  return { select, cancel, reset, searchManual:manual, snapshot:()=>[...cache.values()] };
+  return { select, cancel, reset, searchManual:manual, discoverSceneObject, sceneSearchContext, sceneSearchCacheKey, renderSceneResults, listSubscriptionEvents, markSubscriptionEventsRead, snapshot:()=>[...cache.values()] };
 
 }
