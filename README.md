@@ -4,7 +4,7 @@ A Chrome extension for discovering objects inside a paused video, investigating 
 
 **Pause → click the BopIt toolbar icon → scan on the video → select an object → details and shopping options.**
 
-This is a local developer prototype, not a Chrome Web Store release. Product identification is uncertain; no accuracy percentage or universal exact-match guarantee has been established. PayPal checkout, rentals, cart management and creator payouts are not implemented.
+This is a local developer prototype, not a Chrome Web Store release. Product identification is uncertain; no accuracy percentage or universal exact-match guarantee has been established. PayPal Sandbox checkout is available for selected catalog listings; rentals, cart management and creator payouts are not implemented.
 
 ## Run it
 
@@ -87,7 +87,7 @@ For exact-item candidates, the backend retrieves up to three product records and
 
 **Specifications & variants** retrieves catalog attributes, materials, features, measurements when supplied, configurations and offers. Those facts describe the catalog listing, not automatically the object in the video. Requested variant changes are compared with the server's effective selection; any substitution is disclosed. Unknown stock remains unknown.
 
-Retailer buttons open external HTTPS links. Affiliate disclosure is shown. No payment, reservation, refund or creator payout occurs in BopIt.
+Retailer buttons open external HTTPS links. Affiliate disclosure is shown. Optional PayPal Sandbox checkout simulates payment for the selected listing; no real merchant order, reservation, refund or creator payout occurs.
 
 ## Supported surfaces and limitations
 
@@ -149,3 +149,23 @@ The gallery-first interface retains main's saved-products storage (`savedProduct
 **Lower-priced alternatives** remains available there. It uses the appearance query and ascending prices within each supplied currency; it does not claim prices are below the unknown original item's price. **Same function** remains a separate intent. **Recommended** uses listing evidence and, when available, the deeper photo/text assessment. Explicit price sorts take precedence over relevance.
 
 Closing the panel preserves main's captured-timestamp restoration. Unlike pulled main's old UI, activation is toolbar-only, the gallery opens during scanning, and the original video has object outlines rather than a floating Explore button. Manual corrections remain marked as user edits; missing provider currency/availability stay unknown. Retailer links require HTTPS. These are intentional integration choices, not a claim that every site's behaviour is verified.
+
+
+## Selected-product PayPal Sandbox checkout
+
+The integrated flow is **paused video → Gemini detection/profile → Channel3 candidates → selected listing/variant → fresh server quote → PayPal Sandbox approval → verified capture receipt**. **View retailer** remains available for real merchant checkout.
+
+Use **Try PayPal Sandbox** on a product card. A separate checkout tab displays the freshly retrieved catalog title, variant and price before PayPal approval. The original video and panel stay open. Requests carry product IDs and variant choices, never a trusted client price. A ten-minute signed quote binds the amount and currency; the server verifies ownership, approved order and capture amount. Retries reuse idempotency keys and completed captures are reconciled with PayPal. The fixed $12 demo mug from `paypal-sandbox` remains at `/checkout` for diagnostics.
+
+Quotes and receipts explicitly say **Fulfilled via BopIt Agentic Concierge (Sandbox)**. This is a payment simulation using your BopIt app's sandbox seller account: it does **not** buy from the Channel3 merchant, promise merchant fulfillment, reserve inventory, calculate tax/shipping or pay creators. Only positive, two-decimal USD/EUR/GBP/CAD/AUD catalog prices are currently supported. Changed variant requests and reported out-of-stock listings require review or another listing.
+
+Add these server-only credentials to `.env`, then restart `npm start`:
+
+```dotenv
+PAYPAL_SANDBOX_CLIENT_ID=your_sandbox_app_client_id
+PAYPAL_SANDBOX_CLIENT_SECRET=your_sandbox_app_secret
+```
+
+Create/open an app under [PayPal Apps & Credentials → Sandbox](https://developer.paypal.com/dashboard/applications/sandbox). Approve checkout using a separate **Personal sandbox account** from [Sandbox Accounts](https://developer.paypal.com/dashboard/accounts), not your real buyer login. Full walkthrough: [Run the extension](docs/RUN_EXTENSION.md#test-paypal-sandbox).
+
+Validation: `npm test`, `npm run check`, `npm run build`, `npm run test:browser`, `npm run test:payments:browser`. Browser tests need Playwright (or `BOPIT_PLAYWRIGHT_MODULE`) and Chrome/Chromium. The payment browser test temporarily needs port 4317 free; it uses explicitly mocked PayPal and catalog responses. It covers selected-item quoting, approval, verified receipt, reload, cancellation, retries and missing credentials. Passing mocks does not establish that your PayPal account works; live Sandbox approval/capture must be tested separately.

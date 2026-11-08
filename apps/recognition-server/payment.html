@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BopIt · Sandbox demo checkout</title>
+  <style>
+    :root { color-scheme: light; font: 16px system-ui, sans-serif; color: #24354d; background: #fff9ef; }
+    body { max-width: 680px; margin: 8vh auto; padding: 24px; }
+    main { background: white; border-radius: 20px; padding: 32px; box-shadow: 0 8px 36px #24354d18; }
+    .badge { display: inline-block; border-radius: 999px; padding: 6px 12px; background: #e4f4ec; font-size: .82rem; font-weight: 700; }
+    h1 { margin-bottom: 8px; }
+    .price { font-size: 1.8rem; font-weight: 700; }
+    button { border: 0; border-radius: 10px; padding: 12px 18px; color: white; background: #1769aa; font: inherit; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    #status { min-height: 1.5em; }
+    .notice { color: #52647a; line-height: 1.5; }
+    .error { color: #a22; }
+  </style>
+</head>
+<body>
+  <main>
+    <span class="badge">PayPal Sandbox · Demo only</span>
+    <h1>BopIt Sandbox Demo Mug</h1>
+    <p id="product-description">A fixed demo product for testing the PayPal Sandbox payment flow. This is not a real listing or an offer for Channel3 products.</p>
+    <p class="price">US$12.00</p>
+    <button id="buy" type="button" disabled>Continue to PayPal Sandbox</button>
+    <button id="check" type="button" hidden>Check payment again</button>
+    <button id="setup-check" type="button" hidden>Check connection again</button>
+    <p id="status" role="status" aria-live="polite"></p>
+    <p class="notice">Sandbox uses test money. Nothing is shipped. Order price and product are controlled by the BopIt server. Your video stays in its original tab; return there whenever you are ready.</p>
+    <p><a href="https://developer.paypal.com/dashboard/accounts" target="_blank" rel="noopener noreferrer">Manage sandbox test accounts</a></p>
+  </main>
+  <script type="module" src="/payment.js"></script>
+</body>
+</html>

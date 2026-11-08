@@ -9,6 +9,8 @@ import { validateContext, validateProfile } from '../../packages/contracts/profi
 import { validateImage } from './image.mjs';
 import { createPairingHandler } from './pairing.mjs';
 import { searchChannel3, retrieveChannel3, catalogImage } from './channel3.mjs';
+import { createPaypalClient } from './paypal.mjs';
+import { handlePayment } from './payments.mjs';
 export { validateImage } from './image.mjs';
 
 export const PORT = 4317;
@@ -16,14 +18,16 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const MAX_BODY = 12 * 1024 * 1024;
 
-export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, segment = segmentObjects } = {}) {
+export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, segment = segmentObjects, paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
   const pairing = createPairingHandler(token);
+  const paymentOrders = new Map();
+  const paymentsConfigured = Boolean(paypalClientId && paypalClientSecret && !/^(your_|replace_)/i.test(paypalClientId) && !/^(your_|replace_)/i.test(paypalClientSecret));
   let inFlight = 0;
   let lastRequest = 0;
   return http.createServer(async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; form-action 'none'");
+    res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'self'; connect-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'; form-action 'none'");
     const send = (status, value) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); };
     const origin = req.headers.origin;
     const extensionOrigin = typeof origin === 'string' && /^chrome-extension:\/\/[a-p]{32}$/.test(origin);
@@ -39,6 +43,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Bopit-Token');
       res.writeHead(204); return res.end();
     }
+    if (await handlePayment(req, res, { paypal, paymentOrders, paymentsConfigured, send, token, extensionOrigin, retrieve, channel3Key })) return;
     if (await pairing(req, res, { origin, extensionOrigin, send })) return;
     if (req.method === 'GET' && req.url === '/') {
       // Only a local browser navigation can read the pairing secret; never CORS-expose it.
@@ -47,7 +52,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
       return res.end(`<!doctype html><title>BopIt local setup</title><style>body{font:18px system-ui;max-width:750px;margin:70px auto;background:#fff9ef;color:#24354d;padding:24px}code{display:block;overflow-wrap:anywhere;background:#e4f4ec;padding:20px;border-radius:16px}p{line-height:1.6}</style><h1>BopIt · local recognition server</h1><p>Gemini key: <strong>${apiKey ? 'configured (not yet verified)' : 'missing — add it to .env and restart the server'}</strong><br>Model: ${escape(model)}</p><h2>Pair your extension</h2><p>Copy this local pairing code into BopIt → Settings. This is not your Gemini API key. Keep it private.</p><code>${escape(token)}</code><p>The extension previews each image before you send it to Gemini. Images are processed in memory and are not saved by this server. Gemini’s own data terms apply.</p>`);
     }
-    if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, configured: Boolean(apiKey), channel3Configured: Boolean(channel3Key), model });
+    if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, configured: Boolean(apiKey), channel3Configured: Boolean(channel3Key), paypalConfigured: paymentsConfigured, model });
     if (req.method === 'POST' && ['/api/profile', '/api/products/details', '/api/products/compare', '/api/segment'].includes(req.url)) {
       const supplied = Buffer.from(String(req.headers['x-bopit-token'] || '')), expected = Buffer.from(token || '');
       if (!extensionOrigin || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'Pair the extension first.' });
@@ -177,7 +182,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const tokenPath = resolve(dir, 'pairing-token');
   let token;
   try { token = (await readFile(tokenPath, 'utf8')).trim(); } catch { token = randomBytes(32).toString('hex'); await writeFile(tokenPath, token, { mode: 0o600 }); }
-  const app = createApp({ token, apiKey: process.env.GEMINI_API_KEY, channel3Key: process.env.CHANNEL3_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite' });
+  const app = createApp({ token, apiKey: process.env.GEMINI_API_KEY, channel3Key: process.env.CHANNEL3_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', paypalClientId: process.env.PAYPAL_SANDBOX_CLIENT_ID, paypalClientSecret: process.env.PAYPAL_SANDBOX_CLIENT_SECRET });
   app.on('error', error => { console.error(error.code === 'EADDRINUSE' ? 'Port 4317 is already in use. Stop the other BopIt server first.' : 'Server could not start.'); process.exitCode = 1; });
   app.listen(PORT, '127.0.0.1', () => console.log(`BopIt setup: ${BASE}\nGemini key ${process.env.GEMINI_API_KEY ? 'configured; live call still needs verification' : 'missing; see README.md'}\nChannel3 key ${process.env.CHANNEL3_API_KEY ? 'configured' : 'missing; add CHANNEL3_API_KEY to .env'}. No images or credentials are logged.`));
 }

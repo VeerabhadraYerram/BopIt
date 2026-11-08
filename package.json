@@ -14,7 +14,8 @@
     "check": "node scripts/check.mjs",
     "test:browser": "node tests/experience-smoke.mjs",
     "demo": "node scripts/demo.mjs",
-    "warm:outlines": "node scripts/warm-segmentation.mjs"
+    "warm:outlines": "node scripts/warm-segmentation.mjs",
+    "test:payments:browser": "node tests/payment-browser-smoke.mjs"
   },
   "dependencies": {
     "@huggingface/transformers": "3.8.1"

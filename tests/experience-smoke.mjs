@@ -30,9 +30,11 @@ try{
      try{return await route.fulfill({json:{products:body.query==='slow-A'||body.query==='fast-B'?[{...product,title:body.query}]:[product,second,{...product,id:'camera-3',title:'Euro camera',currency:'EUR',price:120},{...product,id:'camera-4',title:'Premium camera',price:200}]}});}catch{return;}
    }
    if(path.endsWith('/compare'))return route.fulfill({json:{products:[product,second],comparedImageIds:['camera-1'],assessments:[{id:'camera-1',verdict:'possible_match',matches:['Black housing'],differences:[],unknowns:['Model identifier unreadable']}]}});
+   if(path.endsWith('/quotes'))return route.fulfill({status:201,json:{checkoutUrl:'http://127.0.0.1:4317/checkout?quote=fixture'}});
    if(path.endsWith('/details'))return route.fulfill({json:{product:{...product,selectionChanges:body.selection?.Color==='White'?[{name:'Color',requested:'White',actual:'Black'}]:[]}}});
    return route.fulfill({status:404,json:{error:'Unexpected test endpoint'}});
  });
+ await context.route('http://127.0.0.1:4317/checkout?quote=fixture',route=>route.fulfill({contentType:'text/html',body:'<h1>Mocked checkout destination</h1>'}));
  const page=await context.newPage();await page.goto(origin);
  await page.evaluate(async()=>{
    const c=document.createElement('canvas');c.width=800;c.height=450;const ctx=c.getContext('2d');ctx.fillStyle='#e8dfce';ctx.fillRect(0,0,800,450);ctx.fillStyle='#24364e';ctx.fillRect(80,90,300,240);ctx.fillStyle='#9dbba9';ctx.beginPath();ctx.arc(350,210,90,0,Math.PI*2);ctx.fill();ctx.fillStyle='#24364e';ctx.font='20px system-ui';ctx.fillText('Synthetic interaction fixture',430,400);
@@ -95,6 +97,11 @@ try{
  // Advanced frame tools remain a fallback inside the panel, never on video.
  await inspector.locator('.frame-tools summary').click();
  const download=page.waitForEvent('download');await inspector.locator('#export').click();assert.match((await download).suggestedFilename(),/^bopit-/);
+ // Explicit checkout works from the embedded extension frame without moving the source tab.
+ const checkoutTab=context.waitForEvent('page');await inspector.locator('[data-action="sandbox-checkout"]').first().click();const paymentPage=await checkoutTab;
+ await paymentPage.waitForURL('http://127.0.0.1:4317/checkout?quote=fixture');
+ assert.equal(page.url(),sourceURL);assert.equal(await page.locator('video').evaluate(v=>v.paused),true);
+ assert.equal(calls.find(c=>c.path.endsWith('/quotes')).body.id,'camera-1');await paymentPage.close();await page.bringToFront();
  // Source-bound capture must not be readable from another tab.
  const foreignPage=await context.newPage();await foreignPage.goto(origin);await foreignPage.evaluate(src=>{const f=document.createElement('iframe');f.src=src;document.body.append(f);},inspector.url());
  await foreignPage.waitForTimeout(200);const foreign=foreignPage.frames().find(f=>f.url().includes('/viewer.html?'));await foreign.waitForFunction(()=>document.querySelector('#notice').textContent.includes('belongs to another page'));await foreignPage.close();await page.bringToFront();
@@ -104,5 +111,5 @@ try{
  const vr=await page.locator('video').boundingBox(),or=await page.locator('#bopit-video-overlay').boundingBox();assert.ok(Math.abs(vr.width-or.width)<1);assert.ok(Math.abs(vr.height-or.height)<1);
  await page.locator('video').evaluate(v=>v.play());await page.locator('#bopit-video-overlay').waitFor({state:'hidden'});assert.equal(await page.locator('#bopit-results-panel').isVisible(),true);
  await page.locator('video').evaluate(v=>v.pause());await page.locator('#bopit-results-panel header button').click();await page.locator('#bopit-results-panel').waitFor({state:'hidden'});assert.equal(await page.locator('video').evaluate((v,t)=>Math.abs(v.currentTime-t)<.03,time),true,'main timestamp restoration is retained');
- assert.deepEqual(errors,[]);console.log('PASS: toolbar-only activation; no floating Explore buttons or automatic analysis; repeated injection stays single; scan on video; panel opens immediately with object grid; list/detail/back navigation; contour paths and marker fallback; no on-video controls; synchronized cropped gallery; captions; rich profile; hybrid/function searches; cache; budget; variant relaxation; stale-search suppression; resize/letterbox; resume hides boxes; no source navigation/new windows; no browser errors. Providers mocked.');
+ assert.deepEqual(errors,[]);console.log('PASS: toolbar-only activation; no floating Explore buttons or automatic analysis; repeated injection stays single; scan on video; panel opens immediately with object grid; list/detail/back navigation; contour paths and marker fallback; no on-video controls; synchronized cropped gallery; captions; rich profile; hybrid/function searches; cache; budget; variant relaxation; stale-search suppression; resize/letterbox; resume hides boxes; no source navigation; checkout opens only after explicit click; no browser errors. Providers mocked.');
 }catch(error){console.log(JSON.stringify({error:error.message,errors,calls:calls.map(c=>c.path),frames:await Promise.all((context?.pages()||[]).flatMap(p=>p.frames()).filter(f=>f.url().includes('viewer.html')).map(async f=>({url:f.url(),notice:await f.locator('#notice').textContent().catch(()=>''),body:await f.locator('body').innerText().catch(()=>'' )})))}));throw error;}finally{await context?.close();site.closeAllConnections();await new Promise(r=>site.close(r));await rm(profile,{recursive:true,force:true});}
