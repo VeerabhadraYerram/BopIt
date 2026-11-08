@@ -132,17 +132,45 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       info.append(shopping.actions(product));
       const assessment=ratings.get(product.id);
       if(assessment){const labels={identifier_match:'Identifier agrees · variant not verified',possible_match:'Possible match',similar:'Similar product',contradicted:'Conflicting evidence'};info.append(node('div',labels[assessment.verdict],'match-label'));const evidence=node('details');evidence.append(node('summary','Why this result?'));for(const [name,values] of [['Matches',assessment.matches],['Differences',assessment.differences],['Unknown',assessment.unknowns]])if(values.length)evidence.append(node('p',`${name}: ${values.join(' · ')}`));evidence.append(node('small',current?.results?.comparedImageIds?.includes(product.id) ? 'AI compared the video crop with catalog photos and listing text. This is supporting evidence, not proof of exact identity.' : 'AI compared the video crop with catalog text. A catalog photo was unavailable for this comparison.'));info.append(evidence);if(assessment.differences.length)info.append(node('small',`Difference: ${assessment.differences[0]}`));}else {info.append(node('small',product.matchType || 'Unverified catalog candidate')); if(product.matchExplanation) {const why=node('details');why.append(node('summary','Why this result?'),node('p',product.matchExplanation));info.append(why);}}
+      card.checkoutAction=checkoutAction(() => card.checkoutSelection || { id: product.id },product);info.append(card.checkoutAction);
       const details=node('button','Specifications & variants','secondary');details.onclick=()=>showDetails(product,card,details);info.append(details);
-      const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','View retailer ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';info.append(link);}
+      const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','Buy from seller ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';info.append(link);}
       card.append(image,info);$('#products-container').append(card);
     }
+  }
+  function checkoutAction(selection, product) {
+    const group=node('div',undefined,'sandbox-action'), button=node('button','Pay with PayPal','secondary'), note=node('small');
+    let eligible=true;
+    group.updateOffer=offer=>{
+      const out=offer.availability==='OutOfStock'||offer.availability==='out_of_stock';
+      const valid=offer.price!=null&&Number.isFinite(Number(offer.price))&&Number(offer.price)>0&&['USD','EUR','GBP','CAD','AUD'].includes(offer.currency);
+      eligible=!out&&valid;button.disabled=!eligible;
+      note.textContent=out?'Currently unavailable from this seller.':!valid?'See seller for pricing and purchase options.':'Review price and selected options before paying.';
+    };
+    group.updateOffer(product);
+    button.dataset.action='sandbox-checkout';
+    button.onclick=async()=>{
+      // Open synchronously from the click; browsers block popups after await.
+      const checkout=window.open('about:blank','_blank');
+      if(!checkout){note.textContent='Allow this checkout tab to open, then try again.';return;}
+      checkout.opener=null;button.disabled=true;note.textContent='Checking the selected listing and current catalog price…';
+      try {
+        const data=await api('payments/quotes',selection());
+        const url=new URL(data.checkoutUrl);
+        if(url.origin!=='http://127.0.0.1:4317'||url.pathname!=='/checkout')throw new Error('Invalid checkout address.');
+        checkout.location.replace(url.href);
+        note.textContent='Quote ready in the checkout tab. Your video stays here.';
+      } catch(e){checkout.close();note.textContent=e.message||'Checkout unavailable. Try again.';}
+      finally{button.disabled=!eligible;}
+    };
+    group.append(button,note);return group;
   }
   async function showDetails(product, card, button, selection = {}) {
     const old=card.querySelector('.catalog-details');if(old&&Object.keys(selection).length===0){old.hidden=!old.hidden;return;}
     const box=old||node('div',undefined,'catalog-details');if(!old)card.append(box);box.hidden=false;box.replaceChildren(node('p','Loading catalog specifications…'));button.disabled=true;
     try {
       const data=await api('products/details',{id:product.id,selection},controller?.signal);if(!card.isConnected)return;
-      const p=data.product;box.replaceChildren(node('p','Source: Channel3 / merchant listing. These specifications describe this catalog product; identity with the video object is not established.','muted'));
+      const p=data.product;card.checkoutAction?.updateOffer(p);card.checkoutSelection = { id: p.id, selection: Object.fromEntries((p.variants?.selected || []).map(v=>[v.name,v.label])) };box.replaceChildren(node('p','Source: Channel3 / merchant listing. These specifications describe this catalog product; identity with the video object is not established.','muted'));
       if(p.selectionChanges?.length)box.append(node('p',`Requested variant changed: ${p.selectionChanges.map(c=>`${c.name}: ${c.requested} → ${c.actual}`).join('; ')}. Review before continuing.`,'variant-warning'));
       box.append(node('p',p.description||'No description supplied.'));
       const dl=node('dl');for(const [k,v] of Object.entries(p.structuredAttributes||{})){dl.append(node('dt',k),node('dd',Array.isArray(v)?v.join(', '):String(v)));}box.append(dl);

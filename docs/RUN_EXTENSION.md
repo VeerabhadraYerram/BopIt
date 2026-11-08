@@ -23,8 +23,36 @@ After source updates: `npm run build` → Reload the extension in Chrome → rel
 - **Provider timeout/quota:** retry after a pause, use a clearer/smaller crop, or check the configured model/account quota.
 - **Wrong variant:** inspect the displayed selection warning. The catalog can resolve an unavailable combination to another configuration; BopIt discloses this.
 
-Purchases open retailer pages. PayPal payments, rentals and creator payouts are not implemented. Full details: [README](../README.md).
+Real purchases open retailer pages. Each discovered product also has **Pay with PayPal**, which opens a server-priced simulated checkout in a new tab. Rentals and creator payouts are not implemented. Full details: [README](../README.md).
 
 If an older version left buttons on an open tab, reload the extension and then refresh that video page. In `chrome://extensions`, keep only one BopIt installation enabled if you loaded multiple source/build folders.
 
 Saved products and three-item comparison are available on retailer cards. Expand **More search options** for sorting, brand/currency filters, budget presets and lower-priced alternatives. Prices in different currencies are not converted. Closing the panel restores the captured timestamp.
+
+
+## Test PayPal Sandbox
+
+1. In [PayPal Apps & Credentials](https://developer.paypal.com/dashboard/applications/sandbox), select **Sandbox**, create or open an app, and copy its Client ID and Secret.
+2. Add `PAYPAL_SANDBOX_CLIENT_ID` and `PAYPAL_SANDBOX_CLIENT_SECRET` to the root `.env`; restart `npm start`. These are server credentials and never belong in the extension.
+3. Reload BopIt at `chrome://extensions`, then refresh the video tab. Pause → toolbar icon → choose an object → find a product → **Pay with PayPal**.
+4. Review the fresh quote, variant and test amount in the checkout tab. Continue to PayPal using a **Personal sandbox buyer account**, available under [Sandbox Accounts](https://developer.paypal.com/dashboard/accounts). Use a different buyer account from the app's seller account.
+5. Approve with test money. BopIt verifies the capture and displays its receipt ID. Return to the original video tab. If confirmation is pending, use **Check payment again** rather than starting a second checkout.
+
+This uses the actual selected Channel3 listing's canonical price as a **simulation**. The merchant receiving sandbox funds is your BopIt sandbox app, not the retailer. Nothing is shipped, rented or reserved; tax/shipping are not modeled. Quotes last ten minutes for new orders. Unsupported currency, unknown/invalid price, out-of-stock listings and changed variant requests cannot start this checkout. Unknown inventory is not a stock guarantee.
+
+For a payment-only diagnostic, open [the fixed demo mug checkout](http://127.0.0.1:4317/checkout). It is separate from catalog-product checkout.
+
+
+## Repeat the full live pipeline
+
+With `npm start` already running and Playwright available, run:
+
+```sh
+BOPIT_DEMO_PAYMENTS=1 npm run demo
+```
+
+This opens an isolated Chrome extension and a local demonstration video, performs real Gemini recognition/profile extraction and live Channel3 search, clicks the selected product's sandbox checkout, and waits for you to approve with a Personal sandbox buyer. It independently checks the PayPal order and capture, reloads the receipt, and returns to the video's object list. The demo uses a catalog-photo clip and supplied caption; it tests integration rather than identification accuracy on unseen footage. Only Sandbox test money is used; no retailer order is placed.
+
+If Playwright is supplied by another installation, set `BOPIT_PLAYWRIGHT_MODULE` to its absolute module path. Set `BOPIT_DEMO_PORT=4921` when the default demo port 4919 is busy. `BOPIT_DEMO_CLOSE=1` closes the test browser after success. Reports are ignored under `.local/full-pipeline-live-report.json`; screenshots are under `test-results/full-pipeline-*.png`.
+
+Ordinary `npm run demo` stops after discovery and does not start a payment. Payment remains available in the product UI. Optional `BOPIT_DEMO_PROFILE` reuses an existing isolated profile. For automated tests only, `BOPIT_DEMO_APPROVE_SANDBOX=1` can click the Sandbox confirmation button when that profile already has a signed-in test buyer; it never supplies login credentials or approves live payments.
