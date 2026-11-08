@@ -380,3 +380,198 @@ h1,h2,p { margin-top: 0; }
   .alert-quantity { margin-left: 37px; text-align: left; }
   .alert-status { margin-left: auto; min-width: 105px; }
 }
+
+/* Workspace Switcher */
+.workspace-switcher {
+  display: flex;
+  background: #f1f5f3;
+  border-radius: 8px;
+  padding: 3px;
+  margin: 0 8px 16px;
+  gap: 2px;
+}
+.workspace-switcher a {
+  flex: 1;
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  padding: 6px 4px;
+  border-radius: 6px;
+  text-decoration: none;
+  color: #687871;
+  transition: all 0.15s ease;
+}
+.workspace-switcher a.active {
+  background: #ffffff;
+  color: var(--green-dark);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+}
+.studio-nav-highlight {
+  background: #ecfdf5 !important;
+  border: 1px solid #a7f3d0 !important;
+  color: #065f46 !important;
+  font-weight: 700 !important;
+}
+.studio-nav-highlight:hover {
+  background: #d1fae5 !important;
+}
+
+/* Creator Overview & Compact Metric Cards */
+.metric-cards {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 20px;
+}
+@media (max-width: 960px) {
+  .metric-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 580px) {
+  .metric-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.metric-card-compact {
+  background: var(--panel);
+  border: 1px solid #edf0ed;
+  border-radius: 10px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 112px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  transition: all 0.15s ease;
+}
+.metric-card-compact:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+}
+.metric-card-compact .metric-label {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+.metric-card-compact .metric-value {
+  color: #1e293b;
+  font: 700 24px/1.2 var(--font-display);
+  letter-spacing: -0.5px;
+  margin: 6px 0 4px;
+}
+.metric-card-compact .metric-detail {
+  color: #94a3b8;
+  font-size: 11px;
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Creator Overview Filters Bar */
+.creator-overview-filters {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 14px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+.creator-filter-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 155px;
+  flex: 1 1 auto;
+}
+.creator-filter-item label {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.creator-filter-item select {
+  font-size: 12px;
+  padding: 6px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #f8fafc;
+  color: #1e293b;
+  outline: none;
+  transition: border-color 0.15s;
+  height: 34px;
+}
+.creator-filter-item select:focus {
+  border-color: #2a715b;
+  background: #ffffff;
+}
+.creator-filter-reset-btn {
+  align-items: center;
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 600;
+  gap: 6px;
+  height: 34px;
+  padding: 0 14px;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.creator-filter-reset-btn:hover {
+  background: #e2e8f0;
+  color: #1e293b;
+}
+
+/* Charts Grid 2x3 */
+.charts-grid-2x3 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+@media (max-width: 900px) {
+  .charts-grid-2x3 {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* AG Grid Polish for Floating Filters & Pinning */
+.bopit-grid-theme .ag-header-cell-filtered {
+  background-color: #f0fdf4 !important;
+}
+.bopit-grid-theme .ag-floating-filter {
+  padding: 2px 6px;
+}
+.bopit-grid-theme .ag-floating-filter-input input {
+  font-size: 10.5px;
+  border-radius: 4px;
+  border: 1px solid #d1d5db;
+  padding: 2px 6px;
+}
+.bopit-grid-theme .ag-floating-filter-input input:focus {
+  border-color: #2a715b;
+  outline: none;
+}
+.bopit-grid-theme .ag-pinned-left-header,
+.bopit-grid-theme .ag-pinned-right-header {
+  background-color: #f4f6f4 !important;
+  font-weight: 600;
+}
+.bopit-grid-theme .ag-cell.ag-cell-pinned-left,
+.bopit-grid-theme .ag-cell.ag-cell-pinned-right {
+  background-color: #fbfdfb;
+}
+
+

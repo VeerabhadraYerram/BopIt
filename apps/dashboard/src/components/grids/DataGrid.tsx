@@ -27,12 +27,16 @@ export interface DataGridProps<T> {
   onSelectionChanged?: (rows: T[]) => void;
   height?: string;
   noRowsOverlay?: string;
+  floatingFilter?: boolean;
+  paginationPageSize?: number;
+  paginationPageSizeSelector?: number[] | boolean;
 }
 
 function DataGridView<T>({
   rows, columns, getRowId, fileName, loading = false, error, onRetry,
   emptyTitle = 'No rows to display', emptyMessage = 'There is no data available for this grid.',
-  search, onSearchChange, serverPage, rowSelection, onSelectionChanged, height = 'min(61vh, 610px)', noRowsOverlay
+  search, onSearchChange, serverPage, rowSelection, onSelectionChanged, height = 'min(61vh, 610px)', noRowsOverlay,
+  floatingFilter = true, paginationPageSize = 25, paginationPageSizeSelector = [10, 25, 50, 100]
 }: DataGridProps<T>) {
   const [api, setApi] = useState<GridApi<T> | null>(null);
   const [localSearch, setLocalSearch] = useState('');
@@ -41,11 +45,12 @@ function DataGridView<T>({
   const defaultColDef = useMemo<ColDef<T>>(() => ({
     sortable: true,
     filter: true,
+    floatingFilter,
     resizable: true,
     minWidth: 105,
     wrapHeaderText: true,
     autoHeaderHeight: true
-  }), []);
+  }), [floatingFilter]);
   const handleGridReady = useCallback((event: GridReadyEvent<T>) => setApi(event.api), []);
   const handleGridDestroy = useCallback(() => setApi(null), []);
   const stableRowId = useCallback((params: GetRowIdParams<T>) => getRowId(params.data), [getRowId]);
@@ -73,8 +78,10 @@ function DataGridView<T>({
                 rowSelection={rowSelection}
                 onSelectionChanged={handleSelectionChanged}
                 pagination={!serverPage}
-                paginationPageSize={25}
-                paginationPageSizeSelector={[25, 50, 100]}
+                paginationPageSize={paginationPageSize}
+                paginationPageSizeSelector={paginationPageSizeSelector}
+                multiSortKey="ctrl"
+                enableCellTextSelection
                 suppressCellFocus
                 onGridReady={handleGridReady}
                 onGridPreDestroyed={handleGridDestroy}

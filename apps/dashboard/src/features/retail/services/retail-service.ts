@@ -15,6 +15,21 @@ export function listInventory(page = 1, pageSize = 100, search = '') {
   return request<Page<InventoryItem>>(`/inventory?${pageQuery(page, pageSize, search)}`);
 }
 
+export interface ProductItem {
+  id: string;
+  sku: string | null;
+  title: string;
+  brand: string | null;
+  category: string | null;
+  attributes: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export function listProducts(page = 1, pageSize = 25, search = '') {
+  return request<Page<ProductItem>>(`/products?${pageQuery(page, pageSize, search)}`);
+}
+
 export function listTransactions(page = 1, pageSize = 25, search = '', filters: Record<string, string> = {}) {
   return request<Page<SalesTransactionRow>>(`/sales/transactions?${pageQuery(page, pageSize, search, filters)}`);
 }
