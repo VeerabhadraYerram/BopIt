@@ -26,3 +26,14 @@ The checkout identifies the simulation as **Fulfilled via BopIt Agentic Concierg
 Ignored local evidence: `.local/paypal-live-report.json`, `.local/paypal-sandbox-live-report.json`, `test-results/live-catalog-checkout.png`, `test-results/paypal-live-approval.png`, `test-results/paypal-receipt.png` (mocked receipt).
 
 Run instructions and Sandbox credential/buyer setup are in `docs/RUN_EXTENSION.md`. Credentials remain in ignored `.env` and are excluded from extension builds and Git. Browser tests require Playwright/Chromium; payment browser tests need port 4317 free. The app remains configured for local development, not a publicly hosted production checkout.
+
+
+## Combined run on main (2026-11-08)
+
+A fresh, continuous live run exercised the extension on a paused demonstration video, Gemini detection/profile, SlimSAM outlines, Channel3 search/comparison/specifications and selected-item PayPal Sandbox checkout. Four regions were detected (including two cable regions), nine profile attributes were extracted and 12 catalog candidates returned. The selected catalog product was `L6eFBBE`, Sony MDR7506 Folding Professional Closed Ear Headphones.
+
+The viewer approved a fresh USD 113.00 Sandbox payment. Order `91K67283RM182604F` and capture `3L012333KW862292X` were independently verified with PayPal's APIs. Reloading preserved that capture receipt; the source video stayed paused at its captured time, and navigation back to all detected items succeeded. All 13 recorded API responses were successful (200/201), including the repeated capture endpoint request on receipt reload. No browser errors were recorded.
+
+Final checks: 69 unit/API tests, syntax/manifest validation, extension build, embedded Chrome UX regression and payment Chrome regression all passed. Cancellation now clears the obsolete quote-loading placeholder. This checks the integrated local product using a controlled catalog-photo clip with a supplied caption, not general recognition accuracy or every third-party video site.
+
+Repeat with `BOPIT_DEMO_PAYMENTS=1 npm run demo` while the server is running. The default requires manual sandbox approval. Ignored evidence: `.local/full-pipeline-live-report.json`, `test-results/full-pipeline-quote.png` and `test-results/full-pipeline-receipt.png`. The standalone discovery walkthrough remains available without starting payments.
