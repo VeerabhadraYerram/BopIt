@@ -27,7 +27,7 @@ try{
    if(path.endsWith('/profile')){await new Promise(r=>setTimeout(r,100));return route.fulfill({json:{profile:validateProfile(rawProfile()),contextUsed:{captions:body.context.cues.length,youtubeRequested:false,viewerNote:Boolean(body.context.note)},model:'MOCKED'}});}
    if(path.endsWith('/search')){
      if(body.query==='slow-A')await new Promise(r=>setTimeout(r,400));
-     try{return await route.fulfill({json:{products:body.query==='slow-A'||body.query==='fast-B'?[{...product,title:body.query}]:[product,second,{...product,id:'camera-3',title:'Euro camera',currency:'EUR',price:120},{...product,id:'camera-4',title:'Premium camera',price:200}]}});}catch{return;}
+     try{return await route.fulfill({json:{products:body.query==='slow-A'||body.query==='fast-B'?[{...product,title:body.query}]:[product,second,{...product,id:'camera-3',title:'Euro camera',currency:'EUR',price:120},{...product,id:'camera-4',title:'Premium camera',price:200,availability:'OutOfStock'}]}});}catch{return;}
    }
    if(path.endsWith('/compare'))return route.fulfill({json:{products:[product,second],comparedImageIds:['camera-1'],assessments:[{id:'camera-1',verdict:'possible_match',matches:['Black housing'],differences:[],unknowns:['Model identifier unreadable']}]}});
    if(path.endsWith('/quotes'))return route.fulfill({status:201,json:{checkoutUrl:'http://127.0.0.1:4317/checkout?quote=fixture'}});
@@ -56,6 +56,9 @@ try{
  await page.locator('#bopit-results-panel').waitFor({state:'visible'});
  const inspector=page.frames().find(f=>f.url().includes('/viewer.html?'));
  await inspector.locator('.product-card').first().waitFor();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('3 ✓'));
+ assert.equal(await inspector.locator('[data-action="sandbox-checkout"]').first().innerText(),'Pay with PayPal');
+ assert.equal(await inspector.locator('[data-product-id="camera-4"] [data-action="sandbox-checkout"]').isDisabled(),true);
+ assert.doesNotMatch(await inspector.locator('#products-container').innerText(),/Try PayPal|Sandbox|Test money/);
  assert.equal(await inspector.locator('#objects button').count(),2);assert.equal(await inspector.locator('#objects img').count(),2);
  assert.equal(calls.find(c=>c.path.endsWith('/profile')).body.context.cues[0].text,'I use this camera for recording.');
  assert.ok(calls.find(c=>c.path.endsWith('/search')).body.image,'hybrid image search');

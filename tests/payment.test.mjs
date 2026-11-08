@@ -265,7 +265,7 @@ test('simultaneous capture requests submit at most one capture to PayPal', async
 test('return page distinguishes cancellation and never includes a PayPal client secret', async () => {
   const html = await import('node:fs/promises').then(fs => fs.readFile(new URL('../apps/recognition-server/payment.html', import.meta.url), 'utf8'));
   const js = await import('node:fs/promises').then(fs => fs.readFile(new URL('../apps/recognition-server/payment.js', import.meta.url), 'utf8'));
-  assert.match(js, /Payment cancelled in PayPal Sandbox/);
+  assert.match(js, /Payment cancelled/);
   assert.match(js, /result\.state === 'success' && result\.verified === true/);
   assert.match(js, /pending/);
   assert.doesNotMatch(`${html}\n${js}`, /PAYPAL_SANDBOX_CLIENT_SECRET|client_secret/);

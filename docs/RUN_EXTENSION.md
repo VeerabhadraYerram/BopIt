@@ -23,7 +23,7 @@ After source updates: `npm run build` → Reload the extension in Chrome → rel
 - **Provider timeout/quota:** retry after a pause, use a clearer/smaller crop, or check the configured model/account quota.
 - **Wrong variant:** inspect the displayed selection warning. The catalog can resolve an unavailable combination to another configuration; BopIt discloses this.
 
-Real purchases open retailer pages. Each discovered product also has **Try PayPal Sandbox**, which opens a server-priced simulated checkout in a new tab. Rentals and creator payouts are not implemented. Full details: [README](../README.md).
+Real purchases open retailer pages. Each discovered product also has **Pay with PayPal**, which opens a server-priced simulated checkout in a new tab. Rentals and creator payouts are not implemented. Full details: [README](../README.md).
 
 If an older version left buttons on an open tab, reload the extension and then refresh that video page. In `chrome://extensions`, keep only one BopIt installation enabled if you loaded multiple source/build folders.
 
@@ -34,7 +34,7 @@ Saved products and three-item comparison are available on retailer cards. Expand
 
 1. In [PayPal Apps & Credentials](https://developer.paypal.com/dashboard/applications/sandbox), select **Sandbox**, create or open an app, and copy its Client ID and Secret.
 2. Add `PAYPAL_SANDBOX_CLIENT_ID` and `PAYPAL_SANDBOX_CLIENT_SECRET` to the root `.env`; restart `npm start`. These are server credentials and never belong in the extension.
-3. Reload BopIt at `chrome://extensions`, then refresh the video tab. Pause → toolbar icon → choose an object → find a product → **Try PayPal Sandbox**.
+3. Reload BopIt at `chrome://extensions`, then refresh the video tab. Pause → toolbar icon → choose an object → find a product → **Pay with PayPal**.
 4. Review the fresh quote, variant and test amount in the checkout tab. Continue to PayPal using a **Personal sandbox buyer account**, available under [Sandbox Accounts](https://developer.paypal.com/dashboard/accounts). Use a different buyer account from the app's seller account.
 5. Approve with test money. BopIt verifies the capture and displays its receipt ID. Return to the original video tab. If confirmation is pending, use **Check payment again** rather than starting a second checkout.
 

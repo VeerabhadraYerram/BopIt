@@ -7,9 +7,10 @@ const returnedOrderId = query.get('token');
 let busy = false;
 const quote = query.get('quote');
 if (quote) {
+  document.querySelector('#developer-help').hidden = true;
   document.querySelector('h1').textContent = 'Your selected item';
   document.querySelector('.price').textContent = 'Verifying quote…';
-  document.querySelector('#product-description').textContent = 'BopIt Sandbox checkout · simulated fulfillment only. Nothing is shipped or reserved.';
+  document.querySelector('#product-description').textContent = 'Review your selected item and price before continuing.';
 }
 const suffix = quote ? `?quote=${encodeURIComponent(quote)}` : '';
 const storageKey = `bopit-checkout-id:${quote || 'demo'}`;
@@ -38,7 +39,7 @@ function renderProduct(product) {
   if (!product) return;
   document.querySelector('h1').textContent = product.name;
   document.querySelector('.price').textContent = `${product.currency} ${product.price}`;
-  if (product.fulfillment) document.querySelector('#product-description').textContent = `${product.fulfillment}. ${product.variants || 'Listing default variant'}. Catalog price only; no tax or shipping is charged in this simulation. This does not place an order with the retailer or reserve inventory.`;
+  if (product.fulfillment) document.querySelector('#product-description').textContent = `${product.variants || 'Listing default variant'}. Listed item price; no tax or shipping is added to this test payment.`;
 }
 
 async function capture(orderId) {
@@ -47,16 +48,16 @@ async function capture(orderId) {
   button.hidden = true;
   checkButton.hidden = false;
   checkButton.disabled = true;
-  show('Checking your approved payment with PayPal Sandbox. Please keep this page open…', 'pending');
+  show('Checking your approved payment with PayPal. Please keep this page open…', 'pending');
   try {
     const result = await post(`/api/payments/orders/${encodeURIComponent(orderId)}/capture`);
     if (result.state === 'success' && result.verified === true) {
       renderProduct(result.product);
-      show(`Payment verified by PayPal Sandbox. ${result.product.name} · ${result.product.currency} ${result.product.price}. Receipt: ${result.captureId}. ${result.product.fulfillment || 'Demo only; nothing is shipped.'} Return to your video tab to keep watching.`, 'success');
+      show(`Payment verified by PayPal. ${result.product.name} · ${result.product.currency} ${result.product.price}. Receipt: ${result.captureId}. Return to your video tab to keep watching.`, 'success');
       checkButton.hidden = true;
       try { sessionStorage.removeItem(storageKey); } catch { /* Optional storage. */ }
     } else if (result.state === 'failed') {
-      show(result.message || 'PayPal Sandbox did not approve this payment.', 'failed');
+      show(result.message || 'PayPal did not approve this payment.', 'failed');
     } else {
       show(`${result.message || 'Payment confirmation is pending.'} Use “Check payment again” to retry safely.`, 'pending');
     }
@@ -71,15 +72,15 @@ async function capture(orderId) {
 async function checkSetup() {
   button.disabled = true;
   setupButton.hidden = true;
-  show('Checking PayPal Sandbox connection…');
+  show('Checking PayPal connection…');
   try {
     const response = await fetch(`/api/payments/config${suffix}`, { signal: AbortSignal.timeout(10_000) });
     if (!response.ok) throw new Error('Could not check the local server.');
     const config = await response.json();
     renderProduct(config.product);
-    if (!config.configured) throw new Error('PayPal Sandbox needs setup. Follow the PayPal setup steps in README.md, restart the local server, then check again.');
+    if (!config.configured) throw new Error('PayPal needs setup. Follow the PayPal setup steps in README.md, restart the local server, then check again.');
     button.disabled = false;
-    show('Sandbox credentials are configured. Continue to sign in with a sandbox personal (buyer) account. No real money is used.');
+    show('Review your item and price, then continue to PayPal.');
   } catch (error) {
     show(error instanceof TypeError ? 'Cannot reach the local server. Run npm start and check again.' : error.message, 'failed');
     setupButton.hidden = false;
@@ -92,11 +93,11 @@ button.addEventListener('click', async () => {
   if (busy) return;
   busy = true;
   button.disabled = true;
-  show('Creating your demo order…');
+  show('Preparing your order…');
   try {
     const order = await post('/api/payments/orders', { checkoutId });
     const approval = new URL(order.approveUrl);
-    if (approval.protocol !== 'https:' || approval.hostname !== 'www.sandbox.paypal.com') throw new Error('Invalid PayPal Sandbox approval link.');
+    if (approval.protocol !== 'https:' || approval.hostname !== 'www.sandbox.paypal.com') throw new Error('Invalid PayPal approval link.');
     location.assign(approval.href);
   } catch (error) {
     busy = false;
@@ -108,7 +109,7 @@ button.addEventListener('click', async () => {
 if (query.has('cancelled')) {
   document.querySelector('h1').textContent = 'Checkout cancelled';
   document.querySelector('.price').hidden = true;
-  show('Payment cancelled in PayPal Sandbox. Return to your video tab, or reopen checkout to try again.', 'cancelled');
+  show('Payment cancelled. Return to your video tab, or reopen checkout to try again.', 'cancelled');
   button.hidden = true;
   try { sessionStorage.removeItem(storageKey); } catch { /* Optional storage. */ }
 } else if (returnedOrderId) {

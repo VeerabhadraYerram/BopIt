@@ -107,7 +107,7 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
           amount: { currency_code: product.currency, value: product.price }
         }],
         application_context: {
-          brand_name: 'BopIt Sandbox Demo',
+          brand_name: 'BopIt',
           user_action: 'PAY_NOW',
           shipping_preference: 'NO_SHIPPING',
           return_url: `${BASE}/checkout${quoteSuffix}`,

@@ -37,3 +37,8 @@ The viewer approved a fresh USD 113.00 Sandbox payment. Order `91K67283RM182604F
 Final checks: 69 unit/API tests, syntax/manifest validation, extension build, embedded Chrome UX regression and payment Chrome regression all passed. Cancellation now clears the obsolete quote-loading placeholder. This checks the integrated local product using a controlled catalog-photo clip with a supplied caption, not general recognition accuracy or every third-party video site.
 
 Repeat with `BOPIT_DEMO_PAYMENTS=1 npm run demo` while the server is running. The default requires manual sandbox approval. Ignored evidence: `.local/full-pipeline-live-report.json`, `test-results/full-pipeline-quote.png` and `test-results/full-pipeline-receipt.png`. The standalone discovery walkthrough remains available without starting payments.
+
+
+## Purchase UI refinement
+
+Product cards now use **Pay with PayPal** and **Buy from seller**, without repeating developer/environment terminology. Payment is disabled for reported out-of-stock offers and missing or unsupported prices; variant details refresh that eligibility. Rental actions remain unavailable because no verified rental supplier is connected. Checkout and receipts retain a concise test-payment/no-merchant-order disclosure. The Sandbox API endpoint and verified-capture guards are unchanged. All 69 unit/API tests and both Chrome regressions passed after this refinement.

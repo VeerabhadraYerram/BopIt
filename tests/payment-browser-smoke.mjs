@@ -78,7 +78,9 @@ try {
   await checkout.waitForFunction(() => document.querySelector('#status').textContent.includes('Payment verified'));
   assert.equal(new URL(checkout.url()).pathname, '/checkout');
   assert.equal(captures, 1);
-  assert.match(await checkout.locator('#status').innerText(),/Concierge \(Sandbox\)/);
+  assert.match(await checkout.locator('.notice').innerText(),/Test payment only/);
+  assert.equal(await checkout.locator('#developer-help').isHidden(),true);
+  assert.equal(await viewer.locator('[data-action="sandbox-checkout"]').first().innerText(),'Pay with PayPal');
   assert.equal(new URL(viewer.url()).protocol,'chrome-extension:');
   await checkout.reload();
   await checkout.waitForFunction(() => document.querySelector('#status').textContent.includes('Payment verified'));
