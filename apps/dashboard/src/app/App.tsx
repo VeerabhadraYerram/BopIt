@@ -25,6 +25,13 @@ const BrandMatchingPage = lazy(() => import('../features/creator/pages/BrandMatc
 const CampaignAnalyticsPage = lazy(() => import('../features/creator/pages/CampaignAnalyticsPage').then(module => ({ default: module.CampaignAnalyticsPage })));
 const CreatorStudioPage = lazy(() => import('../features/creator/pages/CreatorStudioPage').then(module => ({ default: module.CreatorStudioPage })));
 
+// Channel3 Pages (NEW)
+const Channel3OverviewPage = lazy(() => import('../features/channel3/pages/Channel3OverviewPage').then(module => ({ default: module.Channel3OverviewPage })));
+const MomentsSellPage = lazy(() => import('../features/channel3/pages/MomentsSellPage').then(module => ({ default: module.MomentsSellPage })));
+const ProductPulsePage = lazy(() => import('../features/channel3/pages/ProductPulsePage').then(module => ({ default: module.ProductPulsePage })));
+const InterestDropoffPage = lazy(() => import('../features/channel3/pages/InterestDropoffPage').then(module => ({ default: module.InterestDropoffPage })));
+const SellerComparisonPage = lazy(() => import('../features/channel3/pages/SellerComparisonPage').then(module => ({ default: module.SellerComparisonPage })));
+
 const retailNavLinks = [
   { to: '/retail', label: 'Overview', icon: '◫', end: true },
   { to: '/retail/inventory', label: 'Inventory tracker', icon: '▦' },
@@ -40,49 +47,75 @@ const creatorNavLinks = [
   { to: '/creator/brands', label: 'Brand intelligence', icon: '◈' }
 ];
 
+const channel3NavLinks = [
+  { to: '/channel3', label: 'Overview', icon: '◫', end: true },
+  { to: '/channel3/moments', label: 'Moments that sell', icon: '▶' },
+  { to: '/channel3/products', label: 'Product pulse', icon: '▥' },
+  { to: '/channel3/interest', label: 'Interest & drop-off', icon: '↘' },
+  { to: '/channel3/sellers', label: 'Seller comparison', icon: '⚖' }
+];
+
 function Shell() {
   const location = useLocation();
   const isCreatorWorkspace = location.pathname.startsWith('/creator');
+  const isChannel3Workspace = location.pathname.startsWith('/channel3');
+  const activeWorkspace = isCreatorWorkspace ? 'creator' : isChannel3Workspace ? 'channel3' : 'retail';
+
+  const brandColor = activeWorkspace === 'creator' ? '#2563eb' : activeWorkspace === 'channel3' ? '#7c3aed' : '#2a715b';
+  const brandSymbol = activeWorkspace === 'creator' ? 'C' : activeWorkspace === 'channel3' ? '3' : 'B';
+  const brandSubtitle = activeWorkspace === 'creator'
+    ? 'CREATOR INTELLIGENCE'
+    : activeWorkspace === 'channel3'
+    ? 'CHANNEL3 INTELLIGENCE'
+    : 'RETAIL INTELLIGENCE';
 
   return (
     <div className="application-shell">
       <aside className="sidebar">
-        <a className="brand-lockup" href={isCreatorWorkspace ? '/creator' : '/retail'} aria-label="BopIt home">
-          <span className="brand-symbol" style={{ background: isCreatorWorkspace ? '#2563eb' : '#2a715b' }}>
-            {isCreatorWorkspace ? 'C' : 'B'}
+        <a className="brand-lockup" href={`/${activeWorkspace}`} aria-label="BopIt home">
+          <span className="brand-symbol" style={{ background: brandColor }}>
+            {brandSymbol}
           </span>
           <span>
             <strong>bopit</strong>
-            <small>{isCreatorWorkspace ? 'CREATOR INTELLIGENCE' : 'RETAIL INTELLIGENCE'}</small>
+            <small>{brandSubtitle}</small>
           </span>
         </a>
 
-        {/* Top Workspace Mode Switcher */}
+        {/* Top Workspace Mode Switcher (3-way) */}
         <div className="workspace-switcher" role="tablist" aria-label="Workspace switcher">
           <NavLink
             to="/retail"
-            className={({ isActive }) => (!isCreatorWorkspace || isActive ? 'active' : '')}
+            className={({ isActive }) => (activeWorkspace === 'retail' || isActive ? 'active' : '')}
             role="tab"
-            aria-selected={!isCreatorWorkspace}
+            aria-selected={activeWorkspace === 'retail'}
           >
             Retail
           </NavLink>
           <NavLink
             to="/creator"
-            className={({ isActive }) => (isCreatorWorkspace || isActive ? 'active' : '')}
+            className={({ isActive }) => (activeWorkspace === 'creator' || isActive ? 'active' : '')}
             role="tab"
-            aria-selected={isCreatorWorkspace}
+            aria-selected={activeWorkspace === 'creator'}
           >
             Creator
+          </NavLink>
+          <NavLink
+            to="/channel3"
+            className={({ isActive }) => (activeWorkspace === 'channel3' || isActive ? 'active' : '')}
+            role="tab"
+            aria-selected={activeWorkspace === 'channel3'}
+          >
+            Channel3
           </NavLink>
         </div>
 
         <div className="workspace-label">
-          {isCreatorWorkspace ? 'CREATOR WORKSPACE' : 'RETAIL WORKSPACE'}
+          {activeWorkspace === 'creator' ? 'CREATOR WORKSPACE' : activeWorkspace === 'channel3' ? 'CHANNEL3 WORKSPACE' : 'RETAIL WORKSPACE'}
         </div>
 
         <nav className="primary-nav" aria-label="Main navigation">
-          {(isCreatorWorkspace ? creatorNavLinks : retailNavLinks).map(link => (
+          {(activeWorkspace === 'creator' ? creatorNavLinks : activeWorkspace === 'channel3' ? channel3NavLinks : retailNavLinks).map(link => (
             <NavLink
               key={link.to}
               to={link.to}
@@ -96,15 +129,22 @@ function Shell() {
         </nav>
 
         <div className="workspace-label future-label">
-          {isCreatorWorkspace ? 'CREATOR DATA GRIDS' : 'RETAIL DATA GRIDS'}
+          {activeWorkspace === 'creator' ? 'CREATOR DATA GRIDS' : activeWorkspace === 'channel3' ? 'CHANNEL3 DATA GRIDS' : 'RETAIL DATA GRIDS'}
         </div>
 
         <div className="future-links">
-          {isCreatorWorkspace ? (
+          {activeWorkspace === 'creator' ? (
             <>
               <NavLink to="/creator/products"><i>▦</i> Product intelligence</NavLink>
               <NavLink to="/creator/matching"><i>⚡</i> Brand–creator matches</NavLink>
               <NavLink to="/creator/campaigns"><i>📈</i> Campaign analytics</NavLink>
+            </>
+          ) : activeWorkspace === 'channel3' ? (
+            <>
+              <NavLink to="/channel3/moments"><i>▶</i> Video moments</NavLink>
+              <NavLink to="/channel3/products"><i>▥</i> Product pulse</NavLink>
+              <NavLink to="/channel3/interest"><i>⚠️</i> Conversion drop-off</NavLink>
+              <NavLink to="/channel3/sellers"><i>⚖</i> Seller comparison</NavLink>
             </>
           ) : (
             <>
@@ -122,20 +162,20 @@ function Shell() {
         </div>
         <div className="future-links">
           <NavLink
-            to={isCreatorWorkspace ? '/creator/studio' : '/retail/studio'}
+            to={activeWorkspace === 'creator' ? '/creator/studio' : '/retail/studio'}
             className="studio-nav-highlight"
           >
-            <i>✦</i> {isCreatorWorkspace ? 'Creator AG Studio' : 'Retail AG Studio'} <b>3.1 AI</b>
+            <i>✦</i> {activeWorkspace === 'creator' ? 'Creator AG Studio' : 'Retail AG Studio'} <b>3.1 AI</b>
           </NavLink>
         </div>
 
         <div className="sidebar-bottom">
-          <div className="avatar" style={{ color: isCreatorWorkspace ? '#2563eb' : '#2a715b' }}>
-            {isCreatorWorkspace ? 'CI' : 'RI'}
+          <div className="avatar" style={{ color: brandColor }}>
+            {activeWorkspace === 'creator' ? 'CI' : activeWorkspace === 'channel3' ? 'C3' : 'RI'}
           </div>
           <div>
-            <strong>{isCreatorWorkspace ? 'Creator workspace' : 'Retail workspace'}</strong>
-            <small>{isCreatorWorkspace ? 'VLM & Social Analytics' : 'Inventory & Commerce'}</small>
+            <strong>{activeWorkspace === 'creator' ? 'Creator workspace' : activeWorkspace === 'channel3' ? 'Channel3 workspace' : 'Retail workspace'}</strong>
+            <small>{activeWorkspace === 'creator' ? 'VLM & Social Analytics' : activeWorkspace === 'channel3' ? 'Commerce Engine & Discovery' : 'Inventory & Commerce'}</small>
           </div>
           <span className="more-mark">···</span>
         </div>
@@ -144,15 +184,15 @@ function Shell() {
       <div className="main-column">
         <header className="topbar">
           <div className="breadcrumb">
-            BopIt <span>/</span> <strong>{isCreatorWorkspace ? 'Creator Intelligence' : 'Retail Intelligence'}</strong>
+            BopIt <span>/</span> <strong>{activeWorkspace === 'creator' ? 'Creator Intelligence' : activeWorkspace === 'channel3' ? 'Channel3 Intelligence' : 'Retail Intelligence'}</strong>
           </div>
           <div className="topbar-actions">
             <span className="connection-pill"><i /> Local dashboard</span>
             <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
-              AG Studio 3.1 + AG Grid
+              {activeWorkspace === 'channel3' ? 'Channel3 Engine + AG Grid' : 'AG Studio 3.1 + AG Grid'}
             </span>
-            <div className="avatar avatar-small" style={{ color: isCreatorWorkspace ? '#2563eb' : '#2a715b' }}>
-              {isCreatorWorkspace ? 'CI' : 'RI'}
+            <div className="avatar avatar-small" style={{ color: brandColor }}>
+              {activeWorkspace === 'creator' ? 'CI' : activeWorkspace === 'channel3' ? 'C3' : 'RI'}
             </div>
           </div>
         </header>
@@ -185,6 +225,13 @@ function Shell() {
               <Route path="/creator/matching" element={<BrandMatchingPage />} />
               <Route path="/creator/campaigns" element={<CampaignAnalyticsPage />} />
               <Route path="/creator/studio" element={<CreatorStudioPage />} />
+
+              {/* Channel3 Intelligence Routes (NEW) */}
+              <Route path="/channel3" element={<Channel3OverviewPage />} />
+              <Route path="/channel3/moments" element={<MomentsSellPage />} />
+              <Route path="/channel3/products" element={<ProductPulsePage />} />
+              <Route path="/channel3/interest" element={<InterestDropoffPage />} />
+              <Route path="/channel3/sellers" element={<SellerComparisonPage />} />
 
               {/* Defaults and fallback */}
               <Route path="/" element={<Navigate to="/retail" replace />} />

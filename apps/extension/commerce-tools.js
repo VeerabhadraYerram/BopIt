@@ -10,7 +10,8 @@ function field(label,input){const wrap=el('label',label);input.setAttribute('ari
 function input(type='text',placeholder=''){const n=el('input');n.type=type;n.placeholder=placeholder;if(placeholder)n.setAttribute('aria-label',placeholder);return n;}
 function select(options){const n=el('select');for(const [value,label]of options){const option=el('option',label);option.value=value;n.append(option);}return n;}
 function details(label){const node=el('details');node.append(el('summary',label));return node;}
-function source(getContext){const c=getContext();return {url:c.capture?.source?.documentUrl,timestamp:c.capture?.source?.timestamp||0,objectId:c.object?.id,label:c.object?.label};}
+let currentMomentId = null;
+function source(getContext){const c=getContext();return {url:c.capture?.source?.documentUrl,timestamp:c.capture?.source?.timestamp||0,objectId:c.object?.id,label:c.object?.label,momentId:currentMomentId||undefined};}
 export function createCommerceTools({api,getContext,getMarket,onResults,onRefine,getObjects}){
   let version=0,conversationId=null,filterValue={},cart=[],cartReviewed=[],cartBusy=false;
   const originalApi=api;
@@ -175,7 +176,7 @@ export function createCommerceTools({api,getContext,getMarket,onResults,onRefine
   }
   return {
     filters:relevantFilters,productTools,event,
-    onSelect(){version++;conversationId=null;reply.replaceChildren();categoryQuery.value=getContext().object?.label||'';status('');},
+    onSelect(){version++;conversationId=null;currentMomentId='mom_'+crypto.randomUUID();reply.replaceChildren();categoryQuery.value=getContext().object?.label||'';status('');},
     reset(){version++;conversationId=null;filterValue={};reply.replaceChildren();status('');}
   };
 }

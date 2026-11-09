@@ -42,6 +42,6 @@ export function cartKey(item){return JSON.stringify([item.id,Object.entries(item
 export function sourceContext(value={}){
   const source={};if(value.url){const u=new URL(value.url);if(!['http:','https:'].includes(u.protocol))throw new Error('Invalid source URL.');source.url=u.origin+u.pathname+(u.hostname.endsWith('youtube.com')&&u.searchParams.get('v')?'?v='+encodeURIComponent(u.searchParams.get('v')):'');}
   if(value.timestamp!=null){if(!Number.isFinite(value.timestamp)||value.timestamp<0)throw new Error('Invalid source timestamp.');source.timestamp=value.timestamp;}
-  for(const k of ['objectId','label'])if(value[k])source[k]=text(value[k],160);
+  for(const k of ['objectId','label','momentId'])if(value[k])source[k]=text(value[k],160);
   return source;
 }

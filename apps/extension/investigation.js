@@ -174,6 +174,7 @@ export function createInvestigator({ getCapture, crop, getSelected, getObjects =
     group.append(button,note);return group;
   }
   async function showDetails(product, card, button, selection = {}) {
+    commerce.event('product_opened', product.id);
     const old=card.querySelector('.catalog-details');if(old&&Object.keys(selection).length===0){old.hidden=!old.hidden;return;}
     const box=old||node('div',undefined,'catalog-details');if(!old)card.append(box);box.hidden=false;box.replaceChildren(node('p','Loading catalog specifications…'));button.disabled=true;
     try {

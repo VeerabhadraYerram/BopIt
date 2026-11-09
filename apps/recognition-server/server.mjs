@@ -37,19 +37,21 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
     const send = (status, value) => { res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(value)); };
     const origin = req.headers.origin;
     const extensionOrigin = typeof origin === 'string' && /^chrome-extension:\/\/[a-p]{32}$/.test(origin);
+    const dashboardOrigin = origin === 'http://127.0.0.1:5173' || origin === 'http://localhost:5173';
+    const isAllowedOrigin = extensionOrigin || dashboardOrigin;
     if (req.headers.host !== `127.0.0.1:${PORT}`) return send(403, { error: 'Use the loopback address 127.0.0.1:4317.' });
-    if (origin && !extensionOrigin && origin !== BASE) return send(403, { error: 'Origin is not allowed.' });
-    if (extensionOrigin) {
+    if (origin && !isAllowedOrigin && origin !== BASE) return send(403, { error: 'Origin is not allowed.' });
+    if (isAllowedOrigin) {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
     }
     if (req.method === 'OPTIONS') {
-      if (!extensionOrigin) return send(403, { error: 'Not allowed.' });
+      if (!isAllowedOrigin) return send(403, { error: 'Not allowed.' });
       res.setHeader('Access-Control-Allow-Methods', 'POST, GET, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Bopit-Token');
       res.writeHead(204); return res.end();
     }
-    if (await commerce(req,res,{send,extensionOrigin})) return;
+    if (await commerce(req,res,{send,extensionOrigin:isAllowedOrigin})) return;
     if (await handlePayment(req, res, { paypal, paymentOrders, paymentsConfigured, send, token, extensionOrigin, retrieve, channel3Key })) return;
     if (await pairing(req, res, { origin, extensionOrigin, send })) return;
     if (req.method === 'GET' && req.url === '/') {
@@ -62,7 +64,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
     if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, configured: Boolean(apiKey), channel3Configured: Boolean(channel3Key), paypalConfigured: paymentsConfigured, model });
     if (req.method === 'POST' && ['/api/profile', '/api/products/details', '/api/products/compare', '/api/segment'].includes(req.url)) {
       const supplied = Buffer.from(String(req.headers['x-bopit-token'] || '')), expected = Buffer.from(token || '');
-      if (!extensionOrigin || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'Pair the extension first.' });
+      if ((!isAllowedOrigin && origin !== BASE) || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'Pair the extension first.' });
       if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required.' });
       if (inFlight >= 2) return send(429, { error: 'Two analyses are running. Please wait.' });
       let size = 0;
@@ -123,7 +125,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
     if (req.method === 'POST' && req.url === '/api/products/search') {
       const supplied = Buffer.from(String(req.headers['x-bopit-token'] || ''));
       const expected = Buffer.from(token || '');
-      if ((!extensionOrigin && origin !== BASE) || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'Pair the extension using the local setup page first.' });
+      if ((!isAllowedOrigin && origin !== BASE) || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'Pair the extension using the local setup page first.' });
       if (!channel3Key) return send(503, { code: 'KEY_MISSING', error: 'Add CHANNEL3_API_KEY to the server .env file, restart it, and try again.' });
       if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required.' });
       let size = 0;
