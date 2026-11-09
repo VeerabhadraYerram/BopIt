@@ -1,7 +1,9 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
-import { signQuote, readQuote, catalogQuote } from './checkout-quotes.mjs';
+import { signQuote, readQuote, catalogQuote, cartQuote } from './checkout-quotes.mjs';
+
+import { cartItems, locale } from '../../packages/contracts/commerce.mjs';
 
 const BASE = 'http://127.0.0.1:4317';
 export const DEMO_PRODUCT = Object.freeze({ id: 'bopit-demo-mug', name: 'BopIt Sandbox Demo Mug', price: '12.00', currency: 'USD' });
@@ -17,10 +19,20 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
     if (!channel3Key) { send(503, { error: 'Channel3 key missing.' }); return true; }
     if (!req.headers['content-type']?.startsWith('application/json')) { send(415, { error: 'JSON required.' }); return true; }
     try {
-      const body = await readJson(req, 4096);
-      if (Object.keys(body).some(k => !['id', 'selection'].includes(k)) || typeof body.id !== 'string' || !/^[\w-]{1,160}$/.test(body.id) || (body.selection && (typeof body.selection !== 'object' || Array.isArray(body.selection) || Object.keys(body.selection).length > 12))) throw new Error('Invalid catalog selection.');
-      const product = catalogQuote(await retrieve(body.id, { apiKey: channel3Key, selection: body.selection }));
+      const body = await readJson(req, 16384);
+      if (Object.keys(body).some(k => !['id','selection','items','config'].includes(k)) || (body.items && (body.id||body.selection))) throw new Error('Invalid catalog selection.');
+      const config=locale(body.config);
+      let product;
+      if(body.items){
+        const items=cartItems(body.items),lines=[];
+        for(const item of items)lines.push({product:await retrieve(item.id,{apiKey:channel3Key,selection:item.selection,config}),quantity:item.quantity});
+        product=cartQuote(lines);
+      }else{
+        if(typeof body.id!=='string'||!/^[\w-]{1,160}$/.test(body.id)||(body.selection&&(typeof body.selection!=='object'||Array.isArray(body.selection)||Object.keys(body.selection).length>12)))throw new Error('Invalid catalog selection.');
+        product=catalogQuote(await retrieve(body.id,{apiKey:channel3Key,selection:body.selection,config}));
+      }
       const quote = signQuote(product, token);
+      if(quote.length>3200)throw new Error('This cart has too much variant detail for checkout. Split it into smaller orders.');
       send(201, { product, checkoutUrl: `${BASE}/checkout?quote=${encodeURIComponent(quote)}`, expiresInSeconds: 600 });
     } catch (error) { send(400, { error: error.message || 'Could not verify the catalog quote.' }); }
     return true;
@@ -104,7 +116,8 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
           reference_id: product.id,
           custom_id: owner,
           description: product.name,
-          amount: { currency_code: product.currency, value: product.price }
+          ...(product.items?{items:product.items.map(p=>({name:p.name,quantity:String(p.quantity),unit_amount:{currency_code:p.currency,value:p.price}}))}:{}),
+          amount: { currency_code: product.currency, value: product.price, ...(product.items?{breakdown:{item_total:{currency_code:product.currency,value:product.price}}}:{}) }
         }],
         application_context: {
           brand_name: 'BopIt',

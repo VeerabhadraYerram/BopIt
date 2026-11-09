@@ -9,8 +9,9 @@ const {chromium}=require(process.env.BOPIT_PLAYWRIGHT_MODULE || 'playwright');
 const demoPort=Number(process.env.BOPIT_DEMO_PORT || 4919);
 if(!Number.isInteger(demoPort)||demoPort<1024||demoPort>65535)throw new Error('Invalid demo port.');
 const demoOrigin=`http://127.0.0.1:${demoPort}`;
+const testCommerce=process.env.BOPIT_DEMO_COMMERCE==='1';
 const testPayments=process.env.BOPIT_DEMO_PAYMENTS==='1';
-const reportPath=testPayments?'.local/full-pipeline-live-report.json':'.local/experience-live-report.json';
+const reportPath=testCommerce?'.local/channel3-full-live-report.json':testPayments?'.local/full-pipeline-live-report.json':'.local/experience-live-report.json';
 const token=(await readFile('.local/pairing-token','utf8')).trim();
 const headers={origin:`chrome-extension://${'a'.repeat(32)}`,'content-type':'application/json','x-bopit-token':token};
 const r=await fetch('http://127.0.0.1:4317/api/products/search',{method:'POST',headers,body:JSON.stringify({query:'Sony MDR7506 headphones',limit:1})});const found=await r.json();if(!r.ok||!found.products?.length)throw new Error(found.error||'No demo item');
@@ -51,9 +52,10 @@ try{
  await inspector.locator('[data-intent="look"]').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled,null,{timeout:30000});report.similarLookCount=await inspector.locator('.product-card').count();
  await inspector.locator('[data-intent="function"]').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled,null,{timeout:30000});report.sameFunctionCount=await inspector.locator('.product-card').count();
  await inspector.locator('[data-intent="exact"]').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled,null,{timeout:100000});await inspector.locator('#products-panel').evaluate(el=>el.scrollIntoView({block:'start'}));
+ if(testCommerce){const {commerceWalkthrough}=await import('./commerce-walkthrough.mjs');report.commerce=await commerceWalkthrough({page,inspector,context});}
  if(testPayments){
   const expectedProductId=await inspector.locator('.product-card').first().getAttribute('data-product-id');
-  const popup=context.waitForEvent('page');await inspector.locator('[data-action="sandbox-checkout"]').first().click();const checkout=await popup;
+  const popup=context.waitForEvent('page');if(testCommerce){await inspector.locator('#cart-toggle').click();await inspector.locator('#pay-cart').click();}else await inspector.locator('[data-action="sandbox-checkout"]').first().click();const checkout=await popup;
   await checkout.waitForURL('http://127.0.0.1:4317/checkout?quote=*',{timeout:35000});
   checkout.on('response',r=>{if(r.url().includes('127.0.0.1:4317/api/'))network.push({path:new URL(r.url()).pathname,status:r.status()});});
   await checkout.waitForFunction(()=>!document.querySelector('#buy').disabled,null,{timeout:15000});
