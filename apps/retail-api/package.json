@@ -1,0 +1,15 @@
+{
+  "name": "@bopit/retail-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/main.mjs",
+    "seed:demo": "node scripts/seed-demo.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "better-sqlite3": "11.10.0",
+    "pg": "8.16.3"
+  }
+}

@@ -41,6 +41,8 @@ The backend listens at **http://127.0.0.1:4317/**. Keys stay on the server and a
 
 After code changes, run `npm run build`, reload the extension in Chrome, and reload the video page. Installation and troubleshooting: [Run the extension](docs/RUN_EXTENSION.md).
 
+The Creator/Retailer dashboard is in [apps/dashboard](apps/dashboard). It uses Supabase Auth and an owner-scoped PostgreSQL demo dataset for creator video moments, product engagement, seller offers, and price history. Project setup, repeatable demo seeding, data-source limits, and the separate SQLite analytics pipeline are documented in [Creator and Retail Dashboard](docs/CREATOR_RETAIL_DASHBOARD.md). No Supabase project credentials are configured in this repository.
+
 ## The experience
 
 ### Scan and select
