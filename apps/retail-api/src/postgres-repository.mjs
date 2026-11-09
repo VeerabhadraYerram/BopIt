@@ -4,7 +4,10 @@ import { calculateOverview } from './overview.mjs';
 
 export function createPostgresRepository(databaseUrl, { pool: suppliedPool } = {}) {
   if (!databaseUrl) throw new ApiError(503, 'DATABASE_NOT_CONFIGURED', 'Set RETAIL_DATABASE_URL to enable persistent Retail data.');
-  const pool = suppliedPool || new Pool({ connectionString: databaseUrl, max: 5, idleTimeoutMillis: 10_000 });
+  // Require TLS and retain Node's default certificate and hostname verification.
+  // For a Supabase project CA, use sslmode=verify-full&sslrootcert=<path> in the
+  // connection string; pg loads that CA while preserving verify-full checks.
+  const pool = suppliedPool || new Pool({ connectionString: databaseUrl, ssl: true, max: 5, idleTimeoutMillis: 10_000 });
 
   const list = async (tenantId, { page, pageSize, offset, search }, kind) => {
     const table = kind === 'products' ? 'products' : 'inventory i JOIN products p ON p.tenant_id = i.tenant_id AND p.id = i.product_id';
