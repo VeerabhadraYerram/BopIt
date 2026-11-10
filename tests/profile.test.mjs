@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { validateProfile, validateContext, searchPlan } from '../packages/contracts/profile.mjs';
+import { validateProfile, validateContext, searchPlan, profileIdentityLabel } from '../packages/contracts/profile.mjs';
 import { inspectWithGemini, compareWithGemini } from '../apps/recognition-server/gemini.mjs';
 import { searchChannel3, retrieveChannel3, catalogImage } from '../apps/recognition-server/channel3.mjs';
 import { fitProfileImage, prepareProfileImages } from '../apps/extension/profile-images.mjs';
@@ -76,3 +76,12 @@ test('raster-mask tracing preserves holes instead of filling the object bounding
  const mask=new Uint8Array(100);for(let y=1;y<9;y++)for(let x=1;x<9;x++)if(x<3||x>6||y<3||y>6)mask[y*10+x]=1;
  const rings=maskContours(mask,10,10);assert.equal(rings.length,2);assert.ok(rings.flat().every(([x,y])=>x>=0&&y>=0&&x<=1&&y<=1));
 });
+
+ test('unidentified products use clear wording while partial identities remain useful',()=>{
+ const raw=rawProfile();raw.identity.brand='unknown';raw.identity.model='UNKNOWN';
+ const profile=validateProfile(raw);assert.equal(profile.identity.brand,'');assert.equal(profile.identity.model,'');
+ assert.equal(profileIdentityLabel(raw.identity),'Brand and model couldn’t be identified from this frame.');
+ assert.equal(profileIdentityLabel({brand:'Sony',model:'N/A'}),'Possible brand: Sony. Model not identified.');
+ assert.equal(profileIdentityLabel({brand:'',model:'A7 IV'}),'Possible model: A7 IV. Brand not identified.');
+ assert.equal(profileIdentityLabel({brand:'Sony',model:'A7 IV'}),'Possible product: Sony A7 IV');
+ });

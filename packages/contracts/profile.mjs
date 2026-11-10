@@ -7,11 +7,22 @@ const list = (v, n = 40) => {
   return v;
 };
 export const evidenceSources = ['visible', 'caption', 'video_speech', 'viewer_note', 'inferred'];
+function identityValue(value) {
+  const clean = text(value, 160);
+  return /^(?:unknown(?: brand| model)?|unidentified|unspecified|not (?:known|identified|visible|available|readable)|n\/?a|none|null|—|-)$/i.test(clean) ? '' : clean;
+}
+export function profileIdentityLabel(identity) {
+  const brand = identityValue(identity.brand), model = identityValue(identity.model);
+  if (brand && model) return `Possible product: ${brand} ${model}`;
+  if (brand) return `Possible brand: ${brand}. Model not identified.`;
+  if (model) return `Possible model: ${model}. Brand not identified.`;
+  return 'Brand and model couldn’t be identified from this frame.';
+}
 export function validateProfile(raw) {
   if (!raw || typeof raw !== 'object') throw new Error('Invalid object profile');
   return {
     summary: text(raw.summary, 1200), category: text(raw.category, 160),
-    identity: { brand: text(raw.identity?.brand, 160), model: text(raw.identity?.model, 160),
+    identity: { brand: identityValue(raw.identity?.brand), model: identityValue(raw.identity?.model),
       basis: text(raw.identity?.basis), status: ['unidentified', 'candidate', 'identifier_observed'].includes(raw.identity?.status) ? raw.identity.status : 'unidentified' },
     attributes: list(raw.attributes).map(a => {
       if (!evidenceSources.includes(a.source)) throw new Error('Invalid attribute evidence');

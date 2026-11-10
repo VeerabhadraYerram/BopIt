@@ -70,3 +70,9 @@ For live product search, also start the root recognition server with its existin
 Restart the Retail API and Vite after changing environment values. A production dashboard build needs these Vite values at build time and a separately configured production API/proxy. The local Vite proxy is not a production gateway.
 
 Live migrations, email delivery and database RLS still need verification against your supplied project. Local automated tests use provider mocks and do not prove that project is configured.
+
+## Missing database certificate
+
+If the API reports `ENOENT` while parsing `RETAIL_DATABASE_URL`, check whether its `sslrootcert` parameter references an existing certificate file. Download your project's server root certificate from Supabase Dashboard → Database Settings → SSL Configuration, save it locally, and set `sslrootcert` to its absolute path in both root `.env` and `apps/retail-api/.env`. Keep `sslmode=verify-full`. See [Supabase SSL enforcement](https://supabase.com/docs/guides/platform/ssl-enforcement).
+
+For example, the connection string's query parameters can end with `sslmode=verify-full&sslrootcert=C:/hackthons/BopIt/.local/supabase-ca.crt` once the correct certificate exists there. The certificate is separate from the API keys and database password. Restart the API after changing the connection string; the database migrations can only be checked after the connection succeeds.

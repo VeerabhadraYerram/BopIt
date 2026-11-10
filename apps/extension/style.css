@@ -47,3 +47,20 @@ body{background:var(--cream)}button,a,summary,input,select,textarea{-webkit-tap-
 .subscription-event-group>h3{margin:14px 0 6px}
 .subscription-event-group.is-read{opacity:.82}
 @media(max-width:520px){#investigation-stages li{font-size:10px}.product-card{gap:8px}.product-card .product-info{min-width:130px}.metric-help ul{padding-left:17px}}
+
+.commerce-tools{border:0!important;box-shadow:none!important;padding:0!important;margin:12px 0}.commerce-tools>details,.commerce-product-tools>details{margin:8px 0;padding:10px;background:#f5f3e9;border:1px solid #dce1d4;border-radius:13px}.commerce-tools summary,.commerce-product-tools summary{font-size:12px;cursor:pointer}.commerce-tools input,.commerce-tools select,.commerce-tools textarea,.commerce-product-tools input{width:100%;box-sizing:border-box;margin:7px 0}.commerce-tools button,.commerce-product-tools button{margin:5px 5px 5px 0;font-size:11px}.commerce-tools label{display:block}.commerce-tools label:has(input[type=checkbox]){display:flex;align-items:center;gap:8px}.commerce-tools input[type=checkbox]{width:auto}.commerce-product-tools{margin:9px 0}.commerce-product-tools small,.cart-line small,.watch-line small{display:block;font-size:11px;color:#68725f}.commerce-product-tools svg{width:100%;max-height:110px;background:#faf9f2;border-radius:10px}.commerce-drawer{position:relative;z-index:2;background:#fffaf1!important;margin:12px 0;padding:15px!important}.cart-line,.watch-line,.scene-role{padding:12px 0;border-bottom:1px solid #d9dfd1}.cart-line select{max-width:80px;margin:6px}.cart-line button,.watch-line button{margin:6px;font-size:11px}#cart-toggle{font-size:11px;white-space:nowrap;padding:7px 9px}#tracked-moments,#commerce-activity{margin:14px 0;padding:14px;border:1px solid #d9dfd1;border-radius:15px;background:#f5f5eb}#commerce-activity p{font-size:11px;overflow-wrap:anywhere}#commerce-notice:empty{display:none}.scene-role strong{font-size:12px}
+
+.commerce-drawer{scroll-margin-top:80px}
+
+.commerce-product-tools svg[role=img]{max-height:none;display:block;aspect-ratio:420/190}.chart-tick{font:14px system-ui;fill:#576353}.chart-axis-title{font:600 14px system-ui;fill:#344e3b}.chart-gridline{stroke:#dce2d6;stroke-width:1}#back-to-results{max-width:100%;white-space:normal;text-align:left;scroll-margin-top:80px;margin:10px 0}
+
+.product-card{scroll-margin-top:80px}
+
+.search-context{display:flex;align-items:center;gap:8px;margin:12px 0 6px;font-size:12px;color:#586b58}.search-context span{min-width:0;overflow-wrap:anywhere}.search-context button{font-size:11px;padding:4px 8px;min-height:30px;margin-left:auto}.unified-search{display:flex;gap:6px;align-items:stretch}.unified-search input{min-width:0;flex:1}.unified-search button{flex-shrink:0}#voice-search-btn{min-width:38px;padding:6px}#voice-search-btn[aria-pressed=true]{background:#ffd1b5}#voice-search-status:empty,#shopping-reply:empty{display:none}#voice-search-status,#shopping-reply{font-size:12px;line-height:1.5}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+html{scroll-padding-top:85px}.unified-search,#search-context,#voice-search-btn,#search-products-btn{scroll-margin-block:100px}
+
+.results-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:16px 0 12px;padding-top:12px;border-top:1px solid #dce1d4}.results-toolbar strong{font-size:13px}.results-toolbar label{display:flex;align-items:center;gap:7px;font-size:12px}.results-toolbar select{max-width:165px;padding:7px;border:1px solid #bcc8b5;border-radius:10px;background:#fffaf3;color:#24364e;font:inherit}.commerce-tools #listing-filters{margin-top:12px;padding-top:10px;border-top:1px solid #dce1d4}.commerce-tools #listing-filters p{font-size:11px}
+
+/* Async profile/results updates must not drag the reader to a lower scroll anchor. */
+html,body{overflow-anchor:none}.results-toolbar{column-gap:10px}.results-toolbar>strong{flex:1 0 100%}.results-toolbar label{flex:1;min-width:0}.results-toolbar select{min-width:0;max-width:100%;width:100%}

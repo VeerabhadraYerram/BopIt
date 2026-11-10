@@ -212,3 +212,7 @@ Validation: `npm test`, `npm run check`, `npm run build`, `npm run test:browser`
 ## Persistent cart (v0.5)
 
 Add discovered items to the cart, adjust quantities, and review current seller prices and selected variants before checkout. PayPal Sandbox quotes are rebuilt from Channel3 at checkout; changed seller offers, substituted variants, unavailable items, mixed currencies and invalid totals are rejected. Cart data is stored in trusted extension storage. Existing Channel3 discovery, alerts, reporting and scene planning continue to use their established routes and persistence.
+
+## Contextual search and voice input
+
+The extension now uses one main search input for product names and follow-up preferences. With an object selected, requests such as "similar but cheaper" refine that object's context through the existing Channel3 conversation route. Clear the context to start a separate search. The optional microphone drafts editable text; review it and press Find to send it. Browser speech-service availability and permission vary. Brand and sort controls appear above results. Related-product navigation restores previous cards without repeating catalog calls, and recorded price charts label the currency and UTC dates.

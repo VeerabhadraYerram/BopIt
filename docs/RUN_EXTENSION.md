@@ -90,3 +90,7 @@ Ordinary `npm run demo` stops after discovery and does not start a payment. Paym
 
 
 Reload the extension after building v0.5. Add products from result cards to the cart, review current listings, then continue to the itemized PayPal Sandbox checkout.
+
+## Unified search after the main integration
+
+Use the main Find input for both product names and preferences. A selected object's context is shown above it; Clear starts an independent search. The microphone only drafts text for review and does not submit or pay automatically. Brand and Sort are above product results. Find similar products provides Back to previous results, preserving the original cards and expanded specifications. Catalog, alerts, conversations, scene planning and cart continue to use the integrated server routes described above.

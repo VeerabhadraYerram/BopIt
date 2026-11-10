@@ -49,7 +49,7 @@
       const pr = panel.attachShadow({ mode: 'open' });
       pr.innerHTML = `<style>:host([hidden]){display:none!important}@keyframes bopit-enter{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}@media(prefers-reduced-motion:reduce){:host{animation:none!important}}header{height:44px;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;padding:8px 14px;font:650 12px system-ui;color:#24364e;border-bottom:1px solid #24364e20}button{border:1px solid #24364e;border-radius:50%;height:32px;width:32px;background:#fffaf1;cursor:pointer}iframe{width:100%;height:calc(100% - 44px);border:0;display:block}</style><header><span>✳ BopIt · a closer look</span><button aria-label="Close BopIt results">×</button></header>`;
       pr.querySelector('button').onclick = hidePanel;
-      panelFrame = document.createElement('iframe'); panelFrame.id = 'bopit-inspector'; panelFrame.title = 'BopIt object details'; panelFrame.referrerPolicy = 'no-referrer'; pr.append(panelFrame); document.documentElement.append(panel);
+      panelFrame = document.createElement('iframe'); panelFrame.id = 'bopit-inspector'; panelFrame.title = 'BopIt object details'; panelFrame.referrerPolicy = 'no-referrer'; panelFrame.allow = 'microphone'; pr.append(panelFrame); document.documentElement.append(panel);
     }
     if (id !== captureId || !panelFrame.src || error) {
       captureId = id;

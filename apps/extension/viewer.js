@@ -297,10 +297,10 @@ function select(id) {
   cancelProductSearch();
   selectedId = id; render();
   document.body.dataset.view = 'detail'; $('#back-to-items').hidden = false; $('#selected-image').src = cropImage(objects.find(o=>o.id===id)?.box || full).image;
-  window.scrollTo({ top: 0, behavior: 'instant' });
   const object = objects.find(o => o.id === id);
   $('#detail').hidden = !object;
   if (!object) return;
+  window.scrollTo({ top: 0, behavior: 'instant' });
   $('#label').textContent = object.label;
   $('#object-origin').textContent = object.manual ? `Your correction${object.predictedLabel ? ' · originally '+object.predictedLabel : ''}` : 'Detected in your video · identity not verified';
   $('#attributes').textContent = object.visibleAttributes.join(' · ') || 'No specific visual attributes established.';
@@ -484,7 +484,7 @@ function showAll() {
   selectedId = null; document.body.dataset.view = 'all'; $('#back-to-items').hidden = true;
   window.scrollTo({ top: 0, behavior: 'instant' }); render();
 }
-$('#back-to-items').onclick = showAll;
+$('#back-to-items').onclick = () => { if(!investigator.backToResults())showAll(); };
 chrome.runtime.onMessage.addListener(message => {
   if (message?.captureId !== capture?.captureId) return;
   if (message.type === 'BOPIT_SELECT_OBJECT') select(message.id);
@@ -529,4 +529,4 @@ async function searchProducts(queryText) { return investigator.searchManual(quer
 $('#find-products-btn').addEventListener('click', () => { const object = objects.find(o => o.id === selectedId); if (object) investigator.select(object, true); });
 $('#search-products-btn').addEventListener('click', () => searchProducts($('#product-query').value));
 $('#product-query').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchProducts(e.target.value); } });
-$('#product-query').addEventListener('input', cancelProductSearch);
+$('#product-query').addEventListener('input',()=>{investigator.cancel({keepResults:true});$('#products-notice').textContent='Press Find to apply your request.';});
