@@ -94,3 +94,7 @@ Reload the extension after building v0.5. Add products from result cards to the 
 ## Unified search after the main integration
 
 Use the main Find input for both product names and preferences. A selected object's context is shown above it; Clear starts an independent search. The microphone only drafts text for review and does not submit or pay automatically. Brand and Sort are above product results. Find similar products provides Back to previous results, preserving the original cards and expanded specifications. Catalog, alerts, conversations, scene planning and cart continue to use the integrated server routes described above.
+
+## Simplified panel navigation
+
+Discover shows the object grid, then the selected object's product matches. Saved and Alerts are separate destinations in the top navigation; Cart opens a dedicated review/checkout view. The three-dot menu contains frame/editing tools, shopping activity and connection settings. Filters are collapsed by default. Product cards emphasize Add to cart and Save; Details opens specifications, while More contains comparison, similar products, direct Sandbox checkout and retailer links. Object evidence and correction controls stay expandable. The single Back control restores related-product results before returning to all detected objects.
