@@ -62,6 +62,33 @@ test('Gemini errors never expose upstream response bodies or accept truncated JS
   await assert.rejects(detectWithGemini('x', { apiKey: 'test', model: 'test', fetcher: async () => new Response(JSON.stringify({ candidates: [{ finishReason: 'MAX_TOKENS', content: { parts: [{ text: '{}' }] } }] })) }), /did not finish/);
 });
 
+test('Gemini retries one transient error then validates the real response', async () => {
+  let attempts = 0, signal;
+  const result = await detectWithGemini('synthetic', { apiKey: 'test', model: 'test', retryDelayMs: 0, fetcher: async (_url, options) => {
+    attempts++;
+    if (signal) assert.equal(options.signal, signal, 'Both attempts share one total deadline');
+    signal = options.signal;
+    return attempts === 1 ? new Response('private provider error', { status: 503 })
+      : new Response(JSON.stringify({ candidates: [{ finishReason: 'STOP', content: { parts: [{ text: JSON.stringify(rawResult()) }] } }] }));
+  } });
+  assert.equal(attempts, 2); assert.equal(result.objects.length, 2);
+});
+
+test('Gemini bounds retries, reports status, and never retries keys, quota or long Retry-After', async () => {
+  for (const status of [400, 401, 403, 404, 429, 503]) {
+    let attempts = 0;
+    await assert.rejects(detectWithGemini('synthetic', { apiKey: 'test', model: 'test', retryDelayMs: 0, fetcher: async () => {
+      attempts++; return new Response('credential-bearing upstream details', { status });
+    } }), error => error.status === status && error.message.includes(String(status)) && !error.message.includes('credential-bearing'));
+    assert.equal(attempts, status === 503 ? 2 : 1);
+  }
+  let attempts = 0;
+  await assert.rejects(detectWithGemini('synthetic', { apiKey: 'test', model: 'test', retryDelayMs: 0, fetcher: async () => {
+    attempts++; return new Response('', { status: 503, headers: { 'retry-after': '60' } });
+  } }));
+  assert.equal(attempts, 1);
+});
+
 
 test('segmentation contours normalize within object bounds and degrade safely',()=>{
  assert.deepEqual(normalizeContour([[0,0],[1000,0],[500,1000]]),[[0,0],[1,0],[.5,1]]);

@@ -665,6 +665,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
         }));
         send(200, { ...result, captureId: body.captureId, mode: 'live', model, elapsedMs: timings.serverDetectionMs, timings, image: { width: image.width, height: image.height } });
       } catch (error) {
+        console.warn('[bopit-detection-error]', JSON.stringify({ code: error.code || 'DETECTION_FAILED', providerStatus: error.status, attempts: error.attempts, model, timedOut: error.name === 'TimeoutError' }));
         send(502, { code: error.code || 'DETECTION_FAILED', error: error.name === 'TimeoutError' ? 'Gemini timed out. Your frame is preserved; try a smaller area.' : error.message || 'Detection failed.' });
       } finally { inFlight--; }
     } catch { if (!res.headersSent) send(400, { error: 'Invalid request.' }); }

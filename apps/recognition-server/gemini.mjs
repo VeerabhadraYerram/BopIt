@@ -25,6 +25,40 @@ function providerSchema(schema) {
 const str = { type: 'string' };
 const arr = items => ({ type: 'array', items });
 const obj = properties => ({ type: 'object', properties, required: Object.keys(properties) });
+const transientStatuses = new Set([500, 502, 503, 504]);
+async function requestGemini(url, options, { fetcher, timeoutMs, retryDelayMs = 600 }) {
+  // One retry for a brief provider outage, inside the original total deadline.
+  // Invalid keys, quota limits, rejected inputs and invalid outputs are not retried.
+  const signal = AbortSignal.timeout(timeoutMs);
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    signal.throwIfAborted();
+    const response = await fetcher(url, { ...options, signal });
+    if (attempt === 2 || !transientStatuses.has(response.status)) return { response, attempts: attempt };
+    const retryAfter = response.headers?.get('retry-after');
+    const requestedDelay = retryAfter ? (/^\d+(?:\.\d+)?$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now()) : 0;
+    // Leave long recovery periods to an explicit user retry rather than hanging.
+    if (requestedDelay > 3000) return { response, attempts: attempt };
+    try { await response.body?.cancel(); } catch { /* Never read or log upstream bodies. */ }
+    await new Promise(resolve => setTimeout(resolve, Math.max(retryDelayMs, Number.isFinite(requestedDelay) ? requestedDelay : 0)));
+  }
+}
+function providerError(status, attempts) {
+  const messages = {
+    400: 'Gemini rejected this frame or request format (400). Try a smaller area or check model support.',
+    401: 'Gemini key was rejected (401). Replace the key locally.',
+    403: 'Gemini access denied (403). Check key restrictions, account eligibility and model access.',
+    404: 'Configured Gemini model was not found (404). Check GEMINI_MODEL.',
+    429: 'Gemini quota reached (429). Wait before retrying or check your account limits.',
+    500: 'Gemini could not process this request (500). Try again or select a smaller area.',
+    502: 'Gemini returned a temporary gateway error (502). Your frame is preserved; retry the scan.',
+    503: 'Gemini is busy right now (503). Your frame is preserved; retry the scan shortly.',
+    504: 'Gemini took too long to respond (504). Try again or select a smaller area.'
+  };
+  const error = new Error(messages[status] || `Gemini request failed (${status}). Your frame is preserved; retry the scan.`);
+  error.status = status; error.attempts = attempts;
+  error.code = status === 429 ? 'PROVIDER_RATE_LIMIT' : 'PROVIDER_ERROR';
+  return error;
+}
 const profileSchema = obj({
   summary: str, category: str,
   identity: obj({ brand: str, model: str, basis: str, status: str }),
@@ -33,17 +67,14 @@ const profileSchema = obj({
   useInScene: str, relationships: arr(str), unknowns: arr(str), contradictions: arr(str),
   queries: obj({ exact: str, look: str, function: str })
 });
-export async function structuredGemini(parts, schema, { apiKey, model, fetcher = fetch, timeoutMs = 60000 }) {
-  const response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: 'POST', signal: AbortSignal.timeout(timeoutMs),
+export async function structuredGemini(parts, schema, { apiKey, model, fetcher = fetch, timeoutMs = 60000, retryDelayMs = 600 }) {
+  const { response, attempts } = await requestGemini(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { maxOutputTokens: 10000, responseMimeType: 'application/json', responseSchema: providerSchema(schema) } })
-  });
+  }, { fetcher, timeoutMs, retryDelayMs });
   if (!response.ok) {
-    const error = new Error(`Gemini request failed (${response.status}). Check model access, quota and input availability.`);
-    error.status = response.status;
-    error.code = response.status === 429 ? 'PROVIDER_RATE_LIMIT' : 'PROVIDER_ERROR';
-    throw error;
+    throw providerError(response.status, attempts);
   }
   const data = await response.json(), candidate = data.candidates?.[0];
   if (candidate?.finishReason !== 'STOP') throw new Error('Gemini did not finish a usable response. Try a clearer crop.');
@@ -79,7 +110,7 @@ export async function compareWithGemini(crop, profile, candidates, options) {
     })) }));
 }
 
-export async function detectWithGemini(imageBase64, { apiKey, model, fetcher = fetch, onTiming = () => {} }) {
+export async function detectWithGemini(imageBase64, { apiKey, model, fetcher = fetch, onTiming = () => {}, retryDelayMs = 600 }) {
   const timings = {};
   const requestPreparationStarted = performance.now();
   const requestBody = JSON.stringify({
@@ -88,19 +119,17 @@ export async function detectWithGemini(imageBase64, { apiKey, model, fetcher = f
   });
   timings.geminiRequestPreparationMs = performance.now() - requestPreparationStarted;
   const responseStarted = performance.now();
-  const response = await fetcher(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-    method: 'POST', signal: AbortSignal.timeout(45000),
+  const { response, attempts } = await requestGemini(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+    method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
     body: requestBody
-  });
+  }, { fetcher, timeoutMs: 45000, retryDelayMs });
+  timings.geminiAttempts = attempts;
   timings.geminiResponseMs = performance.now() - responseStarted;
   if (!response.ok) {
     onTiming(timings);
     // Never relay upstream bodies: they may contain request or credential details.
-    const messages = { 400: 'Gemini rejected the image or schema. Check the configured model supports image input and structured output.', 401: 'Gemini key was rejected. Replace the key locally.', 403: 'Gemini access denied. Check key restrictions, account eligibility and model access.', 404: 'Configured Gemini model was not found. Set GEMINI_MODEL to an available image-capable model.', 429: 'Gemini quota reached. Wait before retrying or check your account limits.' };
-    const error = new Error(messages[response.status] || 'Gemini is unavailable. Please try again later.');
-    error.code = response.status === 429 ? 'PROVIDER_RATE_LIMIT' : 'PROVIDER_ERROR';
-    throw error;
+    throw providerError(response.status, attempts);
   }
   const parsingStarted = performance.now();
   const body = await response.json();
