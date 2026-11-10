@@ -12,7 +12,7 @@ const profile = await mkdtemp(join(tmpdir(), 'bopit-payment-browser-'));
 const base = 'http://127.0.0.1:4317';
 const orders = new Map(), requestIds = new Map();
 let captures = 0, deferCapture = false, failCreate = false;
-const product = { id: 'fixture-headphones', title: 'Fixture headphones', price: 149.95, currency: 'USD', availability: 'InStock', variants: { selected: [{ name: 'Color', label: 'Black' }] } };
+const product = { retailer:'example.com',condition:'new',purchaseUrl:'https://example.com/headphones',offers:[{retailer:'example.com',price:149.95,currency:'USD',condition:'new',availability:'InStock',purchaseUrl:'https://example.com/headphones'}], id: 'fixture-headphones', title: 'Fixture headphones', price: 149.95, currency: 'USD', availability: 'InStock', variants: { selected: [{ name: 'Color', label: 'Black' }] } };
 const paypal = {
   async createOrder(body, key) {
     if (failCreate) { failCreate = false; throw new Error('simulated network error'); }
@@ -36,7 +36,7 @@ const paypal = {
 };
 let server, context;
 async function start(configured = true) {
-  server = createApp({ token: 'payment-browser-token', channel3Key: 'fixture-key', searchProducts: async()=>({products:[product,{...product,id:'fixture-stand',title:'Fixture stand',price:20}]}), retrieve: async id=>id==='fixture-stand'?{...product,id:'fixture-stand',title:'Fixture stand',price:20}:product, paypal, paypalClientId: configured ? 'test-id' : '', paypalClientSecret: configured ? 'test-secret' : '' });
+  server = createApp({ token: 'payment-browser-token', channel3Key: 'fixture-key', searchProducts: async()=>({products:[product,{...product,id:'fixture-stand',title:'Fixture stand',price:20,offers:[{...product.offers[0],price:20}]}]}), retrieve: async id=>id==='fixture-stand'?{...product,id:'fixture-stand',title:'Fixture stand',price:20,offers:[{...product.offers[0],price:20}]}:product, paypal, paypalClientId: configured ? 'test-id' : '', paypalClientSecret: configured ? 'test-secret' : '' });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(4317, '127.0.0.1', resolve); });
 }
 async function stop() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
@@ -62,6 +62,7 @@ try {
   const viewer=await context.newPage();await viewer.goto(`chrome-extension://${new URL(worker.url()).hostname}/viewer.html`);
   await viewer.locator('#app-menu > summary').click();await viewer.getByRole('button',{name:'Frame & editing tools',exact:true}).click();
   await viewer.locator('#example').click();await viewer.locator('#objects button').first().click();
+  await viewer.locator('#clear-search-context').click();
   await viewer.locator('#product-query').fill('headphones');await viewer.locator('#search-products-btn').click();
   await viewer.locator('[data-action="sandbox-checkout"]').first().waitFor({state:'attached'});
   await viewer.locator('[data-action="add-to-cart"]').first().click();await viewer.locator('[data-action="add-to-cart"]').nth(1).click();

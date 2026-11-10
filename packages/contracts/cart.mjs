@@ -21,3 +21,10 @@ export function cartItems(value) {
 export function cartKey(item) {
   return JSON.stringify([item.id, Object.entries(item.selection || {}).sort(), [...(item.websiteIds || [])].sort()]);
 }
+
+export function cartSource(value){
+  try{const url=new URL(value?.url);if(!['http:','https:'].includes(url.protocol)||url.username||url.password)return null;
+    const video=url.hostname.endsWith('youtube.com')?url.searchParams.get('v'):null;url.search='';url.hash='';if(video)url.searchParams.set('v',video);
+    const timestamp=Number(value.timestamp||0);return {url:url.href,timestamp:Number.isFinite(timestamp)&&timestamp>=0?Math.min(timestamp,86400):0,label:String(value.label||'').slice(0,100)};
+  }catch{return null;}
+}

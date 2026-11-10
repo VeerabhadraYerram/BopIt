@@ -7,7 +7,7 @@ import { createServer } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const require = createRequire(import.meta.url);
-const { chromium } = require('playwright');
+const { chromium } = require(process.env.BOPIT_PLAYWRIGHT_MODULE || 'playwright');
 const dashboardRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const supabaseOrigin = 'https://bopit-test.supabase.co';
 

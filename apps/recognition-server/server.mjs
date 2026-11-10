@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
 import { detectWithGemini, inspectWithGemini, compareWithGemini } from './gemini.mjs';
+import { resolveShoppingIntent, assessShoppingResults, mergeIntentFilters } from './shopping-intent.mjs';
 import { segmentObjects, validateRegions } from './segmentation.mjs';
 import { validateContext, validateProfile } from '../../packages/contracts/profile.mjs';
 import { validateImage } from './image.mjs';
@@ -146,7 +147,7 @@ function validateLocale(config = {}) {
   return result;
 }
 
-export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, similarProducts = similarChannel3, lookupProduct = lookupChannel3, browseProducts = browseChannel3, searchCategories = searchCategoriesChannel3, listCategories = listCategoriesChannel3, retrieveCategory = retrieveCategoryChannel3, searchBrands = searchBrandsChannel3, listBrands = listBrandsChannel3, retrieveBrand = retrieveBrandChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, converse = converseChannel3, priceHistory = priceHistoryChannel3, reporting = reportingChannel3, segment = segmentObjects, createSubscription = createProductSubscriptionChannel3, listSubscriptions = listProductSubscriptionsChannel3, getSubscription = getProductSubscriptionChannel3, cancelSubscription = cancelProductSubscriptionChannel3, subscriptionStore = DEFAULT_SUBSCRIPTION_STORE, webhookSecret = '', verifyWebhook = verifyChannel3Webhook, paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
+export function createApp({ resolvePreference=resolveShoppingIntent,reviewPreference=assessShoppingResults,token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, similarProducts = similarChannel3, lookupProduct = lookupChannel3, browseProducts = browseChannel3, searchCategories = searchCategoriesChannel3, listCategories = listCategoriesChannel3, retrieveCategory = retrieveCategoryChannel3, searchBrands = searchBrandsChannel3, listBrands = listBrandsChannel3, retrieveBrand = retrieveBrandChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, converse = converseChannel3, priceHistory = priceHistoryChannel3, reporting = reportingChannel3, segment = segmentObjects, createSubscription = createProductSubscriptionChannel3, listSubscriptions = listProductSubscriptionsChannel3, getSubscription = getProductSubscriptionChannel3, cancelSubscription = cancelProductSubscriptionChannel3, subscriptionStore = DEFAULT_SUBSCRIPTION_STORE, webhookSecret = '', verifyWebhook = verifyChannel3Webhook, paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
   const pairing = createPairingHandler(token);
   const paymentOrders = new Map();
   const priceHistoryCache = new Map();
@@ -217,7 +218,7 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
     }
     if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, configured: Boolean(apiKey), channel3Configured: Boolean(channel3Key), paypalConfigured: paymentsConfigured, model });
     const catalogRoutes = [
-      '/api/products/similar', '/api/products/lookup', '/api/products/browse',
+      '/api/products/preferences', '/api/products/similar', '/api/products/lookup', '/api/products/browse',
       '/api/catalog/categories/search', '/api/catalog/categories/list', '/api/catalog/categories/details',
       '/api/catalog/brands/search', '/api/catalog/brands/list', '/api/catalog/brands/details',
       '/api/conversations/turn', '/api/products/price-history',
@@ -250,7 +251,22 @@ export function createApp({ token, apiKey = '', channel3Key = '', model = 'gemin
         inFlight++;
         let data;
         try {
-          if (req.url === '/api/products/similar') {
+          if(req.url==='/api/products/preferences'){
+            if(!apiKey)throw new Error('Gemini is not configured for understanding shopping preferences.');
+            if(typeof body.query!=='string'||!body.query.trim()||body.query.length>2500)throw new Error('Describe your request in under 2500 characters.');
+            if(!body.context||typeof body.context!=='object'||Array.isArray(body.context)||JSON.stringify(body.context).length>16000)throw new Error('Shopping context is too large or invalid.');
+            const plan=await resolvePreference({request:body.query,context:body.context,currentFilters:filters,market:config},{apiKey,model});
+            let intendedFilters=validateDiscoveryFilters(mergeIntentFilters(filters,plan));
+            if(body.budget!==undefined&&body.budget!==''&&!plan.changes.includes('budget')&&!intendedFilters.price){const max=Number(body.budget);if(!Number.isFinite(max)||max<=0||max>1000000)throw new Error('Invalid budget.');intendedFilters.price={max_price:max};}
+            if(plan.categoryQuery){const found=await searchCategories(plan.categoryQuery,{apiKey:channel3Key,limit:3});const category=(found.categories||found.items||[])[0];if(category?.slug)intendedFilters.category_ids=[category.slug];}
+            const raw=plan.tool==='conversation'
+              ?await converse({apiKey:channel3Key,message:plan.query,filters:intendedFilters,config,userId})
+              :await searchProducts(plan.query,{apiKey:channel3Key,filters:intendedFilters,config,limit:9,userId});
+            const candidates=(raw.products||raw.message?.products||[]).slice(0,9);
+            const assessed=await reviewPreference(plan,candidates,{apiKey,model});
+            const matches=new Map(assessed.filter(row=>row.verdict==='match').map(row=>[row.id,row]));
+            data={products:candidates.filter(p=>matches.has(p.id)).map(p=>({...p,matchExplanation:matches.get(p.id).reason})),interpretation:plan.summary,action:plan.action,query:plan.query,changes:plan.changes,excludedCount:candidates.length-matches.size,unverifiedCount:assessed.filter(row=>row.verdict==='unknown').length,filters:intendedFilters,tool:plan.tool,nextPageToken:null};
+          } else if (req.url === '/api/products/similar') {
             data = await similarProducts(body.id, { apiKey: channel3Key, limit: body.limit, filters, config, pageToken, userId });
           } else if (req.url === '/api/products/lookup') {
             if (body.realtimeFetch !== undefined && typeof body.realtimeFetch !== 'boolean') throw new Error('Realtime fetch must be a boolean.');

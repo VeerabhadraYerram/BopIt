@@ -1,4 +1,4 @@
-import {cartKey} from './contracts/cart.mjs';
+import {cartKey,cartSource} from './contracts/cart.mjs';
 let cartQueue=Promise.resolve();
 const storageReady = Promise.all([
   chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
@@ -88,10 +88,17 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         const websiteIds=item.websiteIds||[];
         if(!Array.isArray(websiteIds)||websiteIds.length>25||websiteIds.some(v=>typeof v!=='string'||v.length>200))throw new Error('Invalid selected seller.');
         const key=cartKey({id:item.id,selection:chosen,websiteIds});
-        const old=cart.find(p=>p.key===key);if(old){if(old.quantity>=10)throw new Error('Maximum quantity is ten.');old.quantity++;}
-        else {if(cart.length>=12)throw new Error('Your cart can hold twelve different items.');cart.push({key,id:item.id,selection:chosen,websiteIds,expectedOffer:item.expectedOffer||null,quantity:1,title:String(item.title||'Selected item').slice(0,160),price:typeof item.price==='number'?item.price:null,currency:String(item.currency||''),retailer:String(item.retailer||'').slice(0,160)});}
+        const old=cart.find(p=>p.key===key);if(old){if(old.quantity>=10)throw new Error('Maximum quantity is ten.');old.quantity++;if(!old.source)old.source=cartSource(item.source);}
+        else {if(cart.length>=12)throw new Error('Your cart can hold twelve different items.');cart.push({key,id:item.id,selection:chosen,websiteIds,expectedOffer:item.expectedOffer||null,quantity:1,title:String(item.title||'Selected item').slice(0,160),price:typeof item.price==='number'?item.price:null,currency:String(item.currency||''),retailer:String(item.retailer||'').slice(0,160),source:cartSource(item.source)});}
       }else if(message.action==='remove')cart=cart.filter(p=>p.key!==message.key);
       else if(message.action==='quantity'){const item=cart.find(p=>p.key===message.key),n=Number(message.quantity);if(!item||!Number.isInteger(n)||n<1||n>10)throw new Error('Choose a quantity from one to ten.');item.quantity=n;}
+      else if(message.action==='refresh-offers'){
+        if(!Array.isArray(message.items)||!message.items.length||message.items.length>12)throw new Error('Review current prices first.');
+        for(const update of message.items){const item=cart.find(row=>row.key===update.key),offer=update.offer;
+          if(!item||!offer||typeof offer.retailer!=='string'||!item.websiteIds.includes(offer.retailer)||!Number.isFinite(offer.price)||offer.price<=0||!/^[A-Z]{3}$/.test(offer.currency))throw new Error('A selected seller changed. Remove and re-add this product.');
+        }
+        for(const update of message.items){const item=cart.find(row=>row.key===update.key);item.expectedOffer=update.offer;item.price=update.offer.price;item.currency=update.offer.currency;item.retailer=update.offer.retailer;}
+      }
       else if(message.action==='clear')cart=[];
       else if(message.action!=='read')throw new Error('Invalid cart action.');
       if(message.action!=='read')await chrome.storage.local.set({bopitCart:cart});return {cart};

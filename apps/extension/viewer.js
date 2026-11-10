@@ -6,6 +6,7 @@ import { formatProductPrice } from './product-display.js';
 import { prepareDetectionImage } from './detection-image.mjs';
 import { channel3ErrorMessage } from './ui-feedback.mjs';
 import { initializeNavigation, showWorkspace } from './navigation.js';
+import { budgetSetup } from './setup-budget.mjs';
 const $ = selector => document.querySelector(selector);
 const node = (tag, text, className) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; if (className) element.className = className; return element; };
 const embedded = new URLSearchParams(location.search).get('embedded') === '1';
@@ -250,6 +251,9 @@ function syncScenePlan() {
 async function discoverScenePlan(objectIds = scenePlan?.objects.filter(item => item.selected).map(item => item.id) || [], force = false) {
   if (!scenePlan) return;
   if (!objectIds.length) { $('#scene-plan-status').textContent = 'Select at least one detected object to search.'; return; }
+  if(objectIds.length>6){$('#scene-plan-status').textContent='Choose up to six items for one setup.';return;}
+  const budget=$('#setup-budget').value===''?null:Number($('#setup-budget').value);
+  if(budget!==null&&(!Number.isFinite(budget)||budget<=0||budget>100000)){$('#scene-plan-status').textContent='Enter a total budget between 0 and 100,000.';return;}
   if (sceneSearchController) {
     $('#scene-plan-status').textContent = 'A scene search is already running. Wait for it to finish before starting another.';
     return;
@@ -267,6 +271,7 @@ async function discoverScenePlan(objectIds = scenePlan?.objects.filter(item => i
   $('#scene-plan-status').textContent = `Searching ${objectIds.length} selected object${objectIds.length === 1 ? '' : 's'} with at most two concurrent requests…`;
   try {
     const requestContext = investigator.sceneSearchContext();
+    requestContext.filters=budget===null?{}:{price:{max_price:budget}};
     const results = await sceneSearchRunner.run(
       scenePlan,
       (item, signal) => investigator.discoverSceneObject(item, sceneElements.get(item.id)?.results, signal, requestContext),
@@ -283,6 +288,13 @@ async function discoverScenePlan(objectIds = scenePlan?.objects.filter(item => i
     }
     const errors = results.filter(outcome => outcome.status === 'error').length;
     const returned = results.filter(outcome => outcome.status === 'complete' && outcome.products.length).length;
+    if(budget!==null){
+      const plan=budgetSetup(results.map(outcome=>({label:scenePlan.objects.find(item=>item.id===outcome.objectId)?.label||'Item',products:outcome.products})),budget,requestContext.config.currency);
+      $('#setup-budget-summary').textContent=`${plan.complete?'Candidate setup':'Partial setup'}: ${formatProductPrice(plan.total,plan.currency)} of ${formatProductPrice(budget,plan.currency)}. Check seller stock, variants and compatibility.`;
+      for(let i=0;i<results.length;i++){const item=scenePlan.objects.find(item=>item.id===results[i].objectId),elements=sceneElements.get(item.id),chosen=plan.items[i].product;
+        investigator.renderSceneResults({...item,results:chosen?[chosen]:[]},elements.results);
+        elements.status.textContent=chosen?'Selected within the total budget. Review details before adding to cart.':'No distinct option fits the remaining total budget.';}
+    }else $('#setup-budget-summary').textContent='Options are grouped by item. No total budget was applied.';
     $('#scene-plan-status').textContent = errors
       ? `${errors} object search${errors === 1 ? '' : 'es'} failed; successful object results remain available.`
       : `${returned} of ${results.length} object searches returned products. Results stay grouped by detected object.`;
@@ -492,6 +504,9 @@ function showAll() {
   selectedId = null; document.body.dataset.view = 'all'; $('#back-to-items').hidden = true;
   window.scrollTo({ top: 0, behavior: 'instant' }); render();
 }
+const recreate=document.createElement('button');recreate.id='recreate-setup';recreate.type='button';recreate.className='secondary';recreate.textContent='Recreate this setup';
+$('#products-panel .panel-heading').after(recreate);
+recreate.onclick=()=>{showWorkspace('explore');showAll();const panel=$('#scene-planning');if(panel.hidden){notice('Scan a moment with at least two objects to build a setup.');return;}panel.open=true;panel.scrollIntoView({block:'start',behavior:'instant'});};
 $('#back-to-items').onclick = () => { if(!investigator.backToResults())showAll(); };
 chrome.runtime.onMessage.addListener(message => {
   if (message?.captureId !== capture?.captureId) return;

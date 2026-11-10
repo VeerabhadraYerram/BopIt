@@ -3,7 +3,7 @@ import { formatProductPrice, safeProductUrl } from './product-display.js';
 import { availableReplacementVariantValues, retrieveReplacementVariant, persistSavedOfferUpdate } from './saved-offer-recovery.mjs';
 const $=s=>document.querySelector(s);
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-export function createShoppingTools(onChange, api, market, makeCheckoutAction, getCartContext = () => ({})) {
+export function createShoppingTools(onChange, api, market, makeCheckoutAction, getCartContext = () => ({}),makePriceHistory) {
   let saved=[],ready=false,queue=Promise.resolve(),lastProducts=[],lastKey='';
   let cart=[],cartBusy=false;
   const catalog=new Map(),comparison=new Set(),pending=new Set();
@@ -37,7 +37,7 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
       const qty=document.createElement('select');for(let n=1;n<=10;n++)qty.add(new Option(String(n),String(n)));qty.value=String(item.quantity);qty.setAttribute('aria-label',`Quantity for ${item.title}`);qty.onchange=()=>updateCart('quantity',{key:item.key,quantity:Number(qty.value)}).catch(e=>cartStatus.textContent=e.message);row.append(qty);
       const remove=el('button','Remove','secondary');remove.onclick=()=>updateCart('remove',{key:item.key}).catch(e=>cartStatus.textContent=e.message);row.append(remove);
       const source=item.source?.url;try{const url=new URL(source);if(['http:','https:'].includes(url.protocol)){if(item.source.timestamp)url.searchParams.set('t',String(Math.floor(item.source.timestamp)));const link=el('a','Back to this moment ↗');link.href=url.href;link.target='_blank';link.rel='noopener noreferrer';row.append(link);}}catch{}
-      cartList.append(row);
+      if(makePriceHistory)row.append(makePriceHistory(item));cartList.append(row);
     }
     for(const [currency,cents]of totals)cartList.append(el('p',`${formatProductPrice(cents/100,currency)} · estimated item subtotal`));
     if(totals.size>1)cartList.append(el('p','A single payment requires items in one currency.','variant-warning'));
@@ -45,8 +45,18 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
   const reviewCart=el('button','Review current prices','secondary');reviewCart.id='review-cart';reviewCart.onclick=async()=>{
     if(cartBusy||!cart.length)return;cartBusy=true;reviewCart.disabled=true;cartStatus.textContent='Checking current prices, variants and availability…';
     try{const reviewed=await Promise.all(cart.map(async item=>({item,product:(await api('products/details',{id:item.id,selection:item.selection,websiteIds:item.websiteIds,config:market()})).product})));
-      cartReview.replaceChildren();for(const line of reviewed){const offer=line.item.websiteIds?.length?line.product.offers?.find(item=>line.item.websiteIds.includes(item.retailer)):null,current=offer||line.product;cartReview.append(el('p',`${line.product.title} × ${line.item.quantity}: ${formatProductPrice(current.price,current.currency)} · ${current.retailer||'Seller not supplied'} · ${current.availability||'Availability unknown'}`));if(line.product.selectionChanges?.length)cartReview.append(el('p','The requested variant changed. Remove and add the intended variant before checkout.','variant-warning'));}
-      cartStatus.textContent='Current listings loaded. Review variants and seller details before paying.';
+      const updates=[];let blocked=false;cartReview.replaceChildren();
+      for(const line of reviewed){
+        const offer=line.product.offers?.find(offer=>line.item.websiteIds?.includes(offer.retailer));
+        if(!offer||line.product.selectionChanges?.length){blocked=true;cartReview.append(el('p',`${line.product.title}: the selected seller or variant changed. Remove and re-add your intended option.`,'variant-warning'));continue;}
+        cartReview.append(el('p',`${line.product.title} × ${line.item.quantity}: ${formatProductPrice(offer.price,offer.currency)} · ${offer.retailer} · ${offer.availability||'Availability unknown'}`));
+        const snapshot=Object.fromEntries(['retailer','price','currency','condition','availability','purchaseUrl'].map(key=>[key,offer[key]??null]));
+        if(Object.keys(snapshot).some(key=>snapshot[key]!==((line.item.expectedOffer||{})[key]??null)))updates.push({key:line.item.key,offer:snapshot});
+        if(['OutOfStock','out_of_stock'].includes(offer.availability))blocked=true;
+      }
+      if(updates.length&&!blocked){const accept=el('button','Use these updated prices','secondary');accept.id='accept-cart-prices';accept.onclick=async()=>{accept.disabled=true;try{await updateCart('refresh-offers',{items:updates});cartStatus.textContent='Updated prices saved. Your quantities and video links are unchanged. Checkout will verify them again.';}catch(error){cartStatus.textContent=error.message;accept.disabled=false;}};cartReview.append(accept);}
+      payCart.disabled=blocked||updates.length>0;
+      cartStatus.textContent=blocked?'A seller, variant or availability changed. Review the affected item before paying.':updates.length?'Prices or seller details changed. Review them, then choose Use these updated prices.':'Current seller prices and variants are unchanged. You can continue to payment.';
     }catch(e){cartStatus.textContent=e.message;}finally{cartBusy=false;reviewCart.disabled=false;}
   };
   const payCart=el('button','Continue with PayPal');payCart.id='pay-cart';payCart.onclick=async()=>{
@@ -167,7 +177,7 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
       const refresh=el('button','Refresh offers','secondary'),result=el('div',undefined,'saved-offer-refresh');
       refresh.onclick=()=>{refresh.disabled=true;refreshSaved(product,result).finally(()=>{refresh.disabled=false;});};
       const remove=el('button','Remove','secondary');remove.onclick=()=>save(product);
-      more.append(refresh,remove);card.append(result);target.append(card);
+      more.append(refresh,remove);if(makePriceHistory)card.append(makePriceHistory(product));card.append(result);target.append(card);
     }
     syncButtons();
   }
@@ -181,7 +191,8 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
     catalog.set(product.id,product);const row=el('div',undefined,'product-actions');const add=el('button','Add to cart','secondary');add.dataset.action='add-to-cart';add.onclick=async()=>{try{const chosen={...getSelection()};if(!chosen.websiteIds?.length)delete chosen.expectedOffer;const snapshot=chosen.expectedOffer;await updateCart('add',{item:{...chosen,title:product.title,price:snapshot?.price??product.price,currency:snapshot?.currency??product.currency,retailer:snapshot?.retailer||product.retailer,source:getCartContext()}});add.textContent='Added ✓';}catch(e){cartStatus.textContent=e.message;}};row.append(add);const saveButton=el('button','Save product','save-product secondary');saveButton.dataset.saveProduct=product.id;saveButton.onclick=()=>save(product);
     const compareButton=el('button','Compare sellers','compare-product secondary');compareButton.dataset.compareProduct=product.id;compareButton.onclick=()=>{if(comparison.has(product.id))comparison.delete(product.id);else if(comparison.size<3)comparison.add(product.id);renderComparison();syncButtons();};row.append(saveButton,compareButton);queueMicrotask(syncButtons);return row;
   }
-  function prepare(products,selection,mode) {
+  function prepare(products,selection,mode,{ignoreListingFilters=false}={}) {
+    if(ignoreListingFilters){products.forEach(p=>catalog.set(p.id,p));return {products,priceSorted:false};}
     lastProducts=products;products.forEach(p=>catalog.set(p.id,p));const key=products.map(p=>`${p.id}:${p.price}:${p.currency}`).join('|');
     if(key!==lastKey){lastKey=key;for(const [selector,values,caption] of [['#budget-currency',[...new Set(products.map(p=>p.currency).filter(Boolean))],'Any currency'],['#brand-filter',[...new Set(products.map(p=>p.brand).filter(Boolean))],'Any brand']]){const input=$(selector),old=input.value;input.replaceChildren(new Option(caption,''));values.sort().forEach(v=>input.add(new Option(v,v)));input.value=values.includes(old)?old:'';}}
     const maxPrice=resolveBudgetMaximum(products,$('#budget-preset').value,$('#budget-currency').value,$('#budget-filter').value);

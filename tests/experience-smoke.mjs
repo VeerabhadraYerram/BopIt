@@ -25,9 +25,9 @@ try{
    const path=new URL(route.request().url()).pathname,body=route.request().postDataJSON();calls.push({path,body});
    if(path.endsWith('/detect')){await new Promise(r=>setTimeout(r,900));return route.fulfill({json:{...validateDetections({ ...rawResult(), objects: rawResult().objects.map((o,i)=>({...o,mask:i?[]:[[100,0],[900,0],[1000,100],[1000,900],[900,1000],[100,1000],[0,900],[0,100]]})) }),captureId:body.captureId,mode:'fixture',model:'MOCKED provider',elapsedMs:900}});}
    if(path.endsWith('/profile')){await new Promise(r=>setTimeout(r,100));return route.fulfill({json:{profile:validateProfile(rawProfile()),contextUsed:{captions:body.context.cues.length,youtubeRequested:false,viewerNote:Boolean(body.context.note)},model:'MOCKED'}});}
-   if(path.endsWith('/search')){
+   if(path.endsWith('/search')||path.endsWith('/preferences')){
      if(body.query==='slow-A')await new Promise(r=>setTimeout(r,400));
-     try{return await route.fulfill({json:{products:body.query==='slow-A'||body.query==='fast-B'?[{...product,title:body.query}]:[product,second,{...product,id:'camera-3',title:'Euro camera',currency:'EUR',price:120},{...product,id:'camera-4',title:'Premium camera',price:200,availability:'OutOfStock'}]}});}catch{return;}
+     try{return await route.fulfill({json:{action:'new',query:body.query,interpretation:'Fixture request applied.',filters:{},products:body.query==='slow-A'||body.query==='fast-B'?[{...product,title:body.query}]:[product,second,{...product,id:'camera-3',title:'Euro camera',currency:'EUR',price:120},{...product,id:'camera-4',title:'Premium camera',price:200,availability:'OutOfStock'}]}});}catch{return;}
    }
    if(path.endsWith('/compare'))return route.fulfill({json:{products:[product,second],comparedImageIds:['camera-1'],assessments:[{id:'camera-1',verdict:'possible_match',matches:['Black housing'],differences:[],unknowns:['Model identifier unreadable']}]}});
    if(path.endsWith('/quotes'))return route.fulfill({status:201,json:{checkoutUrl:'http://127.0.0.1:4317/checkout?quote=fixture'}});
@@ -56,7 +56,7 @@ try{
  await page.locator('#bopit-results-panel').waitFor({state:'visible'});
  const inspector=page.frames().find(f=>f.url().includes('/viewer.html?'));
  await inspector.locator('.product-card').first().waitFor();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));
- assert.equal(await inspector.locator('[data-action="sandbox-checkout"]').first().innerText(),'Pay with PayPal');
+ assert.equal(await inspector.locator('[data-action="sandbox-checkout"]').first().textContent(),'Pay with PayPal');
  assert.equal(await inspector.locator('[data-product-id="camera-4"] [data-action="sandbox-checkout"]').isDisabled(),true);
  assert.doesNotMatch(await inspector.locator('#products-container').innerText(),/Try PayPal|Sandbox|Test money/);
  assert.equal(await inspector.locator('#objects button').count(),2);assert.equal(await inspector.locator('#objects img').count(),2);
@@ -82,7 +82,7 @@ try{
  await inspector.locator('#product-sort').selectOption('price-asc');
  assert.equal(await inspector.locator('#cheaper-alternatives').isVisible(),false,'price sorting replaces the duplicate cheaper button');
  await inspector.locator('[data-intent="exact"]').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
- await inspector.getByRole('button',{name:'Saved',exact:true}).click();await inspector.locator('.saved-more > summary').first().click();await inspector.locator('#wishlist-container .wishlist-item button').last().click();await inspector.waitForFunction(()=>document.querySelector('#saved-count').textContent==='0');
+ await inspector.getByRole('button',{name:'Saved',exact:true}).click();await inspector.locator('.saved-more > summary').first().click();await inspector.getByRole('button',{name:'Remove',exact:true}).click();await inspector.waitForFunction(()=>document.querySelector('#saved-count').textContent==='0');
  await inspector.getByRole('button',{name:'Discover',exact:true}).click();
  const firstProfiles=calls.filter(c=>c.path.endsWith('/profile')).length;
  await inspector.locator('#back-to-items').click();assert.equal(await inspector.locator('#detail').isVisible(),false);await inspector.locator('#objects button').nth(1).click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));
@@ -108,10 +108,11 @@ try{
  // Explicit checkout works from the embedded extension frame without moving the source tab.
  await inspector.getByRole('button',{name:'Discover',exact:true}).click();
  await inspector.locator('.product-more > summary').first().click();
+ const checkoutProductId=await inspector.locator('.product-card').first().getAttribute('data-product-id');
  const checkoutTab=context.waitForEvent('page');await inspector.locator('[data-action="sandbox-checkout"]').first().click();const paymentPage=await checkoutTab;
  await paymentPage.waitForURL('http://127.0.0.1:4317/checkout?quote=fixture');
  assert.equal(page.url(),sourceURL);assert.equal(await page.locator('video').evaluate(v=>v.paused),true);
- assert.equal(calls.find(c=>c.path.endsWith('/quotes')).body.id,'camera-1');await paymentPage.close();await page.bringToFront();
+ assert.equal(calls.find(c=>c.path.endsWith('/quotes')).body.id,checkoutProductId);await paymentPage.close();await page.bringToFront();
  // Source-bound capture must not be readable from another tab.
  const foreignPage=await context.newPage();await foreignPage.goto(origin);await foreignPage.evaluate(src=>{const f=document.createElement('iframe');f.src=src;document.body.append(f);},inspector.url());
  await foreignPage.waitForTimeout(200);const foreign=foreignPage.frames().find(f=>f.url().includes('/viewer.html?'));await foreign.waitForFunction(()=>document.querySelector('#notice').textContent.includes('belongs to another page'));await foreignPage.close();await page.bringToFront();

@@ -28,7 +28,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   let channel3UserIdPromise = null;
   let clickReport = null, transactionReport = null;
   let lastRendered = { products: [], assessments: [] };
-  let useObjectContext = true, previousRequest = '';
+  let useObjectContext = true, previousRequest = '',appliedPreferenceFilters=null;
   const voice = attachVoiceInput({ input: $('#product-query'), button: $('#voice-search-btn'), status: $('#voice-search-status'), onTranscript: () => cancel({ keepResults: true }) });
   function updateSearchContext() {
     const label = useObjectContext ? selected?.label : '';
@@ -37,7 +37,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   }
   function clearConversation() { conversationGeneration++; conversationId = null; conversationHistory = []; }
   $('#clear-search-context').onclick = () => {
-    cancel(); voice.cancel(); useObjectContext = false; previousRequest = ''; clearConversation();
+    cancel(); voice.cancel(); useObjectContext = false; previousRequest = '';appliedPreferenceFilters={};selectedProductContext=null; clearConversation();
     $('#product-query').value = ''; $('#shopping-reply').textContent = ''; $('#voice-search-status').textContent = '';
     updateSearchContext(); $('#product-query').focus();
   };
@@ -69,9 +69,10 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     else renderProducts(lastRendered.products,lastRendered.assessments,{keepNavigation:true,nextPageToken:activeSearch?.nextPageToken,loadMore:loadMoreSearch});
   },api,market,product=>checkoutAction(
     ()=>({id:product.id,selection:product.variantSelection||{},websiteIds:product.retailer?[product.retailer]:[],config:market(),expectedOffer:offerSnapshot(product)}),product),
-    ()=>({url:getCapture()?.source?.documentUrl,timestamp:getCapture()?.source?.timestamp||0}));
+    ()=>({url:getCapture()?.source?.documentUrl,timestamp:getCapture()?.source?.timestamp||0,label:selected?.label||''}),priceHistoryControl);
   const cache = new Map(), searches = new Map(), views = new Map();
   const detailGenerations = new WeakMap();
+  const historyRequests=new Map();
   let palette = [], activeSearch = null, activeBrowse = null;
   let brandCursor = null, categoryPage = 1, categoryTotal = 0;
   function setStage(name, state) {
@@ -90,7 +91,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     setStage('preparation', 'active');
   }
   function cancel({ keepResults = false } = {}) { if (!keepResults) { resultHistory.length = 0; updateResultsBack(); lastRendered = { products: [], assessments: [] }; } generation++; conversationGeneration++; controller?.abort(); controller = null; $('#search-products-btn').disabled = false; }
-  function reset() { voice.cancel(); useObjectContext=true; previousRequest=''; $('#product-query').value=''; $('#shopping-reply').textContent=''; $('#voice-search-status').textContent=''; cancel(); cache.clear(); searches.clear(); views.clear(); selected = null; current = null; updateSearchContext(); conversationGeneration++; conversationScope = null; conversationId = null; conversationHistory = []; selectedProductContext = null; $('#conversation-tools').hidden = true; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#context-note').value = ''; $('#use-youtube').checked = false; }
+  function reset() { voice.cancel(); useObjectContext=true; previousRequest='';appliedPreferenceFilters=null; $('#product-query').value=''; $('#shopping-reply').textContent=''; $('#voice-search-status').textContent=''; cancel(); cache.clear(); searches.clear(); views.clear(); selected = null; current = null; updateSearchContext(); conversationGeneration++; conversationScope = null; conversationId = null; conversationHistory = []; selectedProductContext = null; $('#conversation-tools').hidden = true; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#context-note').value = ''; $('#use-youtube').checked = false; }
   function getChannel3UserId() {
     if (!channel3UserIdPromise) {
       channel3UserIdPromise = (async() => {
@@ -161,14 +162,14 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     renderConversationHistory();
   }
   function initialConversationContext() {
-    const selectedProduct = selectedProductContext;
+    const selectedProduct = lastRendered.products.some(p=>p.id===selectedProductContext?.id)?selectedProductContext:null;
     const variant = selectedProduct?.variants?.selected?.map(item => `${item.name}: ${item.label}`).join(', ');
     const contextValue = {
       selectedObject: useObjectContext ? selected?.label || '' : '',
       investigation: useObjectContext ? current?.profile?.summary || '' : '',
       intent,
       currentFilters: searchFilters(),
-      previousResults: (current?.results?.products || []).slice(0, 5).map(product => ({ id: product.id, title: product.title })),
+      previousResults: lastRendered.products.slice(0, 5).map(product => ({ id: product.id, title: product.title })),
       selectedProduct: selectedProduct ? { id: selectedProduct.id, title: selectedProduct.title, variant: variant || null } : null
     };
     return {
@@ -206,6 +207,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       await chrome.storage.session.set({ [conversationScope]: { conversationId, history: conversationHistory } });
       renderConversationHistory();
       const products = data.message?.products || [];
+      if(!products.length){renderProducts([]);$('#products-notice').textContent='No products matched this request. Try a different description.';}
       if (products.length) {
         activeSearch = null; activeBrowse = null; activeSimilar = null;
         if (current) current.results = { products };
@@ -243,6 +245,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       } else {
         $('#conversation-status').textContent = `Conversation unavailable: ${error.message}`;
       }
+      $('#products-notice').textContent=$('#conversation-status').textContent;
       logOrchestration({
         strategy: 'conversation', reason: 'user requested conversational refinement',
         operations: ['POST /v1/conversations'], fallbackUsed: false, outcome: 'error'
@@ -277,7 +280,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   async function select(object, force = false) {
     cancel(); const version = generation; controller = new AbortController(); const signal = controller.signal;
     selected = object; selectedProductContext = null; current = null; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#products-container').replaceChildren();
-    useObjectContext = true; previousRequest = ''; voice.cancel(); $('#voice-search-status').textContent = ''; $('#shopping-reply').textContent = ''; updateSearchContext();
+    useObjectContext = true; previousRequest = '';appliedPreferenceFilters=null; voice.cancel(); $('#voice-search-status').textContent = ''; $('#shopping-reply').textContent = ''; updateSearchContext();
     palette = []; renderPalette(); resetStages();
     $('#investigation-status').textContent = 'Preparing your selection…';
     await restoreConversation(object);
@@ -351,6 +354,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     });
   }
   function searchFilters(base = {}) {
+    if(appliedPreferenceFilters)return {...structuredClone(appliedPreferenceFilters),...base};
     const filters = { ...base };
     const category = $('#category-filter').value;
     if (category) filters.category_ids = [category];
@@ -687,6 +691,18 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       if (brand.best_commission_rate !== undefined) target.append(node('small', `Maximum commission rate reported by Channel3: ${brand.best_commission_rate}%`));
     } catch (error) { target.textContent = `Brand details unavailable: ${error.message}`; }
   }
+  async function browseSeller(domain){
+    if(typeof domain!=='string'||!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain)){$('#products-notice').textContent='This listing does not include a seller domain.';return;}
+    const saved=resultsSnapshot();cancel({keepResults:true});const version=generation;controller=new AbortController();
+    const request={filters:{website_ids:[domain]},limit:12,config:market()};
+    $('#products-notice').textContent=`Finding more products from ${domain}…`;
+    try{const data=await api('products/browse',request,controller.signal);if(version!==generation)return;
+      resultHistory.push(saved);activeBrowse={request,products:data.products||[],nextPageToken:data.nextPageToken||data.pageToken};activeSearch=null;activeSimilar=null;selectedProductContext=null;
+      renderProducts(activeBrowse.products,[],{keepNavigation:true,nextPageToken:activeBrowse.nextPageToken,loadMore:loadMoreBrowse});
+      $('#products-notice').textContent=activeBrowse.products.length?`Products from ${domain}.`:`No additional products were returned for ${domain}. Use Back to return.`;
+      const target=$('#products-container').firstElementChild||$('#products-notice');target.tabIndex=-1;target.focus({preventScroll:true});target.scrollIntoView({block:'start',behavior:'instant'});
+    }catch(error){if(version===generation&&error.name!=='AbortError')$('#products-notice').textContent=channel3ErrorMessage(error,'browse this seller');}
+  }
   async function browseCatalog() {
     const category = $('#category-filter').value, brand = $('#catalog-brand').value;
     if (!category && !brand) { $('#catalog-notice').textContent = 'Choose a category or brand to browse.'; return; }
@@ -792,7 +808,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     if (!sceneResults) { if (!keepNavigation) resultHistory.length = 0; updateResultsBack(); lastRendered = {products,assessments}; }
     const cards = document.createDocumentFragment();
     let priceSorted=false;
-    try { const prepared=shopping.prepare(products, sceneObject || current?.object || selected || {}, sceneResults ? 'look' : intent);products=prepared.products;priceSorted=prepared.priceSorted; }
+    try { const prepared=shopping.prepare(products, sceneObject || current?.object || selected || {}, sceneResults ? 'look' : intent,{ignoreListingFilters:sceneResults});products=prepared.products;priceSorted=prepared.priceSorted; }
     catch(e){if(!sceneResults)$('#products-notice').textContent=e.message;return;}
 
     if (!sceneResults) {
@@ -820,6 +836,8 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       const details=node('button','Details','secondary');details.setAttribute('aria-label',`Details for ${product.title}`);details.onclick=()=>showDetails(product,card,details);
       const secondary=node('div',undefined,'product-secondary');secondary.append(details,more);info.append(secondary);
       const similar=node('button','Find similar products','secondary');similar.onclick=()=>findSimilar(product);more.append(similar);
+      const seller=node('button','More from this seller','secondary');seller.dataset.action='browse-seller';seller.onclick=()=>browseSeller(card.checkoutSelection?.websiteIds?.[0]||product.retailer);more.append(seller);
+      info.append(priceHistoryControl(product));
       const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','Buy from seller ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';more.append(link);}
       card.append(image,info);cards.append(card);
     }
@@ -887,6 +905,14 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       purchaseUrl:offer.purchaseUrl||''
     };
   }
+  function priceHistoryControl(product){
+  const priceGraph=node('details',undefined,'product-price-history'),graphSummary=node('summary','Price history'),historyContent=node('div',undefined,'price-history-content');
+  const period=node('select');period.setAttribute('aria-label',`Price history period for ${product.title}`);for(const days of [7,30,90])period.add(new Option(`${days} days`,String(days)));period.value='30';
+  const reload=node('button','Load price history','secondary');reload.type='button';reload.onclick=()=>loadPriceHistory(product.id,Number(period.value),historyContent,reload);
+  let loaded=false;priceGraph.ontoggle=()=>{if(priceGraph.open&&!loaded){loaded=true;loadPriceHistory(product.id,Number(period.value),historyContent,reload);}};
+  period.onchange=()=>loadPriceHistory(product.id,Number(period.value),historyContent,reload);
+  priceGraph.append(graphSummary,period,reload,historyContent,node('small','Recorded listing prices. Shipping and tax excluded; variant-specific history may be unavailable.'));return priceGraph;
+  }
   function drawPriceHistory(target, history) {
     target.replaceChildren();
     if (!history.history.length) {
@@ -920,7 +946,10 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     button.disabled = true;
     target.replaceChildren(node('p', 'Loading Channel3 price history…', 'muted'));
     try {
-      const history = await api('products/price-history', { id, days });
+      const key=`${id}:${days}`;
+      let entry=historyRequests.get(key);
+      if(!entry||Date.now()-entry.time>600000){entry={time:Date.now(),promise:api('products/price-history',{id,days})};historyRequests.set(key,entry);entry.promise.catch(()=>{if(historyRequests.get(key)===entry)historyRequests.delete(key);});}
+      const history = await entry.promise;
       if (history.canonicalProductId && history.canonicalProductId !== id) throw new Error('Channel3 returned history for a different product ID.');
       drawPriceHistory(target, history);
     } catch (error) {
@@ -1105,16 +1134,6 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
         }
         box.append(row);
       }
-      const historyControls=node('div',undefined,'price-history-controls');
-      const historyLabel=node('label','Price history period');
-      const historyDays=document.createElement('select');
-      for(const days of [7,30,90])historyDays.add(new Option(`${days} days`,String(days)));
-      historyDays.value='30';historyLabel.append(historyDays);
-      const historyButton=node('button','Load price history','secondary');
-      const historyContent=node('div',undefined,'price-history-content');
-      historyButton.onclick=()=>loadPriceHistory(p.id,Number(historyDays.value),historyContent,historyButton);
-      historyControls.append(historyLabel,historyButton,historyContent);
-      box.append(node('h3','Price history'),node('p','History is fetched only on request and is for the canonical product; the provider does not identify a selected variant in this endpoint.','muted'),historyControls);
       if(p.selectionChanges?.length)box.append(node('p','Seller offers above describe the server-selected variant, not the requested variant. They are not comparable to your selection; choose a supported variant and refresh.','variant-warning'));
       const variantIncomplete = Boolean(p.variants?.options?.length && (p.variants.selected || []).length !== p.variants.options.length);
       await renderProductSubscriptions(box, p, Boolean(p.selectionChanges?.length) || variantIncomplete);
@@ -1126,16 +1145,24 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     query=(query||'').trim();
     if(!query){$('#products-notice').textContent='Describe a product or what you would like to change.';return;}
     if(/^https?:\/\//i.test(query)){$('#product-url').value=query;lookupProductUrl();return;}
-    cancel();const version=generation;controller=new AbortController();const signal=controller.signal;
+    const visibleProducts=lastRendered.products;cancel();const version=generation;controller=new AbortController();const signal=controller.signal;
     activeSearch=null;activeBrowse=null;activeSimilar=null;
     voice.cancel(); $('#voice-search-status').textContent=''; $('#shopping-reply').textContent='';
-    if (!preserveProfile && isPreferenceRequest(query) && ((useObjectContext && selected) || previousRequest)) {
-      conversationScope ||= `bopit-conversation:manual:${getCapture()?.captureId || 'session'}`;
-      await sendConversationMessage(query, signal);
-      if (version === generation) { previousRequest = query; updateSearchContext(); }
+    if(!preserveProfile&&((useObjectContext&&selected)||previousRequest)){
+      $('#search-products-btn').disabled=true;$('#products-notice').textContent='Understanding your request and checking matching products…';
+      try{
+        const context={selectedProduct:visibleProducts.some(p=>p.id===selectedProductContext?.id)?{title:selectedProductContext.title,category:selectedProductContext.category}:null,object:useObjectContext?{label:selected?.label,summary:current?.profile?.summary,attributes:current?.profile?.attributes?.slice(0,20).map(a=>({name:a.name,value:a.value.slice(0,140),source:a.source}))}:null,previousRequest,visibleProducts:visibleProducts.slice(0,5).map(p=>({id:p.id,title:p.title,category:p.category}))};
+        const data=await api('products/preferences',{query,context,filters:searchFilters(),config:market(),budget:$('#budget').value},signal);
+        if(version!==generation)return;
+        activeSearch=null;activeBrowse=null;activeSimilar=null;selectedProductContext=null;clearConversation();
+        appliedPreferenceFilters=data.filters||{};renderProducts(data.products||[]);previousRequest=data.query||query;if(data.action==='new')useObjectContext=false;updateSearchContext();
+        $('#shopping-reply').textContent=data.interpretation||`Finding options for “${query}”.`;
+        $('#products-notice').textContent=data.products?.length?`${data.products.length} options supported by listing details. Confirm the selected variant before buying.`:'No listings could be confirmed for these requirements. Try fewer requirements or another description.';
+      }catch(error){if(version===generation&&error.name!=='AbortError')$('#products-notice').textContent=error.message||'Could not apply this request. Please try again.';}
+      finally{if(version===generation)$('#search-products-btn').disabled=false;}
       return;
     }
-    if (!preserveProfile) clearConversation();
+    if (!preserveProfile) {clearConversation();selectedProductContext=null;}
     if (preserveProfile) {
       setStage('search', 'active');
       $('#investigation-status').textContent = 'Searching Channel3 using the visible description…';
@@ -1168,7 +1195,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       if(version!==generation)return;
       const product=result.product;
       if(!product?.id||!product.title)throw new Error('Channel3 returned an incomplete product record.');
-      activeSearch=null;activeBrowse=null;
+      activeSearch=null;activeBrowse=null;useObjectContext=false;previousRequest=product.title;selectedProductContext=product;appliedPreferenceFilters={};updateSearchContext();
       renderProducts([product]);
       $('#products-notice').textContent=`Channel3 product lookup returned ${product.title}. Canonical product ID: ${product.id}.`;
       logOrchestration({ strategy: 'product-url-lookup', reason: 'submitted input is a product URL', operations: ['POST /v1/lookup'], fallbackUsed: false, outcome: 'product-returned' });
@@ -1180,7 +1207,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       logOrchestration({ strategy: 'product-url-lookup', reason: 'submitted input is a product URL', operations: ['POST /v1/lookup'], fallbackUsed: false, outcome: 'error' });
     } finally { if(version===generation)$('#lookup-product-btn').disabled=false; }
   }
-  function changeSearch() { if(!current){if(selected)select(selected);return;}cancel();const version=generation;controller=new AbortController();$('#products-container').replaceChildren();runSearch(version,controller.signal,false); }
+  function changeSearch() { appliedPreferenceFilters=null;if(!current){if(selected)select(selected);return;}cancel();const version=generation;controller=new AbortController();$('#products-container').replaceChildren();runSearch(version,controller.signal,false); }
   for(const chip of document.querySelectorAll('[data-intent]'))chip.onclick=()=>{intent=chip.dataset.intent;document.querySelectorAll('[data-intent]').forEach(b=>b.setAttribute('aria-pressed',String(b===chip)));if(intent==='look'&&selectedProductContext?.id)findSimilar(selectedProductContext);else changeSearch();};
   let lastPreferences = JSON.stringify([$('#budget').value,$('#market').value]);
   function changePreferences() { const key = JSON.stringify([$('#budget').value,$('#market').value]); if (key === lastPreferences) return; lastPreferences = key; changeSearch(); }
