@@ -68,19 +68,22 @@ try{
  await inspector.locator('.save-product').first().click();
  await inspector.waitForFunction(()=>document.querySelector('#saved-count').textContent==='1');
  assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('savedProducts')).savedProducts.length),1);
+ await inspector.locator('.product-more').evaluateAll(items=>items.forEach(item=>item.open=true));
  await inspector.locator('.compare-product').nth(0).click();await inspector.locator('.compare-product').nth(1).click();await inspector.locator('.compare-product').nth(2).click();
  assert.equal(await inspector.locator('.compare-product').nth(3).isDisabled(),true,'comparison stays bounded at three products');
  assert.match(await inspector.locator('#comparison-notice').innerText(),/not directly comparable/);
- await inspector.locator('#discovery-options summary').click();
+ await inspector.locator('#search-filters > summary').click();
+ await inspector.locator('#discovery-options > summary').click();
  await inspector.locator('#budget-currency').selectOption('USD');await inspector.locator('#product-sort').selectOption('price-desc');
  const usdTitles=await inspector.locator('.product-card').evaluateAll(cards=>cards.filter(c=>c.querySelector('.product-meta').textContent.includes('USD')).map(c=>c.querySelector('.product-title').textContent));assert.match(usdTitles[0],/Premium/);
  await inspector.locator('#budget-currency').selectOption('USD');await inspector.locator('#budget-preset').selectOption('low');
  assert.equal(await inspector.locator('.product-card').count(),2,'low budget is computed within the chosen currency');
  await inspector.locator('#budget-preset').selectOption('no-limit');await inspector.locator('#budget-currency').selectOption('');await inspector.locator('#product-sort').selectOption('auto');
- await inspector.locator('#cheaper-alternatives').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
- assert.match(await inspector.locator('#products-notice').innerText(),/original price unknown/);
+ await inspector.locator('#product-sort').selectOption('price-asc');
+ assert.equal(await inspector.locator('#cheaper-alternatives').isVisible(),false,'price sorting replaces the duplicate cheaper button');
  await inspector.locator('[data-intent="exact"]').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
- await inspector.locator('#wishlist-panel summary').click();await inspector.locator('#wishlist-container .wishlist-item button').last().click();await inspector.waitForFunction(()=>document.querySelector('#saved-count').textContent==='0');
+ await inspector.getByRole('button',{name:'Saved',exact:true}).click();await inspector.locator('.saved-more > summary').first().click();await inspector.locator('#wishlist-container .wishlist-item button').last().click();await inspector.waitForFunction(()=>document.querySelector('#saved-count').textContent==='0');
+ await inspector.getByRole('button',{name:'Discover',exact:true}).click();
  const firstProfiles=calls.filter(c=>c.path.endsWith('/profile')).length;
  await inspector.locator('#back-to-items').click();assert.equal(await inspector.locator('#detail').isVisible(),false);await inspector.locator('#objects button').nth(1).click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));
  await inspector.locator('#back-to-items').click();await inspector.locator('#objects button').first().click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));
@@ -88,19 +91,23 @@ try{
  await inspector.locator('[data-intent="function"]').click();await inspector.locator('.product-card').first().waitFor();
  const functionSearch=calls.filter(c=>c.path.endsWith('/search')).at(-1);assert.equal(functionSearch.body.query,'camera for video recording');assert.equal(functionSearch.body.image,undefined);
  await inspector.locator('#budget').fill('150');const budgetResponse=page.waitForResponse(r=>r.url().endsWith('/api/products/search')&&r.request().postDataJSON().filters?.price?.max_price===150);await inspector.locator('#budget').dispatchEvent('change');await budgetResponse;await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);assert.equal(calls.filter(c=>c.path.endsWith('/search')).at(-1).body.filters.price.max_price,150);
- await page.waitForTimeout(150);await inspector.getByRole('button',{name:'View specifications'}).first().click();await inspector.locator('.catalog-details select').first().waitFor();await inspector.locator('.catalog-details select').first().selectOption('White');await inspector.getByText(/Requested variant changed:/).waitFor();assert.match(await inspector.getByText(/Requested variant changed:/).innerText(),/White → Black/);
+ await page.waitForTimeout(150);await inspector.locator('.product-secondary > button').first().click();await inspector.locator('.catalog-details select').first().waitFor();await inspector.locator('.catalog-details select').first().selectOption('White');await inspector.getByText(/Requested variant changed:/).waitFor();assert.match(await inspector.getByText(/Requested variant changed:/).innerText(),/White → Black/);
  await inspector.locator('#product-query').fill('slow-A');await inspector.locator('#product-query').press('Enter');await page.waitForTimeout(60);await inspector.locator('#product-query').fill('fast-B');await inspector.locator('#product-query').press('Enter');await inspector.waitForFunction(()=>document.querySelector('.product-title')?.textContent==='fast-B');await page.waitForTimeout(450);assert.deepEqual(await inspector.locator('.product-title').allTextContents(),['fast-B']);
  assert.equal(context.pages().length,pages);assert.equal(page.url(),sourceURL);assert.equal(await page.locator('video').evaluate((v,t)=>v.paused&&Math.abs(v.currentTime-t)<.02,time),true);
  // Additional-view input is resized, attached, and re-investigated with evidence.
- await inspector.locator('#context-tools summary').click();
+ await inspector.locator('#object-tools > summary').click();
+ await inspector.locator('#context-tools > summary').click();
  const additionalResponse=page.waitForResponse(r=>r.url().endsWith('/api/profile')&&r.request().postDataJSON().additionalImages?.length===1);
  await inspector.locator('#additional-view').setInputFiles('test-results/synthetic-frame.png');await additionalResponse;
  await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
  assert.match(await inspector.locator('#view-status').innerText(),/1 \/ 2/);
  // Advanced frame tools remain a fallback inside the panel, never on video.
- await inspector.locator('.frame-tools summary').click();
+ await inspector.locator('#app-menu > summary').click();await inspector.getByRole('button',{name:'Frame & editing tools',exact:true}).click();
+ await inspector.locator('.frame-tools > summary').click();
  const download=page.waitForEvent('download');await inspector.locator('#export').click();assert.match((await download).suggestedFilename(),/^bopit-/);
  // Explicit checkout works from the embedded extension frame without moving the source tab.
+ await inspector.getByRole('button',{name:'Discover',exact:true}).click();
+ await inspector.locator('.product-more > summary').first().click();
  const checkoutTab=context.waitForEvent('page');await inspector.locator('[data-action="sandbox-checkout"]').first().click();const paymentPage=await checkoutTab;
  await paymentPage.waitForURL('http://127.0.0.1:4317/checkout?quote=fixture');
  assert.equal(page.url(),sourceURL);assert.equal(await page.locator('video').evaluate(v=>v.paused),true);

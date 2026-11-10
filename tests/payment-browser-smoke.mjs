@@ -60,9 +60,10 @@ try {
   const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
   await worker.evaluate(()=>chrome.storage.local.set({pairingToken:'payment-browser-token'}));
   const viewer=await context.newPage();await viewer.goto(`chrome-extension://${new URL(worker.url()).hostname}/viewer.html`);
+  await viewer.locator('#app-menu > summary').click();await viewer.getByRole('button',{name:'Frame & editing tools',exact:true}).click();
   await viewer.locator('#example').click();await viewer.locator('#objects button').first().click();
   await viewer.locator('#product-query').fill('headphones');await viewer.locator('#search-products-btn').click();
-  await viewer.locator('[data-action="sandbox-checkout"]').first().waitFor();
+  await viewer.locator('[data-action="sandbox-checkout"]').first().waitFor({state:'attached'});
   await viewer.locator('[data-action="add-to-cart"]').first().click();await viewer.locator('[data-action="add-to-cart"]').nth(1).click();
   await viewer.locator('#cart-toggle').click();await viewer.locator('#review-cart').click();await viewer.locator('#cart-review p').first().waitFor();
   const popup=context.waitForEvent('page');await viewer.locator('#pay-cart').click();const checkout=await popup;
