@@ -17,7 +17,6 @@ const ProductPerformancePage = lazy(() => import('../features/retail/pages/Table
 const CustomerAnalyticsPage = lazy(() => import('../features/retail/pages/TableDataPages').then(module => ({ default: module.CustomerAnalyticsPage })));
 const ImportPage = lazy(() => import('../features/retail/pages/ImportPage').then(module => ({ default: module.ImportPage })));
 const ImportHistoryPage = lazy(() => import('../features/retail/pages/TableDataPages').then(module => ({ default: module.ImportHistoryPage })));
-const RetailStudioPage = lazy(() => import('../features/retail/pages/RetailStudioPage').then(module => ({ default: module.RetailStudioPage })));
 
 // Creator Pages
 const CreatorOverviewPage = lazy(() => import('../features/creator/pages/CreatorOverviewPage').then(module => ({ default: module.CreatorOverviewPage })));
@@ -27,7 +26,6 @@ const BrandIntelligencePage = lazy(() => import('../features/creator/pages/Brand
 const ProductIntelligencePage = lazy(() => import('../features/creator/pages/ProductIntelligencePage').then(module => ({ default: module.ProductIntelligencePage })));
 const BrandMatchingPage = lazy(() => import('../features/creator/pages/BrandMatchingPage').then(module => ({ default: module.BrandMatchingPage })));
 const CampaignAnalyticsPage = lazy(() => import('../features/creator/pages/CampaignAnalyticsPage').then(module => ({ default: module.CampaignAnalyticsPage })));
-const CreatorStudioPage = lazy(() => import('../features/creator/pages/CreatorStudioPage').then(module => ({ default: module.CreatorStudioPage })));
 
 // Channel3 Pages (NEW)
 const Channel3OverviewPage = lazy(() => import('../features/channel3/pages/Channel3OverviewPage').then(module => ({ default: module.Channel3OverviewPage })));
@@ -158,7 +156,7 @@ function Shell() {
             to={activeWorkspace === 'creator' ? '/creator/studio' : '/retail/studio'}
             className="studio-nav-highlight"
           >
-            <i>✦</i> {activeWorkspace === 'creator' ? 'Creator AG Studio' : 'Retail AG Studio'} <b>3.1 AI</b>
+            <i>✦</i> {activeWorkspace === 'creator' ? 'Creator AG Studio' : 'Retail AG Studio'} <b>Not connected</b>
           </NavLink>
         </div>
 
@@ -182,7 +180,7 @@ function Shell() {
           <div className="topbar-actions">
             <span className="connection-pill"><i /> Signed in as {profile?.role}</span>
             <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
-              {activeWorkspace === 'channel3' ? 'Channel3 Engine + AG Grid' : 'AG Studio 3.1 + AG Grid'}
+              {activeWorkspace === 'channel3' ? 'Channel3 Engine + AG Grid' : 'AG Grid dashboard'}
             </span>
             <details className="profile-menu">
               <summary aria-label="Open profile menu">
@@ -213,7 +211,8 @@ function Shell() {
               <Route path="/retail/imports/history" element={<ImportHistoryPage />} />
               <Route path="/retail/payments" element={<FuturePage title="Payments" />} />
               <Route path="/retail/assistant" element={<FuturePage title="AI Retail Assistant" />} />
-              <Route path="/retail/studio" element={<RetailStudioPage />} />
+              {/* Legacy Studio prototypes contain scripted metrics, not connected analytics. */}
+              <Route path="/retail/studio" element={<FuturePage title="Retail AG Studio" />} />
 
               {/* Creator Intelligence Routes */}
               <Route path="/creator" element={<CreatorOverviewPage />} />
@@ -223,7 +222,7 @@ function Shell() {
               <Route path="/creator/products" element={<ProductIntelligencePage />} />
               <Route path="/creator/matching" element={<BrandMatchingPage />} />
               <Route path="/creator/campaigns" element={<CampaignAnalyticsPage />} />
-              <Route path="/creator/studio" element={<CreatorStudioPage />} />
+              <Route path="/creator/studio" element={<FuturePage title="Creator AG Studio" />} />
 
               {/* Channel3 Intelligence Routes (NEW) */}
               <Route path="/channel3" element={<Channel3OverviewPage />} />

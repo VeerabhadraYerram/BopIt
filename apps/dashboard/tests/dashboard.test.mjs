@@ -153,6 +153,9 @@ test('Creator and Retailer registration/login use Supabase sessions and role-spe
     await page.goto(`${url}/retail`);
     await page.getByText('Product intelligence preview').waitFor();
     await page.getByText('Not collected').waitFor();
+    await page.goto(`${url}/retail/studio`);
+    await page.getByRole('heading', { name: 'Not connected', exact: true }).waitFor();
+    assert.equal(await page.getByText('Stock 50 units', { exact: true }).count(), 0);
     await page.goto(`${url}/retail/products`);
     await page.getByRole('heading', { name: 'Retailer demo products' }).waitFor();
     await page.getByRole('button', { name: /Demo Arc Lamp/ }).click();
@@ -200,6 +203,9 @@ test('Creator and Retailer registration/login use Supabase sessions and role-spe
     await page.getByText('Signed in as creator').waitFor();
     await page.waitForURL('**/creator');
     await page.getByText('Video moments and product interest').waitFor();
+    await page.goto(`${url}/creator/studio`);
+    await page.getByRole('heading', { name: 'Not connected', exact: true }).waitFor();
+    assert.equal(await page.getByText('Creator Intelligence Analysis Complete', { exact: true }).count(), 0);
     await page.goto(`${url}/channel3/moments`);
     await page.getByText('DEMO DATA · All events and attributed purchases below are synthetic examples').waitFor();
     await page.getByText(/1 sample clicks · 1 demo-attributed purchases/).waitFor();

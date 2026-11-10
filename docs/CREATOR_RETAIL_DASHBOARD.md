@@ -1,5 +1,19 @@
 # Creator and Retail Dashboard
 
+Local credentials and commands: [Supabase local setup](SUPABASE_LOCAL_SETUP.md). The root recognition-server `.env` is separate from dashboard/API configuration.
+
+Integration review: Creator and Retail AG Studio routes currently show an explicit not-connected state. The preserved prototype components include scripted analytics/assistant responses and are not a live LLM or authenticated analytics integration. They are intentionally excluded from the active app bundle until wired to real owned data and a server-side model adapter. No browser Gemini key is needed.
+
+## Main integration verification (10 November 2026)
+
+- Root tests: 122 passed. Retail API tests: 8 passed, including role and tenant isolation with mocked identity/database providers.
+- Dashboard browser test passed, including signup/login, profiles, Creator/Retailer navigation, demo/empty/error states and both disconnected Studio routes. Supabase responses are mocked.
+- Extension and dashboard production builds passed. Dashboard still reports large AG Grid/Charts vendor chunks.
+- Two-item payment browser test passed: quote, approval, verified receipt, reload, cancellation, retry/restart and configuration recovery. PayPal and catalog responses are mocked.
+- Syntax/manifest checks passed. The checker now excludes dependency directories and generated output after installing the new subprojects.
+- The general extension video smoke test could not start its app journey on this Windows headless Chromium: the canvas MediaRecorder generated a zero-byte WebM, so playback failed before capture/recognition. A separate minimal Chromium reproduction also produced zero bytes. That test remains unverified here; no passing result is claimed.
+- No remote Supabase migrations, seed, email confirmation or live database RLS checks were performed. Supply project configuration using the linked setup guide before testing those paths.
+
 ## Current implementation
 
 The web application is in `apps/dashboard`. It uses React, React Router, AG Grid, AG Charts, and the BopIt palette and typography from `apps/extension/style.css` as its visual reference. The shared shell has role-aware Creator/Retailer navigation, an account menu, profile settings, logout, and responsive layouts. Retailers have an operational overview and catalogue plus tenant-owned product intelligence. The four Creator/Channel3 intelligence views are moments, product pulse, interest without purchases, and seller comparison.

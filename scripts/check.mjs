@@ -2,6 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 async function check(dir) {
   for (const item of await readdir(dir, { withFileTypes: true })) {
+    if (item.isDirectory() && ['node_modules', 'dist', '.git'].includes(item.name)) continue;
     const path = `${dir}/${item.name}`;
     if (item.isDirectory()) await check(path);
     else if (/\.(mjs|js)$/.test(path)) {
