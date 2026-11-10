@@ -70,10 +70,10 @@ function select(id) {
   cancelProductSearch();
   selectedId = id; render();
   document.body.dataset.view = 'detail'; $('#back-to-items').hidden = false; $('#selected-image').src = cropImage(objects.find(o=>o.id===id)?.box || full).image;
-  window.scrollTo({ top: 0, behavior: 'instant' });
   const object = objects.find(o => o.id === id);
   $('#detail').hidden = !object;
   if (!object) return;
+  window.scrollTo({ top: 0, behavior: 'instant' });
   $('#label').textContent = object.label;
   $('#object-origin').textContent = object.manual ? `Your correction${object.predictedLabel ? ' · originally '+object.predictedLabel : ''}` : 'Detected in your video · identity not verified';
   $('#attributes').textContent = object.visibleAttributes.join(' · ') || 'No specific visual attributes established.';

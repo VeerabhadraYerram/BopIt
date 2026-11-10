@@ -70,6 +70,7 @@ export function createCommerceTools({api,getContext,getMarket,onResults,onRefine
   });apply.id='apply-catalog-filters';
   const reset=button('Clear refinements',()=>{filterValue={};colors.value=width.value=height.value='';condition.value=category.value='';attributes.replaceChildren();attributeInputs=[];onRefine();status('Catalog refinements cleared.');});
   refine.append(categoryQuery,categoryButton,field('Category',category),attributes,field('Colour palette',colors),paletteButton,field('Condition',condition),el('small','Listing condition and availability can be unknown. Filters do not independently verify them.'),field('Fits my space',width),height,unit,apply,reset);
+  const listingFilters=$('#listing-filters');listingFilters.hidden=false;refine.append(listingFilters);
 
   const explore=details('Explore a collection');explore.id='collection-tools';
   const brandQuery=input('search','Find a brand'),brand=select([['','Choose a brand']]);
@@ -92,7 +93,7 @@ export function createCommerceTools({api,getContext,getMarket,onResults,onRefine
     for(const item of data.items){const row=el('div',undefined,'scene-role');row.append(el('strong',item.role),el('p',item.product?`${item.product.title} · ${formatProductPrice(item.product.price,item.product.currency)}`:'No candidate within the remaining budget.'));if(item.product)row.append(button('Inspect option',()=>showProducts({products:[item.product]},'Setup candidate. Review its role, variant and compatibility.')));sceneOutput.append(row);}status('Review each option before adding it to your cart.');
   },sceneOutput));plan.id='build-scene';setup.append(refreshRoles,roles,sceneBudget,plan,sceneOutput);
   const extras=details('Explore more');extras.id='catalog-extras';extras.append(explore,lookup,setup);
-  panel.append(refine,extras,notice);$('#products-panel').insertBefore(panel,$('#products-container'));
+  panel.append(refine,extras,notice);$('#products-panel').insertBefore(panel,$('#results-toolbar'));
 
   // Cart is local, durable and serialized in the extension's service worker.
   const cartPanel=el('section',undefined,'panel commerce-drawer');cartPanel.id='cart-panel';cartPanel.hidden=true;cartPanel.setAttribute('aria-label','Your cart');

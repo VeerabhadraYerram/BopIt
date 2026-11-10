@@ -14,7 +14,7 @@ const profile=await mkdtemp(join(tmpdir(),'bopit-experience-')),ext=join(profile
 const site=http.createServer((_req,res)=>{res.setHeader('content-type','text/html; charset=utf-8');res.end(`<!doctype html><title>BopIt · interaction test</title><style>body{background:#f5f1e9;color:#24364e;font:16px system-ui;margin:50px}h1{font-size:36px}video{width:800px;height:500px;object-fit:contain;background:#192c37;border-radius:18px}small{display:block;margin-top:18px;max-width:750px}</style><h1>Your moment, a little more discoverable.</h1><p>Automated interaction test · provider responses are fixtures.</p><video controls muted></video><small>Test footage and recognition are synthetic. This page verifies interaction, not model accuracy.</small>`);});
 await new Promise(r=>site.listen(0,'127.0.0.1',r));const origin=`http://127.0.0.1:${site.address().port}`;
 await cp(resolve('dist/extension'),ext,{recursive:true});const manifest=JSON.parse(await readFile(join(ext,'manifest.json'),'utf8'));manifest.host_permissions.push(`${origin}/*`);await writeFile(join(ext,'manifest.json'),JSON.stringify(manifest));
-let context;const errors=[],calls=[];
+let context,comparisonGate=null,releaseComparison=null;const errors=[],calls=[];
 try{
  context=await chromium.launchPersistentContext(profile,{headless:process.env.BOPIT_HEADLESS==='1',channel:'chromium',reducedMotion:'reduce',viewport:{width:1500,height:1000},args:[`--disable-extensions-except=${ext}`,`--load-extension=${ext}`,'--disable-background-timer-throttling']});
  context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));
@@ -32,7 +32,7 @@ try{
    Object.defineProperty(window,'SpeechRecognition',{value:FixtureSpeechRecognition,configurable:true});
  });
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');await worker.evaluate(()=>chrome.storage.local.set({pairingToken:'fixture-token'}));
- const product={id:'camera-1',title:'Fixture camera · compact black body',brand:'Fixture',image:'https://bopit-test.invalid/photo.svg',price:99,currency:'USD',retailer:'example.com',purchaseUrl:'https://example.com/product',structuredAttributes:{color:['Black'],material:['Polycarbonate']},variants:{selected:[{name:'Color',label:'Black'}],options:[{name:'Color',values:[{label:'Black',exists:true,available:'InStock'},{label:'White',exists:true,available:'OutOfStock'}]}]}},second={...product,id:'camera-2',title:'Fixture alternative'};
+ const product={id:'camera-1',title:'Fixture camera · compact black body',brand:'Fixture',image:'https://bopit-test.invalid/photo.svg',price:99,currency:'USD',retailer:'example.com',purchaseUrl:'https://example.com/product',structuredAttributes:{color:['Black'],material:['Polycarbonate']},variants:{selected:[{name:'Color',label:'Black'}],options:[{name:'Color',values:[{label:'Black',exists:true,available:'InStock'},{label:'White',exists:true,available:'OutOfStock'}]}]}},second={...product,id:'camera-2',title:'Fixture alternative',brand:'Other'};
  await context.route('https://bopit-test.invalid/photo.svg',r=>r.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect x="10" y="20" width="60" height="45" rx="8" fill="#24364e"/><circle cx="40" cy="42" r="17" fill="#b4d4c0"/></svg>'}));
  await context.route('http://127.0.0.1:4317/api/**',async route=>{
    const path=new URL(route.request().url()).pathname,body=route.request().postDataJSON();calls.push({path,body});
@@ -59,7 +59,7 @@ try{
      if(body.query==='slow-A')await new Promise(r=>setTimeout(r,400));
      try{return await route.fulfill({json:{products:body.query==='slow-A'||body.query==='fast-B'?[{...product,title:body.query}]:[product,second,{...product,id:'camera-3',title:'Euro camera',currency:'EUR',price:120},{...product,id:'camera-4',title:'Premium camera',price:200,availability:'OutOfStock'}]}});}catch{return;}
    }
-   if(path.endsWith('/compare'))return route.fulfill({json:{products:[product,second],comparedImageIds:['camera-1'],assessments:[{id:'camera-1',verdict:'possible_match',matches:['Black housing'],differences:[],unknowns:['Model identifier unreadable']}]}});
+   if(path.endsWith('/compare')){if(comparisonGate){const gate=comparisonGate;comparisonGate=null;await gate;}return route.fulfill({json:{products:[product,second],comparedImageIds:['camera-1'],assessments:[{id:'camera-1',verdict:'possible_match',matches:['Black housing'],differences:[],unknowns:['Model identifier unreadable']}]}});}
    if(path.endsWith('/quotes'))return route.fulfill({status:201,json:{checkoutUrl:'http://127.0.0.1:4317/checkout?quote=fixture'}});
    if(path.endsWith('/details'))return route.fulfill({json:{product:{...product,selectionChanges:body.selection?.Color==='White'?[{name:'Color',requested:'White',actual:'Black'}]:[]}}});
    return route.fulfill({status:404,json:{error:'Unexpected test endpoint'}});
@@ -86,6 +86,7 @@ try{
  await page.locator('#bopit-results-panel').waitFor({state:'visible'});
  const inspector=page.frames().find(f=>f.url().includes('/viewer.html?'));
  await inspector.locator('.product-card').first().waitFor();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('3 ✓'));
+ assert.ok(await inspector.evaluate(()=>window.scrollY)<5,'initial detection and product comparison keep the object view at the top');
  assert.equal(await inspector.locator('[data-action="sandbox-checkout"]').first().innerText(),'Pay with PayPal');
  assert.equal(await inspector.locator('[data-product-id="camera-4"] [data-action="sandbox-checkout"]').isDisabled(),true);
  assert.doesNotMatch(await inspector.locator('#products-container').innerText(),/Try PayPal|Sandbox|Test money/);
@@ -101,7 +102,12 @@ try{
  await inspector.locator('.compare-product').nth(0).click();await inspector.locator('.compare-product').nth(1).click();await inspector.locator('.compare-product').nth(2).click();
  assert.equal(await inspector.locator('.compare-product').nth(3).isDisabled(),true,'comparison stays bounded at three products');
  assert.match(await inspector.locator('#comparison-notice').innerText(),/not directly comparable/);
- await inspector.locator('#discovery-options summary').click();
+ assert.equal(await inspector.locator('#discovery-options').count(),0);
+ assert.equal(await inspector.locator('#results-toolbar #product-sort').isVisible(),true);
+ assert.equal(await inspector.locator('#results-toolbar #brand-filter').isVisible(),true);assert.equal(await inspector.locator('#brand-filter').count(),1);
+ const beforeBrand=calls.length;await inspector.locator('#brand-filter').selectOption('Other');assert.equal(await inspector.locator('.product-card').count(),1);assert.equal(await inspector.locator('#results-count').innerText(),'1 product');await inspector.locator('#brand-filter').selectOption('');assert.equal(calls.length,beforeBrand,'brand filtering uses loaded products');
+ assert.equal(await inspector.locator('#results-toolbar').evaluate(el=>el.nextElementSibling.id),'products-container');
+ await inspector.locator('#catalog-refinements > summary').click();
  await inspector.locator('#budget-currency').selectOption('USD');await inspector.locator('#product-sort').selectOption('price-desc');
  const usdTitles=await inspector.locator('.product-card').evaluateAll(cards=>cards.filter(c=>c.querySelector('.product-meta').textContent.includes('USD')).map(c=>c.querySelector('.product-title').textContent));assert.match(usdTitles[0],/Premium/);
  await inspector.locator('#budget-currency').selectOption('USD');await inspector.locator('#budget-preset').selectOption('low');
@@ -112,7 +118,8 @@ try{
  await inspector.locator('[data-intent="exact"]').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
  await inspector.locator('#wishlist-panel summary').click();await inspector.locator('#wishlist-container button').first().click();await inspector.waitForFunction(()=>document.querySelector('#saved-count').textContent==='0');
  const firstProfiles=calls.filter(c=>c.path.endsWith('/profile')).length;
- await inspector.locator('#back-to-items').click();assert.equal(await inspector.locator('#detail').isVisible(),false);await inspector.locator('#objects button').nth(1).click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('3 ✓'));
+ await inspector.locator('#back-to-items').click();assert.equal(await inspector.locator('#detail').isVisible(),false);comparisonGate=new Promise(resolve=>releaseComparison=resolve);await inspector.locator('#objects button').nth(1).click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('Comparing identifiers'));
+ await inspector.evaluate(()=>window.scrollTo({top:350,behavior:'instant'}));const readingPosition=await inspector.evaluate(()=>window.scrollY);releaseComparison();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('3 ✓'));await inspector.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));assert.ok(Math.abs(await inspector.evaluate(()=>window.scrollY)-readingPosition)<3,'late comparison results preserve the reader’s scroll position');
  await inspector.locator('#back-to-items').click();await inspector.locator('#objects button').first().click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('Catalog searched'));
  assert.equal(calls.filter(c=>c.path.endsWith('/profile')).length,firstProfiles+1,'object switching reuses cached profiles');
  await inspector.locator('[data-intent="function"]').click();await inspector.locator('.product-card').first().waitFor();
@@ -160,11 +167,11 @@ try{
  await inspector.locator('#cart-toggle').click();assert.equal(await inspector.locator('#cart-panel a').count(),2);await inspector.locator('#review-cart').click();await inspector.locator('#cart-review p').first().waitFor();assert.match(await inspector.locator('#cart-panel').innerText(),/Current listing prices/);
  const cartPopup=context.waitForEvent('page');await inspector.locator('#pay-cart').click();const cartCheckout=await cartPopup;await cartCheckout.waitForURL('http://127.0.0.1:4317/checkout?quote=fixture');assert.equal(calls.find(c=>c.path.endsWith('/quotes')&&c.body.items)?.body.items.length,2);await cartCheckout.close();await page.bringToFront();
  await inspector.locator('#cart-panel button').first().click();
- await inspector.locator('#catalog-refinements > summary').click();await inspector.locator('#find-categories').click();
+ if(!await inspector.locator('#catalog-refinements').evaluate(el=>el.open))await inspector.locator('#catalog-refinements > summary').click();await inspector.locator('#find-categories').click();
  await inspector.locator('#catalog-refinements select').first().selectOption('cameras');await inspector.getByLabel('Material',{exact:true}).selectOption('Metal');
  await inspector.locator('#palette-filter').fill('#aabbcc');await inspector.locator('#apply-catalog-filters').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
  const constrained=calls.filter(c=>c.path.endsWith('/search')).at(-1);assert.equal(constrained.body.filters.colors.palette[0].hex,'#aabbcc');assert.deepEqual(constrained.body.filters.attributes.material,['Metal']);
- await inspector.locator('#catalog-extras > summary').click();await inspector.locator('#product-link-tools > summary').click();await inspector.locator('#lookup-url').fill('https://example.com/product');await inspector.locator('#lookup-product').click();await inspector.waitForFunction(()=>document.querySelectorAll('.product-card').length===1);
+ await inspector.locator('#catalog-extras > summary').evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));await inspector.locator('#catalog-extras > summary').click();await inspector.locator('#product-link-tools > summary').evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));await inspector.locator('#product-link-tools > summary').click();await inspector.locator('#lookup-url').fill('https://example.com/product');await inspector.locator('#lookup-product').click();await inspector.waitForFunction(()=>document.querySelectorAll('.product-card').length===1);
  await inspector.locator('#collection-tools > summary').click();await inspector.locator('#browse-collection').click();await inspector.waitForFunction(()=>document.querySelectorAll('.product-card').length===2);
  assert.equal(await inspector.locator('#conversation-tools').count(),0,'no separate preference dropdown');
  assert.equal(await inspector.getByRole('button',{name:'Find my version',exact:true}).count(),0);

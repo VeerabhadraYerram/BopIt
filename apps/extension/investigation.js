@@ -20,7 +20,7 @@ export function createInvestigator({ getCapture, crop, getSelected, getObjects =
   $('#clear-search-context').onclick=()=>{cancel();voice.cancel();useObjectContext=false;previousRequest='';commerce.clearConversation();$('#product-query').value='';$('#shopping-reply').textContent='';$('#voice-search-status').textContent='';updateSearchContext();$('#product-query').focus();};
   const resultHistory = [];
   const resultsBack = node('button','← Back to previous results','secondary');resultsBack.id='back-to-results';resultsBack.type='button';resultsBack.hidden=true;resultsBack.onclick=backToResults;
-  $('#products-container').before(resultsBack);
+  $('#results-toolbar').before(resultsBack);
   function updateResultsBack() {
     resultsBack.hidden=!resultHistory.length;
     const header=$('#back-to-items');header.textContent=resultHistory.length?'← Previous results':'← All items';header.setAttribute('aria-label',resultHistory.length?'Back to previous product results':'Back to all detected items');
@@ -28,7 +28,7 @@ export function createInvestigator({ getCapture, crop, getSelected, getObjects =
   function clearResultsHistory(){resultHistory.length=0;updateResultsBack();}
   function backToResults(){
     const saved=resultHistory.pop();if(!saved)return false;
-    $('#products-container').replaceChildren(...saved.nodes);lastRendered=saved.rendered;$('#products-notice').textContent=saved.notice;resultsBack.textContent=saved.backLabel;updateResultsBack();
+    $('#products-container').replaceChildren(...saved.nodes);$('#results-count').textContent=`${saved.nodes.length} product${saved.nodes.length===1?'':'s'}`;lastRendered=saved.rendered;$('#products-notice').textContent=saved.notice;resultsBack.textContent=saved.backLabel;updateResultsBack();
     requestAnimationFrame(()=>{window.scrollTo({top:saved.scroll,behavior:'instant'});saved.trigger?.focus({preventScroll:true});});return true;
   }
   function showRelatedResults(products,{label,origin}={}){
@@ -153,16 +153,17 @@ export function createInvestigator({ getCapture, crop, getSelected, getObjects =
   function renderProducts(products, assessments = [], {keepNavigation=false} = {}) {
     if(!keepNavigation)clearResultsHistory();
     lastRendered = {products,assessments};
-    $('#products-container').replaceChildren();
+    const cards=document.createDocumentFragment();
     let priceSorted=false;
     try { const prepared=shopping.prepare(products, current?.object || selected || {}, intent);products=prepared.products;priceSorted=prepared.priceSorted; }
-    catch(e){$('#products-notice').textContent=e.message;return;}
+    catch(e){$('#products-container').replaceChildren();$('#results-count').textContent='0 products';$('#products-notice').textContent=e.message;return;}
 
     $('#products-notice').textContent = products.length ? `${products.length} ${intent==='exact'?'identity candidates':intent==='look'?'similar-looking products':intent==='cheaper'?'alternatives sorted by price (original price unknown)':'functional alternatives'}. Exact identity is not verified. We may earn a commission from retailer links.` : 'No catalog matches found. Try another intent, increase your budget, or edit the query. An absent listing does not mean the item does not exist.';
     const ratings = new Map(assessments.map(a=>[a.id,a]));
     const rank = { identifier_match:0,possible_match:1,similar:2,contradicted:3 };
     const relevance = p => (rank[ratings.get(p.id)?.verdict] ?? 2) * 100 + (ratings.get(p.id)?.differences.length || 0) * 3 + (intent === 'exact' && /bundle|with.*stand|w\/stand/i.test(p.title) ? 12 : 0);
     const ordered=priceSorted ? products : [...products].sort((a,b)=>relevance(a)-relevance(b));
+    $('#results-count').textContent=`${ordered.length} product${ordered.length===1?'':'s'}`;
     for(const product of ordered) {
       const card=node('article',undefined,'product-card');card.dataset.productId=product.id;
       const image=node('img',undefined,'product-thumb');image.alt=product.title;image.referrerPolicy='no-referrer';image.loading='lazy';
@@ -176,8 +177,9 @@ export function createInvestigator({ getCapture, crop, getSelected, getObjects =
       card.checkoutAction=checkoutAction(() => card.checkoutSelection || { id: product.id },product);info.append(card.checkoutAction);
       const details=node('button','Specifications & variants','secondary');details.onclick=()=>showDetails(product,card,details);info.append(details);
       const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','Buy from seller ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.addEventListener('click',()=>commerce.event('product_link',card.commerceProduct.id));info.append(link);}
-      card.append(image,info);$('#products-container').append(card);
+      card.append(image,info);cards.append(card);
     }
+    $('#products-container').replaceChildren(cards);
   }
   function checkoutAction(selection, product) {
     const group=node('div',undefined,'sandbox-action'), button=node('button','Pay with PayPal','secondary'), note=node('small');
