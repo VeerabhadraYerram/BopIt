@@ -49,3 +49,9 @@ BOPIT_DEMO_PORT=4923 BOPIT_DEMO_COMMERCE=1 npm run demo
 ```
 
 This uses real Gemini and Channel3 credits, creates then removes a test subscription, and leaves an isolated Chrome window open. Add `BOPIT_DEMO_PAYMENTS=1` to continue the cart through real Sandbox approval and independent capture verification; manual buyer approval is the default. It uses a controlled catalog-photo video with a supplied caption, not an accuracy benchmark. Reports and screenshots stay in ignored `.local` and `test-results` directories.
+
+## Price history and returning from alternatives
+
+Price charts label currency and UTC dates, show date/price tooltips, and retain the Recorded prices list. Related results preserve the original cards and expanded variant/details state. Use Back to previous results in the product list or the panel header; the header returns to All items after the result history is exhausted. Returning does not request the same products again.
+
+Tracking confirmation updates the active Tracked moments count after Channel3 accepts the subscription. Product Subscriptions and the legacy price-tracking API are different endpoints; a zero billing bucket is not an active-watch count. Use the actual testing date range and genuine request evidence when checking the provider dashboard. BopIt cannot change Channel3 billing classification.

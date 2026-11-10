@@ -225,7 +225,7 @@ function showAll() {
   selectedId = null; document.body.dataset.view = 'all'; $('#back-to-items').hidden = true;
   window.scrollTo({ top: 0, behavior: 'instant' }); render();
 }
-$('#back-to-items').onclick = showAll;
+$('#back-to-items').onclick = () => { if(!investigator.backToResults())showAll(); };
 chrome.runtime.onMessage.addListener(message => {
   if (message?.captureId !== capture?.captureId) return;
   if (message.type === 'BOPIT_SELECT_OBJECT') select(message.id);

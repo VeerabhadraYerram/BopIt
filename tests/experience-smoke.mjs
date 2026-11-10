@@ -19,7 +19,7 @@ try{
  context=await chromium.launchPersistentContext(profile,{headless:process.env.BOPIT_HEADLESS==='1',channel:'chromium',viewport:{width:1500,height:1000},args:[`--disable-extensions-except=${ext}`,`--load-extension=${ext}`,'--disable-background-timer-throttling']});
  context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');await worker.evaluate(()=>chrome.storage.local.set({pairingToken:'fixture-token'}));
- const product={id:'camera-1',title:'Fixture camera · compact black body',brand:'Fixture',image:'https://bopit-test.invalid/photo.svg',price:99,currency:'USD',retailer:'Fixture retailer',purchaseUrl:'https://example.com/product',structuredAttributes:{color:['Black'],material:['Polycarbonate']},variants:{selected:[{name:'Color',label:'Black'}],options:[{name:'Color',values:[{label:'Black',exists:true,available:'InStock'},{label:'White',exists:true,available:'OutOfStock'}]}]}},second={...product,id:'camera-2',title:'Fixture alternative'};
+ const product={id:'camera-1',title:'Fixture camera · compact black body',brand:'Fixture',image:'https://bopit-test.invalid/photo.svg',price:99,currency:'USD',retailer:'example.com',purchaseUrl:'https://example.com/product',structuredAttributes:{color:['Black'],material:['Polycarbonate']},variants:{selected:[{name:'Color',label:'Black'}],options:[{name:'Color',values:[{label:'Black',exists:true,available:'InStock'},{label:'White',exists:true,available:'OutOfStock'}]}]}},second={...product,id:'camera-2',title:'Fixture alternative'};
  await context.route('https://bopit-test.invalid/photo.svg',r=>r.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect x="10" y="20" width="60" height="45" rx="8" fill="#24364e"/><circle cx="40" cy="42" r="17" fill="#b4d4c0"/></svg>'}));
  await context.route('http://127.0.0.1:4317/api/**',async route=>{
    const path=new URL(route.request().url()).pathname,body=route.request().postDataJSON();calls.push({path,body});
@@ -121,6 +121,26 @@ try{
  await inspector.locator('.product-card').first().locator('.commerce-product-tools > details > summary').click();
  await inspector.locator('[data-action="price-history"]').first().click();await inspector.locator('.commerce-product-tools svg').first().waitFor();
  assert.match(await inspector.locator('.commerce-product-tools').first().innerText(),/recorded prices/);
+ assert.match(await inspector.locator('.commerce-product-tools svg').first().textContent(),/Price \(USD\).*Date \(UTC\)/s);
+ assert.match(await inspector.locator('.commerce-product-tools svg').first().getAttribute('aria-label'),/Minimum.*99/);
+ await page.screenshot({path:'test-results/labelled-price-history.png'});
+ await inspector.locator('.product-card').first().getByRole('button',{name:'Specifications & variants',exact:true}).click();
+ await inspector.locator('.catalog-details select').first().waitFor();
+ await inspector.locator('.product-card').first().evaluate(card=>card.dataset.navigationMarker='original-card');
+ const beforeRelated=calls.length;
+ await inspector.locator('[data-action="similar-products"]').first().click();await inspector.waitForFunction(()=>document.querySelectorAll('.product-card').length===2);
+ await inspector.locator('.product-card').first().locator('.commerce-product-tools > details > summary').click();
+ await inspector.locator('[data-action="browse-seller"]').first().click();await inspector.waitForFunction(()=>document.querySelector('#products-notice').textContent.includes('Collection from example.com'));
+ await inspector.locator('#back-to-results').click();await inspector.waitForFunction(()=>document.querySelector('#products-notice').textContent.includes('Similar catalog products'));
+ const beforeBack=calls.length;
+ await inspector.locator('#back-to-items').click();
+ assert.equal(await inspector.locator('body').getAttribute('data-view'),'detail');
+ assert.equal(await inspector.locator('.product-card').first().getAttribute('data-navigation-marker'),'original-card');
+ assert.equal(await inspector.locator('.catalog-details').first().isVisible(),true);
+ assert.equal(await inspector.locator('.commerce-product-tools svg').first().isVisible(),true);
+ assert.equal(await inspector.locator('#back-to-results').isVisible(),false);
+ assert.equal(calls.length,beforeBack,'Back restores prior DOM without provider calls');
+ assert.ok(calls.length>beforeRelated);
  await inspector.locator('[data-action="similar-products"]').first().click();await inspector.waitForFunction(()=>document.querySelectorAll('.product-card').length===2);
  await inspector.locator('[data-action="add-to-cart"]').first().click();await inspector.waitForFunction(()=>document.querySelector('#cart-toggle').textContent==='Cart · 1');
  await inspector.locator('[data-action="add-to-cart"]').nth(1).click();await inspector.waitForFunction(()=>document.querySelector('#cart-toggle').textContent==='Cart · 2');
@@ -134,8 +154,8 @@ try{
  await inspector.locator('#catalog-extras > summary').click();await inspector.locator('#product-link-tools > summary').click();await inspector.locator('#lookup-url').fill('https://example.com/product');await inspector.locator('#lookup-product').click();await inspector.waitForFunction(()=>document.querySelectorAll('.product-card').length===1);
  await inspector.locator('#collection-tools > summary').click();await inspector.locator('#browse-collection').click();await inspector.waitForFunction(()=>document.querySelectorAll('.product-card').length===2);
  await inspector.locator('#conversation-tools > summary').click();await inspector.locator('#shopping-request').fill('A smaller option under $120');await inspector.locator('#refine-with-channel3').click();await inspector.waitForFunction(()=>document.querySelector('#shopping-reply').textContent.includes('smaller option'));
- await inspector.locator('.product-card').first().locator('.commerce-product-tools > details > summary').click();await inspector.locator('.product-card').first().locator('.commerce-product-tools details details summary').click();await inspector.locator('[data-action="track-product"]').first().click();await inspector.waitForFunction(()=>document.querySelector('.commerce-product-tools').textContent.includes('Tracking saved'));
- await inspector.locator('#tracked-moments > summary').click();await inspector.locator('#refresh-watches').click();await inspector.locator('.watch-line').first().waitFor();assert.match(await inspector.locator('#tracked-moments').innerText(),/webhook/);
+ await inspector.locator('.product-card').first().locator('.commerce-product-tools > details > summary').click();await inspector.locator('.product-card').first().locator('.commerce-product-tools details details summary').click();await inspector.locator('[data-action="track-product"]').first().click();await inspector.waitForFunction(()=>document.querySelector('.commerce-product-tools').textContent.includes('Tracking saved'));assert.match(await inspector.locator('#tracked-moments > summary').innerText(),/1/);assert.match(await inspector.locator('.commerce-product-tools').first().innerText(),/Product Subscriptions/);
+ await inspector.locator('#tracked-moments > summary').click();await inspector.locator('#refresh-watches').click();await inspector.waitForFunction(()=>document.querySelector('#tracked-moments').textContent.includes('webhook'));assert.match(await inspector.locator('#tracked-moments').innerText(),/webhook/);
  await inspector.locator('#commerce-activity > summary').click();await inspector.locator('#load-commerce-activity').click();await inspector.waitForFunction(()=>document.querySelector('#commerce-activity').textContent.includes('Provider records loaded'));
  await inspector.locator('#scene-tools > summary').click();await inspector.getByRole('button',{name:'Choose items from this moment'}).click();await inspector.locator('#scene-tools input[type=checkbox]').first().check();await inspector.locator('#scene-budget').fill('250');await inspector.locator('#build-scene').click();await inspector.waitForFunction(()=>document.querySelector('#scene-results').textContent.includes('Candidate setup'));
  assert.ok(calls.some(c=>c.path.endsWith('/browse')));assert.ok(calls.some(c=>c.path.endsWith('/lookup')));assert.ok(calls.some(c=>c.path.endsWith('/conversation')));assert.ok(calls.some(c=>c.path.endsWith('/history')));

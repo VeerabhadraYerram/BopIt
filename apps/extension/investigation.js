@@ -8,10 +8,29 @@ const sourceLabel = { visible: 'Seen in frame', caption: 'Caption claim', video_
 export function createInvestigator({ getCapture, crop, getSelected, getObjects = () => [] }) {
   let generation = 0, controller = null, selected = null, intent = 'exact', current = null;
   let lastRendered = { products: [], assessments: [] };
-  const shopping = createShoppingTools(() => renderProducts(lastRendered.products,lastRendered.assessments),{openSeller:async product=>{const page=window.open('about:blank','_blank');if(!page)throw new Error('Allow the seller tab to open.');page.opener=null;try{const data=await api('commerce/details',{id:product.id,selection:Object.fromEntries((product.variants?.selected||[]).map(v=>[v.name,v.label])),config:market()});if(data.product.selectionChanges?.length)throw new Error('Saved variant changed. Inspect the listing before buying.');const url=safeProductUrl(data.product.purchaseUrl);if(!url)throw new Error('No current seller link is available.');page.location.replace(url);}catch(e){page.close();throw e;}}});
+  const resultHistory = [];
+  const resultsBack = node('button','← Back to previous results','secondary');resultsBack.id='back-to-results';resultsBack.type='button';resultsBack.hidden=true;resultsBack.onclick=backToResults;
+  $('#products-container').before(resultsBack);
+  function updateResultsBack() {
+    resultsBack.hidden=!resultHistory.length;
+    const header=$('#back-to-items');header.textContent=resultHistory.length?'← Previous results':'← All items';header.setAttribute('aria-label',resultHistory.length?'Back to previous product results':'Back to all detected items');
+  }
+  function clearResultsHistory(){resultHistory.length=0;updateResultsBack();}
+  function backToResults(){
+    const saved=resultHistory.pop();if(!saved)return false;
+    $('#products-container').replaceChildren(...saved.nodes);lastRendered=saved.rendered;$('#products-notice').textContent=saved.notice;resultsBack.textContent=saved.backLabel;updateResultsBack();
+    requestAnimationFrame(()=>{window.scrollTo({top:saved.scroll,behavior:'instant'});saved.trigger?.focus({preventScroll:true});});return true;
+  }
+  function showRelatedResults(products,{label,origin}={}){
+    resultHistory.push({nodes:[...$('#products-container').childNodes],rendered:lastRendered,notice:$('#products-notice').textContent,scroll:window.scrollY,trigger:document.activeElement,backLabel:resultsBack.textContent});
+    if(resultHistory.length>10)resultHistory.shift();
+    renderProducts(products,[],{keepNavigation:true});$('#products-notice').textContent=label||`${products.length} catalog options. Review identity, configuration and seller facts.`;
+    resultsBack.textContent=origin?`← Back to ${origin.title}`:'← Back to previous results';updateResultsBack();resultsBack.scrollIntoView({block:'start',behavior:'smooth'});
+  }
+  const shopping = createShoppingTools(() => renderProducts(lastRendered.products,lastRendered.assessments,{keepNavigation:true}),{openSeller:async product=>{const page=window.open('about:blank','_blank');if(!page)throw new Error('Allow the seller tab to open.');page.opener=null;try{const data=await api('commerce/details',{id:product.id,selection:Object.fromEntries((product.variants?.selected||[]).map(v=>[v.name,v.label])),config:market()});if(data.product.selectionChanges?.length)throw new Error('Saved variant changed. Inspect the listing before buying.');const url=safeProductUrl(data.product.purchaseUrl);if(!url)throw new Error('No current seller link is available.');page.location.replace(url);}catch(e){page.close();throw e;}}});
   const cache = new Map(), searches = new Map(), views = new Map();
-  const commerce=createCommerceTools({api,getContext:()=>({capture:getCapture(),object:selected,profile:current?.profile,image:()=>selected?crop(selected.box):null}),getMarket:market,getObjects,onResults:products=>{renderProducts(products);$('#products-notice').textContent=`${products.length} catalog options. Review identity, configuration and seller facts. We may earn a commission from retailer links.`;},onRefine:changeSearch});
-  function cancel() { lastRendered = { products: [], assessments: [] };generation++; controller?.abort(); controller = null; $('#search-products-btn').disabled = false; }
+  const commerce=createCommerceTools({api,getContext:()=>({capture:getCapture(),object:selected,profile:current?.profile,image:()=>selected?crop(selected.box):null}),getMarket:market,getObjects,onResults:showRelatedResults,onRefine:changeSearch});
+  function cancel() { clearResultsHistory();lastRendered = { products: [], assessments: [] };generation++; controller?.abort(); controller = null; $('#search-products-btn').disabled = false; }
   function reset() { cancel(); cache.clear(); searches.clear(); views.clear(); selected = null; current = null; commerce.reset(); $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#context-note').value = ''; $('#use-youtube').checked = false; }
   async function api(path, body, signal) {
     const { pairingToken } = await chrome.storage.local.get('pairingToken');
@@ -106,19 +125,21 @@ export function createInvestigator({ getCapture, crop, getSelected, getObjects =
   }
   async function compareCandidates(version, signal) {
     const state = current;
+    const displayedProducts=lastRendered.products;
     $('#investigation-status').textContent = '1 ✓ Details · 2 ✓ Catalog · 3 · Comparing identifiers & catalog evidence…';
     try {
       const data = await api('products/compare',{ image:crop(state.object.box),profile:state.profile,ids:state.results.products.slice(0,3).map(p=>p.id),config:market() },signal);
       if (version !== generation || current !== state) return;
       const detailed = new Map(data.products.map(p=>[p.id,p]));
       state.results.products = state.results.products.map(p=>detailed.get(p.id)||p);state.results.assessments=data.assessments;state.results.comparedImageIds=data.comparedImageIds||[];
-      searches.set(state.searchKey,state.results);renderProducts(state.results.products,data.assessments);
+      searches.set(state.searchKey,state.results);if(!resultHistory.length&&lastRendered.products===displayedProducts)renderProducts(state.results.products,data.assessments);
       $('#investigation-status').textContent = '1 ✓ Details · 2 ✓ Catalog · 3 ✓ Catalog evidence compared';
     } catch(e) {
       if(version===generation&&e.name!=='AbortError') { $('#investigation-status').textContent = `Matches loaded · deeper comparison unavailable: ${e.message}`; }
     }
   }
-  function renderProducts(products, assessments = []) {
+  function renderProducts(products, assessments = [], {keepNavigation=false} = {}) {
+    if(!keepNavigation)clearResultsHistory();
     lastRendered = {products,assessments};
     $('#products-container').replaceChildren();
     let priceSorted=false;
@@ -177,7 +198,7 @@ export function createInvestigator({ getCapture, crop, getSelected, getObjects =
     const old=card.querySelector('.catalog-details');if(old&&Object.keys(selection).length===0){old.hidden=!old.hidden;return;}
     const box=old||node('div',undefined,'catalog-details');if(!old)card.append(box);box.hidden=false;box.replaceChildren(node('p','Loading catalog specifications…'));button.disabled=true;
     try {
-      const data=await api('products/details',{id:product.id,selection,config:market()},controller?.signal);if(!card.isConnected)return;
+      const data=await api('products/details',{id:product.id,selection,config:market()},controller?.signal);if(!card.isConnected&&!resultHistory.some(entry=>entry.nodes.includes(card)))return;
       const p=data.product;card.commerceProduct=p;card.checkoutAction?.updateOffer(p);card.checkoutSelection = { id: p.id, selection: Object.fromEntries((p.variants?.selected || []).map(v=>[v.name,v.label])) };box.replaceChildren(node('p','Source: Channel3 / merchant listing. These specifications describe this catalog product; identity with the video object is not established.','muted'));
       if(p.selectionChanges?.length)box.append(node('p',`Requested variant changed: ${p.selectionChanges.map(c=>`${c.name}: ${c.requested} → ${c.actual}`).join('; ')}. Review before continuing.`,'variant-warning'));
       box.append(node('p',p.description||'No description supplied.'));
@@ -217,6 +238,6 @@ export function createInvestigator({ getCapture, crop, getSelected, getObjects =
     }catch(e){$('#view-status').textContent=e.message;}finally{event.target.value='';}
   });
   $('#clear-views').onclick=()=>{const object=getSelected();if(object){views.delete(object.id);select(object,true);}};
-  return { select, cancel, reset, searchManual:manual, snapshot:()=>[...cache.values()] };
+  return { select, cancel, reset, backToResults, searchManual:manual, snapshot:()=>[...cache.values()] };
 
 }

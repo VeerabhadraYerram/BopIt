@@ -1,4 +1,5 @@
 import {formatProductPrice,safeProductUrl} from './product-display.js';
+import {priceHistorySeries,createPriceHistoryChart} from './price-history.js';
 const $=s=>document.querySelector(s);
 export const el=(tag,text,cls)=>{const node=document.createElement(tag);if(text!==undefined)node.textContent=text;if(cls)node.className=cls;return node;};
 let identityPromise;
@@ -29,7 +30,7 @@ export function createCommerceTools({api,getContext,getMarket,onResults,onRefine
   async function event(kind,productId,context=source(getContext)){
     try{await api('commerce/event',{kind,productId,source:context,eventId:crypto.randomUUID()});}catch{/* Analytics never blocks shopping. */}
   }
-  function showProducts(data,label){onResults(data.products||[]);status(label);}
+  function showProducts(data,label,origin){onResults(data.products||[],{label,origin});status(label);}
   function relevantFilters(){return structuredClone(filterValue);}
 
   // Progressive refinement: only explicit inputs become catalog constraints.
@@ -131,9 +132,9 @@ export function createCommerceTools({api,getContext,getMarket,onResults,onRefine
   updateCart('read').catch(e=>cartNotice.textContent=e.message);
   chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.bopitCart){cart=changes.bopitCart.newValue||[];cartReviewed=[];renderCart();}});
 
-  const watchPanel=details('Tracked moments');watchPanel.id='tracked-moments';const watchList=el('div'),watchNotice=el('p','','muted');
+  const watchPanel=details('Tracked moments');const watchHeading=watchPanel.querySelector('summary');watchPanel.id='tracked-moments';const watchList=el('div'),watchNotice=el('p','','muted');
   async function loadWatches(){
-    const data=await api('commerce/watches',{});watchList.replaceChildren();watchNotice.textContent=data.webhookConfigured?'Offer tracking is active. Provider refreshes are periodic; confirm seller stock before buying.':'Tracking is saved with Channel3. Automatic delivery needs a configured public webhook; you can refresh prices here.';
+    const data=await api('commerce/watches',{});watchHeading.textContent=`Tracked moments · ${data.watches.length}`;watchList.replaceChildren();watchNotice.textContent=data.webhookConfigured?'Offer tracking is active. Provider refreshes are periodic; confirm seller stock before buying.':'Tracking is saved with Channel3. Automatic delivery needs a configured public webhook; you can refresh prices here.';
     if(!data.watches.length)watchList.append(el('p','Track a product to follow its price or availability.'));
     for(const watch of data.watches){const row=el('article',undefined,'watch-line');row.append(el('strong',watch.title),el('small',watch.maxPrice?`Target: ${formatProductPrice(watch.maxPrice,watch.currency)}`:'Watching price and availability'),el('p',watch.updatePending?'Offer changed — refresh this listing.':watch.message||'No confirmed update yet.'));
       if(watch.source?.label)row.append(el('small',`${watch.source.label} · ${Math.floor(watch.source.timestamp||0)}s`));
@@ -160,17 +161,18 @@ export function createCommerceTools({api,getContext,getMarket,onResults,onRefine
     const more=details('Price, alerts & alternatives'),output=el('div');output.setAttribute('role','status');
     const history=button('Price history',()=>execute(history,async()=>{
       const p=getProduct(),key='history:'+p.id;let data=caches.get(key);if(!data){data=await api('commerce/history',{id:p.id});caches.set(key,data);}output.replaceChildren();
-      const currency=data.statistics?.currency||p.currency,points=(data.history||[]).filter(x=>Number.isFinite(x.price)&&x.currency===currency&&Number.isFinite(Date.parse(x.timestamp))).sort((a,b)=>Date.parse(a.timestamp)-Date.parse(b.timestamp));
+      const currency=data.statistics?.currency||p.currency,points=priceHistorySeries(data.history,currency);
       if(!points.length){output.append(el('p','No price history is available for this item.'));return;}
       output.append(el('p',`${points.length} recorded prices · ${currency}. Listing history excludes shipping and tax.`));
       if(data.statistics?.current_status)output.append(el('p',`Current recorded price: ${data.statistics.current_status} relative to available history.`));
-      const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 320 100');svg.setAttribute('role','img');svg.setAttribute('aria-label',`Price history from ${points[0].timestamp} to ${points.at(-1).timestamp}`);const min=Math.min(...points.map(p=>p.price)),max=Math.max(...points.map(p=>p.price)),start=Date.parse(points[0].timestamp),span=Date.parse(points.at(-1).timestamp)-start||1,path=document.createElementNS(ns,'polyline');path.setAttribute('points',points.map(p=>`${10+300*(Date.parse(p.timestamp)-start)/span},${85-70*(p.price-min)/(max-min||1)}`).join(' '));path.setAttribute('fill','none');path.setAttribute('stroke','#52775c');path.setAttribute('stroke-width','2');svg.append(path);output.append(svg,el('small',`${formatProductPrice(min,currency)}–${formatProductPrice(max,currency)}`));
+      output.append(createPriceHistoryChart(points,currency));
+      const min=Math.min(...points.map(p=>p.price)),max=Math.max(...points.map(p=>p.price));output.append(el('small',`Recorded range: ${formatProductPrice(min,currency)}–${formatProductPrice(max,currency)}. Hover a point for its date and price, or open Recorded prices.`));
       const list=details('Recorded prices');for(const point of points.slice(-12))list.append(el('p',`${new Date(point.timestamp).toLocaleDateString()} · ${formatProductPrice(point.price,point.currency)}`));output.append(list);
     },output));history.dataset.action='price-history';
-    const similar=button('More like this',()=>execute(similar,async()=>{const p=getProduct(),data=await api('commerce/similar',{id:p.id,...searchBody()});showProducts(data,'Similar catalog products. Review the differences before choosing.');}));similar.dataset.action='similar-products';
-    const seller=button('More from this seller',()=>execute(seller,async()=>{const p=getProduct(),domain=p.retailer;if(!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain))throw new Error('Seller domain is unavailable for browsing.');const data=await api('commerce/browse',{...searchBody(),filters:{...filterValue,website_ids:[domain]}});showProducts(data,`Collection from ${domain}.`);}));seller.dataset.action='browse-seller';
+    const similar=button('More like this',()=>execute(similar,async()=>{const p=getProduct(),data=await api('commerce/similar',{id:p.id,...searchBody()});showProducts(data,'Similar catalog products. Review the differences before choosing.',{id:p.id,title:p.title});}));similar.dataset.action='similar-products';
+    const seller=button('More from this seller',()=>execute(seller,async()=>{const p=getProduct(),domain=p.retailer;if(!/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(domain))throw new Error('Seller domain is unavailable for browsing.');const data=await api('commerce/browse',{...searchBody(),filters:{...filterValue,website_ids:[domain]}});showProducts(data,`Collection from ${domain}.`,{id:p.id,title:p.title});}));seller.dataset.action='browse-seller';
     const watch=details('Track this moment'),target=input('number','Optional target price');target.min='0.01';target.step='0.01';
-    const track=button('Track price & availability',()=>execute(track,async()=>{const p=getProduct(),data=await api('commerce/watch',{id:p.id,selection:Object.fromEntries((p.variants?.selected||[]).map(v=>[v.name,v.label])),maxPrice:target.value||null,config:getMarket(),source:source(getContext)});output.textContent=data.webhookConfigured?'Tracking saved. Offer changes will appear under Tracked moments.':'Tracking saved. Automatic delivery needs webhook setup; use Check now under Tracked moments.';},output));track.dataset.action='track-product';watch.append(target,track);
+    const track=button('Track price & availability',()=>execute(track,async()=>{const p=getProduct(),data=await api('commerce/watch',{id:p.id,selection:Object.fromEntries((p.variants?.selected||[]).map(v=>[v.name,v.label])),maxPrice:target.value||null,config:getMarket(),source:source(getContext)});track.textContent='Tracking saved ✓';await loadWatches().catch(()=>{watchHeading.textContent='Tracked moments · refresh to load';});output.textContent=data.webhookConfigured?'Tracking saved. Offer changes will appear under Tracked moments.':'Tracking saved. Automatic delivery needs webhook setup; use Check now under Tracked moments.';output.append(el('p','Confirmed through Channel3 Product Subscriptions. The provider’s Price tracking usage counter is separate from your active watches.','muted'));},output));track.dataset.action='track-product';watch.append(target,track);
     more.append(history,similar,seller,watch,output);container.append(more);return container;
   }
   return {
