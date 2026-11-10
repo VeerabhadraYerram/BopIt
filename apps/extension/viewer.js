@@ -251,4 +251,4 @@ async function searchProducts(queryText) { return investigator.searchManual(quer
 $('#find-products-btn').addEventListener('click', () => { const object = objects.find(o => o.id === selectedId); if (object) investigator.select(object, true); });
 $('#search-products-btn').addEventListener('click', () => searchProducts($('#product-query').value));
 $('#product-query').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); searchProducts(e.target.value); } });
-$('#product-query').addEventListener('input', cancelProductSearch);
+$('#product-query').addEventListener('input',()=>{investigator.cancel({keepResults:true});$('#products-notice').textContent='Press Find to apply your request.';});

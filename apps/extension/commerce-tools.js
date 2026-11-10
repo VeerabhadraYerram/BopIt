@@ -15,7 +15,7 @@ function source(getContext){const c=getContext();return {url:c.capture?.source?.
 export function createCommerceTools({api,getContext,getMarket,onResults,onRefine,getObjects}){
   let version=0,conversationId=null,filterValue={},cart=[],cartReviewed=[],cartBusy=false;
   const originalApi=api;
-  api=async(path,body)=>{const stamp=version,result=await originalApi(path,body);if(stamp!==version&&['commerce/similar','commerce/browse','commerce/lookup','commerce/categories','commerce/category','commerce/history','commerce/conversation','commerce/scene-plan','products/search'].includes(path))throw new DOMException('Selection changed','AbortError');return result;};
+  api=async(path,body,signal)=>{const stamp=version,result=await originalApi(path,body,signal);if(stamp!==version&&['commerce/similar','commerce/browse','commerce/lookup','commerce/categories','commerce/category','commerce/history','commerce/conversation','commerce/scene-plan','products/search'].includes(path))throw new DOMException('Selection changed','AbortError');return result;};
   const caches=new Map();
   const panel=el('section',undefined,'commerce-tools panel');panel.id='commerce-tools';
   const notice=el('p','','muted');notice.id='commerce-notice';notice.setAttribute('role','status');
@@ -79,11 +79,11 @@ export function createCommerceTools({api,getContext,getMarket,onResults,onRefine
   const lookup=details('Know the actual product?');lookup.id='product-link-tools';const url=input('url','Paste the merchant product link');url.id='lookup-url';
   const resolve=button('Find linked product',()=>execute(resolve,async()=>{const data=await api('commerce/lookup',{url:url.value});showProducts({products:[data.product]},data.identitySource);await event('identity_linked',data.product.id);}));resolve.id='lookup-product';lookup.append(el('p','Use a product link to resolve a mystery item. Your link is a supplied association, not proof of what appears in the video.'),url,resolve);
 
-  const assistant=details('Tell us what matters');assistant.id='conversation-tools';const message=el('textarea');message.rows=3;message.maxLength=2500;message.placeholder='Same style, smaller, suitable for outdoor use…';message.id='shopping-request';const reply=el('div');reply.id='shopping-reply';reply.setAttribute('role','status');
-  const converse=button('Find my version',()=>execute(converse,async()=>{
-    if(!message.value.trim())throw new Error('Tell us what matters before searching.');const c=getContext(),context=[c.profile?.summary||c.object?.label||'Selected item',...(c.profile?.attributes||[]).map(a=>`${a.name}: ${a.value} (${a.source})`)].join('\n').slice(0,1200);const data=await api('commerce/conversation',{message:`Product context (unverified observations): ${context}\nViewer request: ${message.value}`,conversationId,filters:filterValue});conversationId=data.conversationId;reply.textContent=data.text||'No written answer returned.';if(data.products?.length)onResults(data.products);status('Refined through Channel3. Review listing facts and unknowns before choosing.');
-  },reply));converse.id='refine-with-channel3';assistant.append(message,converse,reply);
-  const deep=button('Search with full context',()=>execute(deep,async()=>{const c=getContext(),query=[message.value,c.profile?.summary||c.object?.label,...(c.profile?.attributes||[]).map(a=>`${a.name}: ${a.value} (${a.source})`)].filter(Boolean).join('\n').slice(0,4000);const data=await api('products/search',{query,limit:12,filters:filterValue,config:{...getMarket(),mode:'agentic'}});showProducts(data,'Context-aware catalog results. Exact identity and suitability still need review.');}));deep.id='agentic-search';assistant.append(deep);
+  async function refineRequest(query,{context,filters,signal}){
+    const data=await api('commerce/conversation',{message:context,conversationId,filters},signal);
+    conversationId=data.conversationId||null;
+    return data;
+  }
 
   const setup=details('Recreate this setup');setup.id='scene-tools';const roles=el('div'),sceneBudget=input('number','Total budget');sceneBudget.min='1';sceneBudget.id='scene-budget';const sceneOutput=el('div');sceneOutput.id='scene-results';
   const refreshRoles=button('Choose items from this moment',()=>{roles.replaceChildren();for(const object of getObjects().slice(0,12)){const check=input('checkbox');check.value=object.label;check.dataset.objectId=object.id;roles.append(field(object.label,check));}});
@@ -92,7 +92,7 @@ export function createCommerceTools({api,getContext,getMarket,onResults,onRefine
     for(const item of data.items){const row=el('div',undefined,'scene-role');row.append(el('strong',item.role),el('p',item.product?`${item.product.title} · ${formatProductPrice(item.product.price,item.product.currency)}`:'No candidate within the remaining budget.'));if(item.product)row.append(button('Inspect option',()=>showProducts({products:[item.product]},'Setup candidate. Review its role, variant and compatibility.')));sceneOutput.append(row);}status('Review each option before adding it to your cart.');
   },sceneOutput));plan.id='build-scene';setup.append(refreshRoles,roles,sceneBudget,plan,sceneOutput);
   const extras=details('Explore more');extras.id='catalog-extras';extras.append(explore,lookup,setup);
-  panel.append(refine,assistant,extras,notice);$('#products-panel').insertBefore(panel,$('#products-container'));
+  panel.append(refine,extras,notice);$('#products-panel').insertBefore(panel,$('#products-container'));
 
   // Cart is local, durable and serialized in the extension's service worker.
   const cartPanel=el('section',undefined,'panel commerce-drawer');cartPanel.id='cart-panel';cartPanel.hidden=true;cartPanel.setAttribute('aria-label','Your cart');
@@ -176,8 +176,9 @@ export function createCommerceTools({api,getContext,getMarket,onResults,onRefine
     more.append(history,similar,seller,watch,output);container.append(more);return container;
   }
   return {
-    filters:relevantFilters,productTools,event,
-    onSelect(){version++;conversationId=null;reply.replaceChildren();categoryQuery.value=getContext().object?.label||'';status('');},
-    reset(){version++;conversationId=null;filterValue={};reply.replaceChildren();status('');}
+    filters:relevantFilters,productTools,event,refineRequest,
+    clearConversation(){conversationId=null;},
+    onSelect(){version++;conversationId=null;categoryQuery.value=getContext().object?.label||'';status('');},
+    reset(){version++;conversationId=null;filterValue={};status('');}
   };
 }

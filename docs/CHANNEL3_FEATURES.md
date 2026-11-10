@@ -7,7 +7,7 @@ Run `npm run setup`, then `npm start` if setup is not already running it. Reload
 1. Use **Find this**, **Similar look** or **Same function**. Similar look uses the native product-ID endpoint after an exact candidate is available.
 2. Open **Refine matches** only when needed. Find/select a category to obtain valid attribute controls. Palette input accepts up to five hex colours; **Use object colours** samples the crop locally and can include its background, so review the values. Physical limits use your supplied measurements.
 3. Under **Explore more**, browse a brand/category collection, paste a merchant product URL, or choose detected objects for a budget scene plan. Lookup is an explicitly supplied association, not independent proof of identity.
-4. Use **Tell us what matters** for an unusual requirement. **Find my version** calls Channel3 Conversations; **Search with full context** explicitly opts into agentic Search.
+4. Use **Search or describe what you want…** for product names and preferences. **Find** automatically uses direct search, contextual Conversations, or agentic search as appropriate. The optional microphone drafts editable text; it never submits automatically.
 5. Open a product's **Price, alerts & alternatives** for history, native Similar, seller Browse and selected-variant tracking. Empty history and missing data stay explicit.
 6. **Add to cart** preserves variant and source moment. Open the header Cart button, adjust quantities, review fresh prices, then continue to the itemized checkout. Seller prices can change; review the checkout quote before approving. Compatibility notes are advisory. Payment remains a BopIt Sandbox simulation, not merchant fulfillment.
 
@@ -55,3 +55,9 @@ This uses real Gemini and Channel3 credits, creates then removes a test subscrip
 Price charts label currency and UTC dates, show date/price tooltips, and retain the Recorded prices list. Related results preserve the original cards and expanded variant/details state. Use Back to previous results in the product list or the panel header; the header returns to All items after the result history is exhausted. Returning does not request the same products again.
 
 Tracking confirmation updates the active Tracked moments count after Channel3 accepts the subscription. Product Subscriptions and the legacy price-tracking API are different endpoints; a zero billing bucket is not an active-watch count. Use the actual testing date range and genuine request evidence when checking the provider dashboard. BopIt cannot change Channel3 billing classification.
+
+## One search box, with optional voice
+
+Use **Search or describe what you want…** for both product names and preferences. **Find** or Enter submits the request. Simple product names search the catalog directly. Requests such as “same style, under $100” use the selected object, evidence labels and previous request through Channel3 Conversations. The context line shows what the request refers to; **Clear** starts a fresh search. These preferences apply to this search, not a permanent user profile.
+
+The microphone uses browser speech recognition only after a click. It fills an editable draft and never submits automatically. The browser may use a remote speech service; BopIt does not record or upload microphone audio to its backend. Permission, network or browser-support errors keep typing available. The embedded frame delegates microphone permission, but a hosting page’s policy, browser configuration or OS permissions may still prevent voice input. Native audio transcription needs a manual check on the user's Chrome/microphone; browser regression coverage uses simulated recognition results and errors.

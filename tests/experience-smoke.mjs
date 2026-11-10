@@ -16,8 +16,21 @@ await new Promise(r=>site.listen(0,'127.0.0.1',r));const origin=`http://127.0.0.
 await cp(resolve('dist/extension'),ext,{recursive:true});const manifest=JSON.parse(await readFile(join(ext,'manifest.json'),'utf8'));manifest.host_permissions.push(`${origin}/*`);await writeFile(join(ext,'manifest.json'),JSON.stringify(manifest));
 let context;const errors=[],calls=[];
 try{
- context=await chromium.launchPersistentContext(profile,{headless:process.env.BOPIT_HEADLESS==='1',channel:'chromium',viewport:{width:1500,height:1000},args:[`--disable-extensions-except=${ext}`,`--load-extension=${ext}`,'--disable-background-timer-throttling']});
+ context=await chromium.launchPersistentContext(profile,{headless:process.env.BOPIT_HEADLESS==='1',channel:'chromium',reducedMotion:'reduce',viewport:{width:1500,height:1000},args:[`--disable-extensions-except=${ext}`,`--load-extension=${ext}`,'--disable-background-timer-throttling']});
  context.on('page',p=>p.on('pageerror',e=>errors.push(e.message)));
+ await context.addInitScript(()=>{
+   class FixtureSpeechRecognition {
+     start(){setTimeout(()=>{
+       if(this.cancelled)return;
+       if(window.__voiceMode==='denied'){this.onerror?.({error:'not-allowed'});return;}
+       const result=[{transcript:'Same style in blue'}];result.isFinal=true;
+       this.onresult?.({results:[result]});this.onend?.();
+     },40);}
+     abort(){this.cancelled=true;}
+     stop(){this.onend?.();}
+   }
+   Object.defineProperty(window,'SpeechRecognition',{value:FixtureSpeechRecognition,configurable:true});
+ });
  const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');await worker.evaluate(()=>chrome.storage.local.set({pairingToken:'fixture-token'}));
  const product={id:'camera-1',title:'Fixture camera · compact black body',brand:'Fixture',image:'https://bopit-test.invalid/photo.svg',price:99,currency:'USD',retailer:'example.com',purchaseUrl:'https://example.com/product',structuredAttributes:{color:['Black'],material:['Polycarbonate']},variants:{selected:[{name:'Color',label:'Black'}],options:[{name:'Color',values:[{label:'Black',exists:true,available:'InStock'},{label:'White',exists:true,available:'OutOfStock'}]}]}},second={...product,id:'camera-2',title:'Fixture alternative'};
  await context.route('https://bopit-test.invalid/photo.svg',r=>r.fulfill({contentType:'image/svg+xml',body:'<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect x="10" y="20" width="60" height="45" rx="8" fill="#24364e"/><circle cx="40" cy="42" r="17" fill="#b4d4c0"/></svg>'}));
@@ -153,11 +166,41 @@ try{
  const constrained=calls.filter(c=>c.path.endsWith('/search')).at(-1);assert.equal(constrained.body.filters.colors.palette[0].hex,'#aabbcc');assert.deepEqual(constrained.body.filters.attributes.material,['Metal']);
  await inspector.locator('#catalog-extras > summary').click();await inspector.locator('#product-link-tools > summary').click();await inspector.locator('#lookup-url').fill('https://example.com/product');await inspector.locator('#lookup-product').click();await inspector.waitForFunction(()=>document.querySelectorAll('.product-card').length===1);
  await inspector.locator('#collection-tools > summary').click();await inspector.locator('#browse-collection').click();await inspector.waitForFunction(()=>document.querySelectorAll('.product-card').length===2);
- await inspector.locator('#conversation-tools > summary').click();await inspector.locator('#shopping-request').fill('A smaller option under $120');await inspector.locator('#refine-with-channel3').click();await inspector.waitForFunction(()=>document.querySelector('#shopping-reply').textContent.includes('smaller option'));
+ assert.equal(await inspector.locator('#conversation-tools').count(),0,'no separate preference dropdown');
+ assert.equal(await inspector.getByRole('button',{name:'Find my version',exact:true}).count(),0);
+ assert.match(await inspector.locator('#search-context-label').innerText(),/Finding alternatives to:/);
+ await inspector.locator('#product-query').fill('A smaller option under $120');assert.equal(await inspector.locator('#product-query').inputValue(),'A smaller option under $120');await inspector.locator('#product-query').press('Enter');await inspector.waitForFunction(()=>document.querySelector('#shopping-reply').textContent.includes('smaller option'));
+ const preferenceCall=calls.filter(c=>c.path.endsWith('/conversation')).at(-1);
+ assert.match(preferenceCall.body.message,/Selected object, unverified observations/);
+ assert.match(preferenceCall.body.message,/currency: USD/);
+ const beforeVoice=calls.length;
+ await inspector.locator('.unified-search').evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));await inspector.locator('#voice-search-btn').click();await inspector.waitForFunction(()=>document.querySelector('#product-query').value==='Same style in blue');
+ assert.equal(calls.length,beforeVoice,'voice only drafts text and never submits');
+ assert.match(await inspector.locator('#voice-search-status').innerText(),/Review your words/);
+ await inspector.locator('#product-query').fill('Same style in green');await inspector.locator('#product-query').press('Enter');
+ await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
+ const followup=calls.filter(c=>c.path.endsWith('/conversation')).at(-1);
+ assert.equal(followup.body.conversationId,'conv_fixture');assert.match(followup.body.message,/Previous request: A smaller option under/);assert.match(followup.body.message,/Viewer request: Same style in green/);
+ await inspector.evaluate(()=>window.__voiceMode='denied');await inspector.locator('.unified-search').evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));await inspector.locator('#voice-search-btn').click();await inspector.waitForFunction(()=>document.querySelector('#voice-search-status').textContent.includes('Microphone access was blocked'));
+ const beforeClear=calls.length;await inspector.locator('#clear-search-context').click();
+ assert.equal(calls.length,beforeClear);assert.match(await inspector.locator('#search-context-label').innerText(),/Search products/);
+ await inspector.locator('#product-query').fill('Sony headphones');await inspector.locator('.unified-search').evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));await inspector.locator('#search-products-btn').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
+ assert.equal(calls.at(-1).path,'/api/products/search');assert.equal(calls.at(-1).body.query,'Sony headphones');
+ assert.equal(calls.at(-1).body.image,undefined,'cleared context is not sent');
+ await inspector.locator('.unified-search').evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));await page.screenshot({path:'test-results/unified-search.png'});
  await inspector.locator('.product-card').first().locator('.commerce-product-tools > details > summary').click();await inspector.locator('.product-card').first().locator('.commerce-product-tools details details summary').click();await inspector.locator('[data-action="track-product"]').first().click();await inspector.waitForFunction(()=>document.querySelector('.commerce-product-tools').textContent.includes('Tracking saved'));assert.match(await inspector.locator('#tracked-moments > summary').innerText(),/1/);assert.match(await inspector.locator('.commerce-product-tools').first().innerText(),/Product Subscriptions/);
  await inspector.locator('#tracked-moments > summary').click();await inspector.locator('#refresh-watches').click();await inspector.waitForFunction(()=>document.querySelector('#tracked-moments').textContent.includes('webhook'));assert.match(await inspector.locator('#tracked-moments').innerText(),/webhook/);
  await inspector.locator('#commerce-activity > summary').click();await inspector.locator('#load-commerce-activity').click();await inspector.waitForFunction(()=>document.querySelector('#commerce-activity').textContent.includes('Provider records loaded'));
  await inspector.locator('#scene-tools > summary').click();await inspector.getByRole('button',{name:'Choose items from this moment'}).click();await inspector.locator('#scene-tools input[type=checkbox]').first().check();await inspector.locator('#scene-budget').fill('250');await inspector.locator('#build-scene').click();await inspector.waitForFunction(()=>document.querySelector('#scene-results').textContent.includes('Candidate setup'));
+ const beforeInspect=calls.length;
+ await inspector.locator('#scene-results').getByRole('button',{name:'Inspect option',exact:true}).first().evaluate(el=>el.scrollIntoView({block:'center',behavior:'instant'}));
+ await inspector.locator('#scene-results').getByRole('button',{name:'Inspect option',exact:true}).first().click();
+ await inspector.waitForFunction(()=>document.querySelectorAll('.product-card').length===1&&document.activeElement===document.querySelector('.product-card'));
+ await inspector.waitForFunction(()=>{const top=document.querySelector('.product-card').getBoundingClientRect().top;return top>=document.querySelector('header').getBoundingClientRect().bottom&&top<innerHeight;});
+ assert.equal(calls.length,beforeInspect,'Inspecting an existing setup candidate needs no extra provider call');
+ await inspector.locator('#back-to-items').click();
+ assert.equal(await inspector.locator('#scene-results').getByRole('button',{name:'Inspect option',exact:true}).first().isVisible(),true);
+ assert.equal(await inspector.locator('body').getAttribute('data-view'),'detail');
  assert.ok(calls.some(c=>c.path.endsWith('/browse')));assert.ok(calls.some(c=>c.path.endsWith('/lookup')));assert.ok(calls.some(c=>c.path.endsWith('/conversation')));assert.ok(calls.some(c=>c.path.endsWith('/history')));
  await page.screenshot({path:'test-results/commerce-tools.png'});
  // Explicit checkout works from the embedded extension frame without moving the source tab.
@@ -174,5 +217,5 @@ try{
  const vr=await page.locator('video').boundingBox(),or=await page.locator('#bopit-video-overlay').boundingBox();assert.ok(Math.abs(vr.width-or.width)<1);assert.ok(Math.abs(vr.height-or.height)<1);
  await page.locator('video').evaluate(v=>v.play());await page.locator('#bopit-video-overlay').waitFor({state:'hidden'});assert.equal(await page.locator('#bopit-results-panel').isVisible(),true);
  await page.locator('video').evaluate(v=>v.pause());await page.locator('#bopit-results-panel header button').click();await page.locator('#bopit-results-panel').waitFor({state:'hidden'});assert.equal(await page.locator('video').evaluate((v,t)=>Math.abs(v.currentTime-t)<.03,time),true,'main timestamp restoration is retained');
- assert.deepEqual(errors,[]);console.log('PASS: toolbar-only activation; no floating Explore buttons or automatic analysis; repeated injection stays single; scan on video; panel opens immediately with object grid; list/detail/back navigation; contour paths and marker fallback; no on-video controls; synchronized cropped gallery; captions; rich profile; hybrid/function searches; cache; budget; variant relaxation; stale-search suppression; resize/letterbox; resume hides boxes; no source navigation; checkout opens only after explicit click; cart; native similar; filters; collections; lookup; conversation; history; tracking; scene planning; reporting; no browser errors. Providers mocked.');
-}catch(error){console.log(JSON.stringify({error:error.message,errors,calls:calls.map(c=>c.path),frames:await Promise.all((context?.pages()||[]).flatMap(p=>p.frames()).filter(f=>f.url().includes('viewer.html')).map(async f=>({url:f.url(),notice:await f.locator('#notice').textContent().catch(()=>''),body:await f.locator('body').innerText().catch(()=>'' )})))}));throw error;}finally{await context?.close();site.closeAllConnections();await new Promise(r=>site.close(r));await rm(profile,{recursive:true,force:true});}
+ assert.deepEqual(errors,[]);console.log('PASS: toolbar-only activation; no floating Explore buttons or automatic analysis; repeated injection stays single; scan on video; panel opens immediately with object grid; list/detail/back navigation; contour paths and marker fallback; no on-video controls; synchronized cropped gallery; captions; rich profile; hybrid/function searches; cache; budget; variant relaxation; stale-search suppression; resize/letterbox; resume hides boxes; no source navigation; checkout opens only after explicit click; cart; native similar; filters; collections; lookup; conversation; history; tracking; scene planning; reporting; unified contextual search; editable voice transcript; microphone denial; no browser errors. Providers mocked.');
+}catch(error){console.log(JSON.stringify({error:error.message,errors,calls:calls.map(c=>c.path),frames:await Promise.all((context?.pages()||[]).flatMap(p=>p.frames()).filter(f=>f.url().includes('viewer.html')).map(async f=>({url:f.url(),voice:await f.locator('#voice-search-status').textContent().catch(()=>''),notice:await f.locator('#notice').textContent().catch(()=>''),body:await f.locator('body').innerText().catch(()=>'' )})))}));throw error;}finally{await context?.close();site.closeAllConnections();await new Promise(r=>site.close(r));await rm(profile,{recursive:true,force:true});}
