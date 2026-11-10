@@ -1,30 +1,746 @@
-<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>BopIt · Explore this moment</title><link rel="stylesheet" href="style.css"></head>
-<body data-view="all">
-<header><button id="back-to-items" class="back-button" hidden aria-label="Back to all detected items">← All items</button><div><strong class="brand">bopit<span>✳</span></strong><span class="badge">Your video, discovered</span></div><nav><button id="return" class="secondary" hidden>Return to video</button><a href="settings.html" target="_blank" rel="noreferrer">Settings</a></nav></header>
-<main>
-  <section class="intro"><span class="eyebrow">PAUSE. NOTICE. EXPLORE.</span><h1>A little curiosity.<br>A closer look.</h1><p>Select an object from the detected finds to inspect it. Find this looks for same-item candidates; Similar look finds visual alternatives; Same function finds products for a similar purpose.</p></section>
-  <div id="notice" class="notice" role="status" aria-live="polite">Pause a video and click BopIt in your Chrome toolbar.</div>
-  <section id="moment-welcome"><span class="eyebrow">A LITTLE CURIOSITY GOES A LONG WAY</span><h1>What caught<br>your eye<span>?</span></h1><p>Pick a find from this moment.<br>We’ll take a closer look together.</p><div class="moment-meta"><span id="moment-time">Your paused moment</span><span class="tiny-flower" aria-hidden="true">✳</span></div></section>
-  <div id="scan-skeleton" aria-hidden="true" hidden><div></div><div></div><div></div><div></div></div>
-  <div class="workspace">
-    <details class="frame-tools"><summary>Frame preview & selection tools</summary><section class="canvas-card" aria-label="Captured moment">
-      <div class="toolbar"><span id="mode" class="badge">No frame loaded</span><label class="file-button">Upload a frame<input id="upload" type="file" accept="image/png,image/jpeg,image/webp"></label><button id="example" class="secondary">Layout example</button></div>
-      <div id="stage-wrap"><div id="stage"><img id="frame" alt="Your captured frame; detected objects also appear in the keyboard-accessible list" hidden><div id="boxes"></div><div id="draft" hidden></div></div><p id="empty">Your selected moment will appear here.<br>Explore sends this frame to Gemini.</p></div>
-      <div class="toolbar"><button id="analyze" disabled>Find objects with Gemini</button><button id="draw" class="secondary" disabled>Select an area</button><button id="export" class="secondary" disabled>Export result</button></div>
-      <p class="privacy">Explore analyzes this frame with Gemini. Selecting an item sends its crop to Gemini and Channel3. Nearby captions are included when available. Public YouTube context is optional.</p>
+<!DOCTYPE html>
+<html lang="en">
+ <head>
+  <meta charset="utf-8"/>
+  <meta content="width=device-width,initial-scale=1" name="viewport"/>
+  <title>
+   BopIt · Explore this moment
+  </title>
+  <link href="style.css" rel="stylesheet"/>
+  <link href="experience.css" rel="stylesheet"/>
+ </head>
+ <body class="refreshed-ui" data-view="all" data-workspace="explore">
+  <header>
+   <div class="brand-lockup">
+    <strong class="brand">
+     bopit
+     <span aria-hidden="true">
+      ✳
+     </span>
+    </strong>
+    <span class="brand-purpose">
+     Shop the moment
+    </span>
+   </div>
+   <nav aria-label="Quick actions">
+    <details class="app-menu" id="app-menu">
+     <summary aria-label="More options" title="More options">
+      •••
+     </summary>
+     <div class="menu-items">
+      <button data-workspace-link="tools" type="button">
+       Frame &amp; editing tools
+      </button>
+      <button data-workspace-link="activity" type="button">
+       Shopping activity
+      </button>
+      <a href="settings.html" rel="noreferrer" target="_blank">
+       Connection settings ↗
+      </a>
+      <button hidden="" id="return" type="button">
+       Back to video
+      </button>
+     </div>
+    </details>
+   </nav>
+  </header>
+  <nav aria-label="BopIt sections" class="workspace-tabs">
+   <button aria-current="page" data-workspace-link="explore" type="button">
+    <svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" viewbox="0 0 24 24">
+     <circle cx="10.5" cy="10.5" r="6.5">
+     </circle>
+     <path d="m16 16 4 4">
+     </path>
+    </svg>
+    Discover
+   </button>
+   <button data-workspace-link="saved" type="button">
+    <svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" viewbox="0 0 24 24">
+     <path d="M6 4h12v17l-6-4-6 4z">
+     </path>
+    </svg>
+    Saved
+   </button>
+   <button data-workspace-link="alerts" type="button">
+    <svg aria-hidden="true" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.6" viewbox="0 0 24 24">
+     <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4">
+     </path>
+    </svg>
+    Alerts
+   </button>
+  </nav>
+  <main>
+   <div id="explore-content">
+    <div class="navigation-row">
+     <button aria-label="Back to all detected items" class="back-button" hidden="" id="back-to-items">
+      ← All items
+     </button>
+    </div>
+    <div aria-live="polite" class="notice" id="notice" role="status">
+     Pause a video and click BopIt in your Chrome toolbar.
+    </div>
+    <button class="secondary" hidden="" id="retry-scan" type="button">
+     Retry scan
+    </button>
+    <section id="moment-welcome">
+     <div class="welcome-heading">
+      <div>
+       <span class="eyebrow">
+        FROM YOUR VIDEO
+       </span>
+       <h1>
+        See it. Find it.
+       </h1>
+      </div>
+      <span aria-hidden="true" class="welcome-mark">
+       ✳
+      </span>
+     </div>
+     <div class="moment-meta">
+      <span id="moment-time">
+       Your paused moment
+      </span>
+     </div>
     </section>
-    </details><aside><section id="moment-gallery" class="panel"><div class="panel-heading"><h2>Your finds</h2><span id="count">0 items</span></div><p id="outline-status" class="muted" role="status"></p><ul id="objects" aria-label="Detected objects"></ul><details class="moment-context"><summary>About this moment</summary><p id="scene">Scene observations will appear after analysis.</p><p id="activity" class="muted"></p><p id="warnings" class="muted"></p></details></section>
-    <section id="scene-planning" class="panel" hidden><div class="panel-heading"><h2>Plan this scene</h2><span id="scene-object-count" class="badge"></span></div><p class="muted">Search selected detected objects separately. Products stay grouped by object; visual notes are not compatibility claims.</p><p id="scene-observation" class="muted"></p><div id="scene-relationships"></div><div id="scene-combinations"></div><button id="run-scene-plan" type="button">Discover selected objects</button><button id="rebuild-scene-plan" type="button" class="secondary">Rebuild plan from finds</button><p id="scene-plan-status" class="muted" role="status"></p><div id="scene-plan-objects"></div></section>
-    <section id="detail" class="panel" hidden tabindex="-1"><div class="selected-hero"><img id="selected-image" alt="Selected object"><span class="hero-spark" aria-hidden="true">✳</span></div><span class="eyebrow">YOUR SELECTED OBJECT</span><p id="object-origin" class="muted"></p><h2 id="label"></h2><p id="selected-hint" class="muted">A closer look at what caught your eye.</p><p id="attributes"></p><p id="markings"></p><p id="relationship"></p><p id="uncertainty"></p><div id="investigation-status" role="status" aria-live="polite"></div><ol id="investigation-stages" aria-label="Investigation progress"><li data-stage="preparation" data-state="pending">Preparing selected object</li><li data-stage="identification" data-state="pending">Identifying object with Gemini</li><li data-stage="attributes" data-state="pending">Extracting details and optional colour palette</li><li data-stage="search" data-state="pending">Searching Channel3</li><li data-stage="comparison" data-state="pending">Comparing available listings</li></ol><div id="profile-summary"></div><div id="profile-evidence"></div>
-<details id="context-tools"><summary>Speech context & preferences</summary><p id="context-status" class="muted"></p><label>What you know about this item (optional)<textarea id="context-note" maxlength="4000" rows="3" placeholder="Paste relevant speech, a model name, or your requirements"></textarea></label><label id="youtube-option" hidden><input id="use-youtube" type="checkbox"> Analyze nearby public YouTube video/audio with Gemini</label><p class="muted">Enabling video context sends the public video URL to Gemini. Captions and creator statements remain claims.</p><label class="file-button">Add another view<input id="additional-view" type="file" accept="image/png,image/jpeg,image/webp"></label><p id="view-status" class="muted">Optional: add up to two clear images of the same item.</p><button id="clear-views" class="secondary" hidden>Remove extra views</button><button id="refresh-profile" class="secondary">Update investigation</button></details>
-<button id="find-products-btn">Refresh details & matches</button><button id="refine">Inspect this area more closely</button><button id="remove" class="secondary">Remove this highlight</button><details><summary>Correct label or box</summary><form id="correction"><label>Category label<input id="edit-label" required maxlength="100"></label><div class="coordinates"><label>X %<input id="edit-x" type="number" min="0" max="100" step="0.1" required></label><label>Y %<input id="edit-y" type="number" min="0" max="100" step="0.1" required></label><label>Width %<input id="edit-width" type="number" min="0.1" max="100" step="0.1" required></label><label>Height %<input id="edit-height" type="number" min="0.1" max="100" step="0.1" required></label></div><button type="submit" class="secondary">Apply manual correction</button></form></details></section>
-    <section id="products-panel" class="panel"><div class="panel-heading"><h2>Find your version</h2><span id="products-badge" class="badge">Via Channel3</span></div><div id="intent-chips" aria-label="Shopping intent"><button data-intent="exact" aria-pressed="true">Find this</button><button data-intent="look" aria-pressed="false">Similar look</button><button data-intent="function" aria-pressed="false">Same function</button></div><p class="muted">Find this searches for possible same-item matches, not proof of identity. Similar look prioritizes appearance; Same function prioritizes use. Both can return alternatives.</p><div class="preferences"><label>Max price (optional)<input id="budget" type="number" min="1" placeholder="Any price"></label><label>Market<select id="market"><option value="US:USD">US · USD</option><option value="GB:GBP">UK · GBP</option><option value="EU:EUR">Europe · EUR</option><option value="CA:CAD">Canada · CAD</option><option value="AU:AUD">Australia · AUD</option></select></label></div>    <details id="palette-options"><summary>Match the object's colours (Beta)</summary><p class="muted">Colour matching is experimental and optional. Suggestions come from the selected crop; review or adjust HEX colours before applying.</p><div id="palette-controls" class="palette-controls"></div><p id="palette-status" class="muted"></p></details>
-    <details id="discovery-options"><summary>More search options</summary><button data-intent="cheaper" id="cheaper-alternatives" class="secondary">Lower-priced alternatives</button><p class="muted">Sorts returned alternatives by price. The video's item price is unknown.</p><div class="preferences"><label>Budget preset<select id="budget-preset"><option value="no-limit">No limit</option><option value="low">Low budget</option><option value="mid">Mid-range</option><option value="premium">Premium</option><option value="custom">Custom</option></select></label><label>Budget currency<select id="budget-currency"><option value="">Any currency</option></select></label></div><label id="budget-custom-controls" hidden>Maximum in selected currency<input id="budget-filter" type="number" min="0"></label><div class="catalog-controls"><h3>Browse Channel3 catalog</h3><label>Find category<input id="category-query" type="search" maxlength="200" placeholder="e.g. digital cameras"></label><button id="category-search" type="button" class="secondary">Find categories</button><button id="category-list" type="button" class="secondary">Load top-level categories</button><button id="category-more" type="button" class="secondary" hidden>More categories</button><label>Category<select id="category-filter"><option value="">Any category</option></select></label><div id="category-attributes"></div><label>Find brand<input id="brand-query" type="search" maxlength="200" placeholder="e.g. Sony"></label><button id="brand-search" type="button" class="secondary">Find brands</button><button id="brand-list" type="button" class="secondary">List brands</button><button id="brand-more" type="button" class="secondary" hidden>More brands</button><label>Brand<select id="catalog-brand"><option value="">Any catalog brand</option></select></label><button id="brand-details" type="button" class="secondary">Show brand details</button><div id="brand-details-view"></div><button id="browse-products" type="button" class="secondary">Browse selected category or brand</button><p id="catalog-notice" class="muted" role="status"></p></div></details><div id="search-context" class="search-context"><span id="search-context-label">Search products or describe what you need.</span><button id="clear-search-context" type="button" class="secondary" hidden>Clear</button></div><div class="products-search-bar unified-search"><label class="sr-only" for="product-query">Search or describe what you want</label><input id="product-query" type="text" placeholder="Search or describe what you want…" maxlength="2500" aria-describedby="search-context-label"><button id="voice-search-btn" type="button" class="secondary" aria-label="Speak your request" aria-pressed="false" title="Speak your request. Your browser’s speech service handles transcription.">🎤</button><button id="search-products-btn" type="button">Find</button></div><p id="voice-search-status" class="muted" role="status" aria-live="polite"></p><p id="shopping-reply" class="muted" role="status" aria-live="polite"></p><div class="products-search-bar"><input id="product-url" type="url" placeholder="Paste a retailer product URL..." maxlength="2000"><button id="lookup-product-btn" type="button" class="secondary">Look up URL</button></div><p id="products-notice" class="muted">Search or click an item above to see real purchasable products.</p><section id="conversation-tools" class="conversation-panel" hidden><div class="panel-heading"><h3>Refine these results</h3><button id="new-conversation" type="button" class="secondary">Start fresh</button></div><div id="conversation-transcript" class="conversation-transcript" role="log" aria-live="polite"></div><form id="conversation-form"><label for="conversation-message">What would you like to change?</label><textarea id="conversation-message" maxlength="4000" rows="2" placeholder="e.g. Show cheaper alternatives in black"></textarea><button id="send-conversation" type="submit">Refine products</button></form><p id="conversation-status" class="muted" role="status">Channel3 will refine the current shopping context.</p></section><div id="results-toolbar" class="results-toolbar"><strong id="results-count">Products</strong><label>Brand<select id="brand-filter"><option value="">Any brand</option></select></label><label>Sort<select id="product-sort"><option value="auto">Recommended</option><option value="relevance">Most relevant</option><option value="price-asc">Lowest price</option><option value="price-desc">Highest price</option></select></label></div><div id="products-container" class="products-container"></div><button id="load-more-products" type="button" class="secondary" hidden>Load more products</button><section id="comparison-panel" hidden><h3>Compare your finds</h3><p id="comparison-notice" class="muted"></p><div id="comparison-container"></div></section></section></aside>
-  </div>
-<details id="wishlist-panel"><summary>Saved products <span id="saved-count">0</span></summary><p id="wishlist-notice" class="muted"></p><div id="wishlist-container"></div></details>
-<section id="reporting-panel" class="panel"><div class="panel-heading"><h2>Affiliate Performance</h2><label>Period<select id="reporting-period"><option value="7">7 days</option><option value="30" selected>30 days</option><option value="90">90 days</option></select></label></div><p class="muted">See how your product discoveries perform. Track clicks, purchases attributed by Channel3 and conversion rates.</p><button id="load-reporting" type="button" class="secondary">Load affiliate reports</button><p id="reporting-status" class="muted" role="status">Reports are loaded only when requested.</p><details class="metric-help"><summary>What these metrics mean</summary><ul><li>Product clicks: tracked clicks on eligible affiliate links.</li><li>Attributed purchases: purchases Channel3 attributes to those clicks.</li><li>Conversion rate: attributed purchases divided by tracked clicks.</li><li>Transaction value: reported purchase values, when supplied by Channel3.</li></ul></details><div id="reporting-metrics" class="reporting-metrics"></div><div id="reporting-chart" class="reporting-chart" role="img" aria-label="Click and transaction totals"></div><div id="reporting-values"></div><p class="muted">Attribution depends on Channel3 tracking, merchant participation and reporting availability.</p><div class="reporting-columns"><section><h3>Product clicks</h3><div id="click-report-items"></div><button id="more-clicks" class="secondary" type="button" hidden>More clicks</button></section><section><h3>Attributed purchases</h3><div id="transaction-report-items"></div><button id="more-transactions" class="secondary" type="button" hidden>More purchases</button></section></div></section>
-<section id="subscription-inbox" class="panel"><div class="panel-heading"><h2>Price &amp; Availability Alerts</h2><button id="refresh-subscription-inbox" type="button" class="secondary">Refresh alerts</button></div><p class="muted">Keep track of products you're interested in: select a product, create a supported Channel3 alert, then check this inbox for updates. Review active and cancelled subscriptions in the product details. Updates depend on provider support and webhook delivery.</p><button id="enable-desktop-alerts" type="button" class="secondary">Enable desktop alert notifications</button><p id="subscription-inbox-status" class="muted" role="status">Refresh to check for saved Channel3 alert events.</p><div id="subscription-inbox-items"></div></section>
-  <footer>AI finds may be imperfect. Check product details before buying. Retailer links may earn us a commission.</footer>
-</main><script type="module" src="viewer.js"></script>
-</body></html>
+    <div aria-hidden="true" hidden="" id="scan-skeleton">
+     <div>
+     </div>
+     <div>
+     </div>
+     <div>
+     </div>
+     <div>
+     </div>
+    </div>
+    <div class="workspace">
+     <aside>
+      <section class="panel" id="moment-gallery">
+       <div class="panel-heading">
+        <h2>
+         Your finds
+        </h2>
+        <span id="count">
+         0 items
+        </span>
+       </div>
+       <p class="muted" id="outline-status" role="status">
+       </p>
+       <ul aria-label="Detected objects" id="objects">
+       </ul>
+       <details class="moment-context">
+        <summary>
+         About this moment
+        </summary>
+        <p id="scene">
+         Scene observations will appear after analysis.
+        </p>
+        <p class="muted" id="activity">
+        </p>
+        <p class="muted" id="warnings">
+        </p>
+       </details>
+      </section>
+      <details class="panel scene-planner" hidden="" id="scene-planning">
+       <summary>
+        Build a set from this moment
+       </summary>
+       <div class="panel-heading">
+        <h2>
+         Your set
+        </h2>
+        <span class="badge" id="scene-object-count">
+        </span>
+       </div>
+       <p class="muted" id="scene-observation">
+       </p>
+       <div id="scene-relationships">
+       </div>
+       <div id="scene-combinations">
+       </div>
+       <button id="run-scene-plan" type="button">
+        Discover selected objects
+       </button>
+       <button class="secondary" id="rebuild-scene-plan" type="button">
+        Rebuild plan from finds
+       </button>
+       <p class="muted" id="scene-plan-status" role="status">
+       </p>
+       <div id="scene-plan-objects">
+       </div>
+      </details>
+      <section class="panel" hidden="" id="detail" tabindex="-1">
+       <div class="selected-object">
+        <div class="selected-hero">
+         <img alt="Selected object" id="selected-image"/>
+        </div>
+        <div class="selected-object-heading">
+         <h2 id="label">
+         </h2>
+         <div id="profile-summary">
+         </div>
+        </div>
+       </div>
+       <div aria-live="polite" id="investigation-status" role="status">
+       </div>
+       <div id="profile-evidence">
+       </div>
+       <details class="quiet-details" id="object-tools">
+        <summary>
+         Adjust this find
+        </summary>
+        <p class="muted" id="object-origin">
+        </p>
+        <p id="attributes">
+        </p>
+        <p id="markings">
+        </p>
+        <p id="relationship">
+        </p>
+        <p id="uncertainty">
+        </p>
+        <details id="context-tools">
+         <summary>
+          Speech context &amp; preferences
+         </summary>
+         <p class="muted" id="context-status">
+         </p>
+         <label>
+          What you know about this item (optional)
+          <textarea id="context-note" maxlength="4000" placeholder="Paste relevant speech, a model name, or your requirements" rows="3"></textarea>
+         </label>
+         <label hidden="" id="youtube-option">
+          <input id="use-youtube" type="checkbox"/>
+          Analyze nearby public YouTube video/audio with Gemini
+         </label>
+         <p class="muted">
+          Enabling video context sends the public video URL to Gemini. Captions and creator statements remain claims.
+         </p>
+         <label class="file-button">
+          Add another view
+          <input accept="image/png,image/jpeg,image/webp" id="additional-view" type="file"/>
+         </label>
+         <p class="muted" id="view-status">
+          Optional: add up to two clear images of the same item.
+         </p>
+         <button class="secondary" hidden="" id="clear-views">
+          Remove extra views
+         </button>
+         <button class="secondary" id="refresh-profile">
+          Apply added context
+         </button>
+        </details>
+        <button id="find-products-btn">
+         Retry analysis
+        </button>
+        <button id="refine">
+         Refine selection
+        </button>
+        <button class="secondary" id="remove">
+         Remove find
+        </button>
+        <details>
+         <summary>
+          Correct label or box
+         </summary>
+         <form id="correction">
+          <label>
+           Category label
+           <input id="edit-label" maxlength="100" required=""/>
+          </label>
+          <div class="coordinates">
+           <label>
+            X %
+            <input id="edit-x" max="100" min="0" required="" step="0.1" type="number"/>
+           </label>
+           <label>
+            Y %
+            <input id="edit-y" max="100" min="0" required="" step="0.1" type="number"/>
+           </label>
+           <label>
+            Width %
+            <input id="edit-width" max="100" min="0.1" required="" step="0.1" type="number"/>
+           </label>
+           <label>
+            Height %
+            <input id="edit-height" max="100" min="0.1" required="" step="0.1" type="number"/>
+           </label>
+          </div>
+          <button class="secondary" type="submit">
+           Apply manual correction
+          </button>
+         </form>
+        </details>
+        <details class="progress-details">
+         <summary>
+          Analysis progress
+         </summary>
+         <ol aria-label="Investigation progress" id="investigation-stages">
+          <li data-stage="preparation" data-state="pending">
+           Preparing selected object
+          </li>
+          <li data-stage="identification" data-state="pending">
+           Identifying object with Gemini
+          </li>
+          <li data-stage="attributes" data-state="pending">
+           Extracting details and optional colour palette
+          </li>
+          <li data-stage="search" data-state="pending">
+           Searching Channel3
+          </li>
+          <li data-stage="comparison" data-state="pending">
+           Comparing available listings
+          </li>
+         </ol>
+        </details>
+       </details>
+      </section>
+      <section class="panel" id="products-panel">
+       <div class="panel-heading">
+        <h2>
+         Shop this find
+        </h2>
+        <span class="badge" id="products-badge">
+         Product matches
+        </span>
+       </div>
+       <div aria-label="Shopping intent" id="intent-chips">
+        <button aria-pressed="true" data-intent="exact">
+         Find this
+        </button>
+        <button aria-pressed="false" data-intent="look">
+         Similar look
+        </button>
+        <button aria-pressed="false" data-intent="function">
+         Same function
+        </button>
+       </div>
+       <div class="search-context" id="search-context">
+        <span id="search-context-label">
+         Search products or describe what you need.
+        </span>
+        <button class="secondary" hidden="" id="clear-search-context" type="button">
+         Clear
+        </button>
+       </div>
+       <div class="products-search-bar unified-search">
+        <label class="sr-only" for="product-query">
+         Search or describe what you want
+        </label>
+        <input aria-describedby="search-context-label" id="product-query" maxlength="2500" placeholder="Find a product, or ask for a change…" type="text"/>
+        <button aria-label="Speak your request" aria-pressed="false" class="secondary" id="voice-search-btn" title="Speak your request. Your browser’s speech service handles transcription." type="button">
+         🎤
+        </button>
+        <button id="search-products-btn" type="button">
+         Find
+        </button>
+       </div>
+       <details class="search-filters" id="search-filters">
+        <summary>
+         Filters
+         <span aria-hidden="true">
+          ⌄
+         </span>
+        </summary>
+        <div class="preferences">
+         <label>
+          Max price (optional)
+          <input id="budget" min="1" placeholder="Any price" type="number"/>
+         </label>
+         <label>
+          Market
+          <select id="market">
+           <option value="US:USD">
+            US · USD
+           </option>
+           <option value="GB:GBP">
+            UK · GBP
+           </option>
+           <option value="EU:EUR">
+            Europe · EUR
+           </option>
+           <option value="CA:CAD">
+            Canada · CAD
+           </option>
+           <option value="AU:AUD">
+            Australia · AUD
+           </option>
+          </select>
+         </label>
+        </div>
+        <details id="palette-options">
+         <summary>
+          Match the object's colours (Beta)
+         </summary>
+         <p class="muted">
+          Colour matching is experimental and optional. Suggestions come from the selected crop; review or adjust HEX colours before applying.
+         </p>
+         <div class="palette-controls" id="palette-controls">
+         </div>
+         <p class="muted" id="palette-status">
+         </p>
+        </details>
+        <details id="discovery-options">
+         <summary>
+          Advanced catalog filters
+         </summary>
+         <button class="secondary" data-intent="cheaper" hidden="" id="cheaper-alternatives">
+          Lower-priced alternatives
+         </button>
+         <div class="preferences">
+          <label>
+           Budget preset
+           <select id="budget-preset">
+            <option value="no-limit">
+             No limit
+            </option>
+            <option value="low">
+             Low budget
+            </option>
+            <option value="mid">
+             Mid-range
+            </option>
+            <option value="premium">
+             Premium
+            </option>
+            <option value="custom">
+             Custom
+            </option>
+           </select>
+          </label>
+          <label>
+           Budget currency
+           <select id="budget-currency">
+            <option value="">
+             Any currency
+            </option>
+           </select>
+          </label>
+         </div>
+         <label hidden="" id="budget-custom-controls">
+          Maximum in selected currency
+          <input id="budget-filter" min="0" type="number"/>
+         </label>
+         <div class="catalog-controls">
+          <h3>
+           Browse Channel3 catalog
+          </h3>
+          <label>
+           Find category
+           <input id="category-query" maxlength="200" placeholder="e.g. digital cameras" type="search"/>
+          </label>
+          <button class="secondary" id="category-search" type="button">
+           Find categories
+          </button>
+          <button class="secondary" id="category-list" type="button">
+           Load top-level categories
+          </button>
+          <button class="secondary" hidden="" id="category-more" type="button">
+           More categories
+          </button>
+          <label>
+           Category
+           <select id="category-filter">
+            <option value="">
+             Any category
+            </option>
+           </select>
+          </label>
+          <div id="category-attributes">
+          </div>
+          <label>
+           Find brand
+           <input id="brand-query" maxlength="200" placeholder="e.g. Sony" type="search"/>
+          </label>
+          <button class="secondary" id="brand-search" type="button">
+           Find brands
+          </button>
+          <button class="secondary" id="brand-list" type="button">
+           List brands
+          </button>
+          <button class="secondary" hidden="" id="brand-more" type="button">
+           More brands
+          </button>
+          <label>
+           Brand
+           <select id="catalog-brand">
+            <option value="">
+             Any catalog brand
+            </option>
+           </select>
+          </label>
+          <button class="secondary" id="brand-details" type="button">
+           Show brand details
+          </button>
+          <div id="brand-details-view">
+          </div>
+          <button class="secondary" id="browse-products" type="button">
+           Browse selected category or brand
+          </button>
+          <p class="muted" id="catalog-notice" role="status">
+          </p>
+         </div>
+         <details class="quiet-details">
+          <summary>
+           Have a product link?
+          </summary>
+          <div class="products-search-bar">
+           <input id="product-url" maxlength="2000" placeholder="Paste a retailer product URL..." type="url"/>
+           <button class="secondary" id="lookup-product-btn" type="button">
+            Look up URL
+           </button>
+          </div>
+         </details>
+        </details>
+       </details>
+       <p aria-live="polite" class="muted" id="voice-search-status" role="status">
+       </p>
+       <p aria-live="polite" class="muted" id="shopping-reply" role="status">
+       </p>
+       <p class="muted" id="products-notice">
+        Search or click an item above to see real purchasable products.
+       </p>
+       <section class="conversation-panel" hidden="" id="conversation-tools">
+        <div class="panel-heading">
+         <h3>
+          Refine these results
+         </h3>
+         <button class="secondary" id="new-conversation" type="button">
+          Start fresh
+         </button>
+        </div>
+        <div aria-live="polite" class="conversation-transcript" id="conversation-transcript" role="log">
+        </div>
+        <form id="conversation-form">
+         <label for="conversation-message">
+          What would you like to change?
+         </label>
+         <textarea id="conversation-message" maxlength="4000" placeholder="e.g. Show cheaper alternatives in black" rows="2"></textarea>
+         <button id="send-conversation" type="submit">
+          Refine products
+         </button>
+        </form>
+        <p class="muted" id="conversation-status" role="status">
+         Channel3 will refine the current shopping context.
+        </p>
+       </section>
+       <div class="results-toolbar" id="results-toolbar">
+        <strong id="results-count">
+         Products
+        </strong>
+        <label>
+         Brand
+         <select id="brand-filter">
+          <option value="">
+           Any brand
+          </option>
+         </select>
+        </label>
+        <label>
+         Sort
+         <select id="product-sort">
+          <option value="auto">
+           Recommended
+          </option>
+          <option value="relevance">
+           Most relevant
+          </option>
+          <option value="price-asc">
+           Lowest price
+          </option>
+          <option value="price-desc">
+           Highest price
+          </option>
+         </select>
+        </label>
+       </div>
+       <div class="products-container" id="products-container">
+       </div>
+       <button class="secondary" hidden="" id="load-more-products" type="button">
+        Load more products
+       </button>
+       <section hidden="" id="comparison-panel">
+        <h3>
+         Compare your finds
+        </h3>
+        <p class="muted" id="comparison-notice">
+        </p>
+        <div id="comparison-container">
+        </div>
+       </section>
+      </section>
+     </aside>
+    </div>
+   </div>
+   <section class="workspace-page" id="wishlist-panel">
+    <h1>
+     Saved
+     <span class="count-badge" id="saved-count">
+      0
+     </span>
+    </h1>
+    <p class="muted" id="wishlist-notice">
+    </p>
+    <div id="wishlist-container">
+    </div>
+   </section>
+   <section class="workspace-page" id="reporting-panel">
+    <div class="panel-heading">
+     <h1>
+      Shopping activity
+     </h1>
+     <label>
+      Period
+      <select id="reporting-period">
+       <option value="7">
+        7 days
+       </option>
+       <option selected="" value="30">
+        30 days
+       </option>
+       <option value="90">
+        90 days
+       </option>
+      </select>
+     </label>
+    </div>
+    <p class="muted">
+     See how your product discoveries perform. Track clicks, purchases attributed by Channel3 and conversion rates.
+    </p>
+    <button class="secondary" id="load-reporting" type="button">
+     Load affiliate reports
+    </button>
+    <p class="muted" id="reporting-status" role="status">
+     Reports are loaded only when requested.
+    </p>
+    <details class="metric-help">
+     <summary>
+      What these metrics mean
+     </summary>
+     <ul>
+      <li>
+       Product clicks: tracked clicks on eligible affiliate links.
+      </li>
+      <li>
+       Attributed purchases: purchases Channel3 attributes to those clicks.
+      </li>
+      <li>
+       Conversion rate: attributed purchases divided by tracked clicks.
+      </li>
+      <li>
+       Transaction value: reported purchase values, when supplied by Channel3.
+      </li>
+     </ul>
+    </details>
+    <div class="reporting-metrics" id="reporting-metrics">
+    </div>
+    <div aria-label="Click and transaction totals" class="reporting-chart" id="reporting-chart" role="img">
+    </div>
+    <div id="reporting-values">
+    </div>
+    <p class="muted">
+     Attribution depends on Channel3 tracking, merchant participation and reporting availability.
+    </p>
+    <div class="reporting-columns">
+     <section>
+      <h3>
+       Product clicks
+      </h3>
+      <div id="click-report-items">
+      </div>
+      <button class="secondary" hidden="" id="more-clicks" type="button">
+       More clicks
+      </button>
+     </section>
+     <section>
+      <h3>
+       Attributed purchases
+      </h3>
+      <div id="transaction-report-items">
+      </div>
+      <button class="secondary" hidden="" id="more-transactions" type="button">
+       More purchases
+      </button>
+     </section>
+    </div>
+   </section>
+   <section class="workspace-page" id="subscription-inbox">
+    <div class="panel-heading">
+     <h1>
+      Price alerts
+     </h1>
+     <button class="secondary" id="refresh-subscription-inbox" type="button">
+      Refresh alerts
+     </button>
+    </div>
+    <p class="muted">
+     Keep track of products you're interested in: select a product, create a supported Channel3 alert, then check this inbox for updates. Review active and cancelled subscriptions in the product details. Updates depend on provider support and webhook delivery.
+    </p>
+    <button class="secondary" id="enable-desktop-alerts" type="button">
+     Enable desktop alert notifications
+    </button>
+    <p class="muted" id="subscription-inbox-status" role="status">
+     Refresh to check for saved Channel3 alert events.
+    </p>
+    <div id="subscription-inbox-items">
+    </div>
+   </section>
+   <footer>
+    AI matches may be imperfect. Retailer links may earn a commission.
+   </footer>
+   <section class="workspace-page" id="tools-view">
+    <h1>
+     Frame tools
+    </h1>
+    <details class="frame-tools">
+     <summary>
+      Frame preview &amp; selection tools
+     </summary>
+     <section aria-label="Captured moment" class="canvas-card">
+      <div class="toolbar">
+       <span class="badge" id="mode">
+        No frame loaded
+       </span>
+       <label class="file-button">
+        Upload a frame
+        <input accept="image/png,image/jpeg,image/webp" id="upload" type="file"/>
+       </label>
+       <button class="secondary" id="example">
+        Layout example
+       </button>
+      </div>
+      <div id="stage-wrap">
+       <div id="stage">
+        <img alt="Your captured frame; detected objects also appear in the keyboard-accessible list" hidden="" id="frame"/>
+        <div id="boxes">
+        </div>
+        <div hidden="" id="draft">
+        </div>
+       </div>
+       <p id="empty">
+        Your selected moment will appear here.
+        <br/>
+        Explore sends this frame to Gemini.
+       </p>
+      </div>
+      <div class="toolbar">
+       <button disabled="" id="analyze">
+        Find objects with Gemini
+       </button>
+       <button class="secondary" disabled="" id="draw">
+        Select an area
+       </button>
+       <button class="secondary" disabled="" id="export">
+        Export result
+       </button>
+      </div>
+      <p class="privacy">
+       Explore analyzes this frame with Gemini. Selecting an item sends its crop to Gemini and Channel3. Nearby captions are included when available. Public YouTube context is optional.
+      </p>
+     </section>
+    </details>
+   </section>
+  </main>
+  <script src="viewer.js" type="module">
+  </script>
+ </body>
+</html>

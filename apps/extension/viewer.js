@@ -5,14 +5,17 @@ import { createScenePlan, createSceneSearchRunner } from './scene-planning.mjs';
 import { formatProductPrice } from './product-display.js';
 import { prepareDetectionImage } from './detection-image.mjs';
 import { channel3ErrorMessage } from './ui-feedback.mjs';
+import { initializeNavigation, showWorkspace } from './navigation.js';
 const $ = selector => document.querySelector(selector);
 const node = (tag, text, className) => { const element = document.createElement(tag); if (text !== undefined) element.textContent = text; if (className) element.className = className; return element; };
 const embedded = new URLSearchParams(location.search).get('embedded') === '1';
 if (embedded) { document.body.classList.add('embedded'); $('#return').textContent = 'Back to video'; } else document.querySelector('.frame-tools').open = true;
+let lastAnalysis = { area: null, replacingId: null };
 let capture = null, objects = [], result = null, selectedId = null, drawing = false, start = null, busy = false, revision = 0, controller = null;
 let searchRevision = 0, searchController = null;
 const investigator = createInvestigator({ getCapture: () => capture, crop: box => cropImage(box).image, getSelected: () => objects.find(o => o.id === selectedId) });
 const sceneSearchRunner = createSceneSearchRunner({ concurrency: 2 });
+initializeNavigation();
 let scenePlan = null, scenePlanSignature = '', sceneSearchController = null, sceneSearchGeneration = 0;
 const sceneElements = new Map();
 function publish(extra = {}) { if (embedded && capture?.source) chrome.runtime.sendMessage({ type: 'BOPIT_OVERLAY_STATE', captureId: capture.captureId, objects: objects.map(({id,label,box,contour,contours}) => ({id,label,box,contour,contours})), selectedId, ...extra }).catch(() => {}); }
@@ -25,12 +28,12 @@ function cancelProductSearch() {
 }
 function setBusy(value) {
   busy = value; document.body.classList.toggle('is-scanning',value); $('#scan-skeleton').hidden = !value; $('#moment-gallery').setAttribute('aria-busy',String(value));
-  for (const selector of ['#analyze', '#refine', '#draw', '#remove', '#correction button', '#correction input']) {
+  for (const selector of ['#analyze', '#retry-scan', '#refine', '#draw', '#remove', '#correction button', '#correction input']) {
     document.querySelectorAll(selector).forEach(element => { element.disabled = value; });
   }
 }
 const full = { x: 0, y: 0, width: 1, height: 1 };
-function notice(text, error = false) { $('#notice').textContent = text; $('#notice').classList.toggle('error', error); }
+function notice(text, error = false) { $('#notice').textContent = text; $('#notice').classList.toggle('error', error); $('#retry-scan').hidden = !error || !capture; }
 function subscriptionEventText(event) {
   const data = event.data || {}, subject = data.subject || {}, domain = subject.domain || 'seller not supplied';
   if (event.type === 'offer.price.changed') return `${formatProductPrice(data.previous?.price, data.previous?.currency)} → ${formatProductPrice(data.current?.price, data.current?.currency)} at ${domain}`;
@@ -108,6 +111,7 @@ function positionLabel(button) {
   label.style.left = `${offset.left}px`; label.style.top = `${offset.top}px`;
 }
 function render() {
+  document.body.classList.toggle('has-finds', objects.length > 0);
   $('#boxes').replaceChildren(); $('#objects').replaceChildren();
   $('#count').textContent = `${objects.length} ${objects.length === 1 ? 'item' : 'items'}`;
   for (const object of objects) {
@@ -294,6 +298,7 @@ async function discoverScenePlan(objectIds = scenePlan?.objects.filter(item => i
   }
 }
 function select(id) {
+  showWorkspace('explore');
   cancelProductSearch();
   selectedId = id; render();
   document.body.dataset.view = 'detail'; $('#back-to-items').hidden = false; $('#selected-image').src = cropImage(objects.find(o=>o.id===id)?.box || full).image;
@@ -341,6 +346,7 @@ function cropImage(box) {
 }
 async function analyze(area = full, replacingId = null) {
   if (!capture || busy) return;
+  lastAnalysis = { area, replacingId };
   const pipelineStarted = performance.now();
   const current = ++revision;
   controller?.abort(); controller = new AbortController();
@@ -414,6 +420,7 @@ async function refineMasks(currentRevision, targets) {
   } catch { if(revision===currentRevision) $('#outline-status').textContent = 'Choose a card to explore this moment.'; }
 }
 $('#analyze').addEventListener('click', () => analyze());
+$('#retry-scan').addEventListener('click', () => analyze(lastAnalysis.area || full, lastAnalysis.replacingId));
 $('#refine').addEventListener('click', () => {
   const object = objects.find(o => o.id === selectedId); if (!object) return;
   const b = object.box, padX = b.width * .08, padY = b.height * .08;
@@ -481,6 +488,7 @@ $('#return').addEventListener('click', async () => {
   catch (error) { notice(error.message || 'Original tab unavailable. Return to it manually.', true); }
 });
 function showAll() {
+  showWorkspace('explore');
   selectedId = null; document.body.dataset.view = 'all'; $('#back-to-items').hidden = true;
   window.scrollTo({ top: 0, behavior: 'instant' }); render();
 }

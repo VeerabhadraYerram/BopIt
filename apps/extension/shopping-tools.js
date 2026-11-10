@@ -13,14 +13,14 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
     renderSaved();syncButtons();
   }).catch(()=>{$('#wishlist-notice').textContent='Saved items could not be loaded. Reload before changing saved items.';});
   function syncButtons() {
-    document.querySelectorAll('[data-save-product]').forEach(b=>{const id=b.dataset.saveProduct;b.textContent=saved.some(p=>p.id===id)?'Saved product':'Save product';b.setAttribute('aria-pressed',String(saved.some(p=>p.id===id)));b.disabled=pending.has(id);});
-    document.querySelectorAll('[data-compare-product]').forEach(b=>{const id=b.dataset.compareProduct;b.textContent=comparison.has(id)?'Remove from comparison':'Compare sellers';b.setAttribute('aria-pressed',String(comparison.has(id)));b.disabled=!comparison.has(id)&&comparison.size>=3;});
+    document.querySelectorAll('[data-save-product]').forEach(b=>{const id=b.dataset.saveProduct;b.textContent=saved.some(p=>p.id===id)?'Saved ♥':'♡ Save';b.setAttribute('aria-pressed',String(saved.some(p=>p.id===id)));b.disabled=pending.has(id);});
+    document.querySelectorAll('[data-compare-product]').forEach(b=>{const id=b.dataset.compareProduct;b.textContent=comparison.has(id)?'Remove from comparison':'Compare';b.setAttribute('aria-pressed',String(comparison.has(id)));b.disabled=!comparison.has(id)&&comparison.size>=3;});
     $('#saved-count').textContent=String(saved.length);
   }
   const cartPanel=el('section',undefined,'panel cart-panel');cartPanel.id='cart-panel';cartPanel.hidden=true;
   const cartList=el('div'),cartReview=el('div');cartReview.id='cart-review';
   const cartStatus=el('p','Prices are refreshed before payment.','muted');cartStatus.setAttribute('role','status');
-  const cartToggle=el('button','Cart · 0','secondary');cartToggle.id='cart-toggle';cartToggle.onclick=()=>{cartPanel.hidden=!cartPanel.hidden;if(!cartPanel.hidden)renderCart();};
+  const cartToggle=el('button','Cart · 0','secondary');cartToggle.id='cart-toggle';cartToggle.setAttribute('aria-live','polite');cartToggle.setAttribute('aria-pressed','false');cartToggle.onclick=()=>{const page=document.body.dataset.workspace==='cart'?'explore':'cart';window.dispatchEvent(new CustomEvent('bopit:navigate',{detail:page}));if(page==='cart')renderCart();};
   $('header nav').prepend(cartToggle);
   async function updateCart(action,fields={}) {
     const result=await chrome.runtime.sendMessage({type:'BOPIT_CART',action,...fields});if(result?.error)throw new Error(result.error);
@@ -28,6 +28,7 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
   }
   function cartPayload(){return cart.map(({id,selection,websiteIds,expectedOffer,quantity})=>({id,selection,websiteIds,expectedOffer,quantity}));}
   function renderCart(){
+    reviewCart.disabled=cartBusy||!cart.length;payCart.disabled=cartBusy||!cart.length;
     cartToggle.textContent=`Cart · ${cart.reduce((n,item)=>n+item.quantity,0)}`;cartList.replaceChildren();cartReview.replaceChildren();
     if(!cart.length){cartList.append(el('p','Your cart is empty. Add a product to keep exploring.'));return;}
     const totals=new Map();
@@ -161,11 +162,12 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
       const card=el('article',undefined,'wishlist-item');
       card.append(el('strong',product.title||'Saved product'),el('small',`${formatProductPrice(product.price,product.currency)} · ${product.retailer||'Seller unknown'} · ${product.availability||'Availability unknown'}`));
       const url=safeProductUrl(product.purchaseUrl);if(url){const link=el('a','View retailer ↗');link.href=url;link.target='_blank';link.rel='noopener noreferrer';card.append(link);}
-      if(makeCheckoutAction)card.append(makeCheckoutAction(product));
+      const more=el('details',undefined,'saved-more');more.append(el('summary','More options'));card.append(more);
+      if(makeCheckoutAction)more.append(makeCheckoutAction(product));
       const refresh=el('button','Refresh offers','secondary'),result=el('div',undefined,'saved-offer-refresh');
       refresh.onclick=()=>{refresh.disabled=true;refreshSaved(product,result).finally(()=>{refresh.disabled=false;});};
       const remove=el('button','Remove','secondary');remove.onclick=()=>save(product);
-      card.append(refresh,remove,result);target.append(card);
+      more.append(refresh,remove);card.append(result);target.append(card);
     }
     syncButtons();
   }
