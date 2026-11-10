@@ -78,6 +78,8 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     const item = $(`#investigation-stages [data-stage="${name}"]`);
     if (!item) return;
     item.dataset.state = state;
+    if (state === 'active') delete $('#investigation-status').dataset.state;
+    else if (name === 'comparison' && ['complete','skipped'].includes(state)) $('#investigation-status').dataset.state='ready';
     item.setAttribute('aria-label', `${progressStages[name]}: ${state}`);
     let status = item.querySelector('.stage-state');
     if (!status) { status = node('span', undefined, 'stage-state'); item.append(status); }
@@ -258,10 +260,12 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren();
     const p = record.profile;
     if (record.contextWarning) $('#profile-summary').append(node('p',record.contextWarning,'variant-warning'));
-    $('#profile-summary').append(node('p', p.summary), node('div', profileIdentityLabel(p.identity), 'identity-status'), node('p', p.identity.basis || 'No reliable model identifier available.', 'muted'));
-    if (p.useInScene) $('#profile-summary').append(node('p', `Use in this scene: ${p.useInScene}`));
-    if (!record.contextUsed?.captions && !record.contextUsed?.youtubeRequested && !record.contextUsed?.viewerNote) $('#profile-summary').append(node('p', 'Visual analysis only · no speech context supplied', 'muted'));
-    const details = node('details'); details.append(node('summary', `All extracted details & evidence (${p.attributes.length})`));
+    $('#profile-summary').append(node('div', profileIdentityLabel(p.identity), 'identity-status'));
+
+
+    const details = node('details'); details.append(node('summary', `Details & evidence · ${p.attributes.length}`), node('p', p.summary), node('p', p.identity.basis || 'No reliable model identifier available.', 'muted'));
+    if (p.useInScene) details.append(node('p', `Use in this scene: ${p.useInScene}`));
+    if (!record.contextUsed?.captions && !record.contextUsed?.youtubeRequested && !record.contextUsed?.viewerNote) details.append(node('p', 'Visual analysis only · no speech context supplied', 'muted'));
     const table = node('table'); const head = node('thead'), tr = node('tr'); ['Detail','Finding & evidence'].forEach(t => tr.append(node('th',t))); head.append(tr); table.append(head);
     const body = node('tbody');
     for (const a of p.attributes) { const row = node('tr'), cell = node('td'); cell.append(node('strong', a.value),node('small',`${sourceLabel[a.source]} · ${a.evidence}`)); row.append(node('td',`${a.group} / ${a.name}`),cell); body.append(row); }
@@ -792,27 +796,31 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     catch(e){if(!sceneResults)$('#products-notice').textContent=e.message;return;}
 
     if (!sceneResults) {
-      $('#products-notice').textContent = products.length ? `${products.length} ${intent==='exact'?'identity candidates':intent==='look'?'similar-looking products':intent==='cheaper'?'alternatives sorted by price (original price unknown)':'functional alternatives'}. Exact identity is not verified. We may earn a commission from retailer links.` : 'No catalog matches found. Try another intent, increase your budget, or edit the query. An absent listing does not mean the item does not exist.';
+      $('#products-notice').textContent = products.length ? '' : 'No catalog matches found. Try another intent, increase your budget, or edit the query. An absent listing does not mean the item does not exist.';
     }
     const ratings = new Map(assessments.map(a=>[a.id,a]));
     const rank = { identifier_match:0,possible_match:1,similar:2,contradicted:3 };
     const relevance = p => (rank[ratings.get(p.id)?.verdict] ?? 2) * 100 + (ratings.get(p.id)?.differences.length || 0) * 3 + (intent === 'exact' && /bundle|with.*stand|w\/stand/i.test(p.title) ? 12 : 0);
     const ordered=priceSorted ? products : [...products].sort((a,b)=>relevance(a)-relevance(b));
-    if (!sceneResults) { setMoreProducts(nextPageToken, loadMore); $('#results-count').textContent = `${ordered.length} products`; }
+    if (!sceneResults) { setMoreProducts(nextPageToken, loadMore); $('#results-count').textContent = `${ordered.length} match${ordered.length === 1 ? '' : 'es'}`; }
     for(const product of ordered) {
       const card=node('article',undefined,'product-card');card.dataset.productId=product.id;
       const image=node('img',undefined,'product-thumb');image.alt=product.title;image.referrerPolicy='no-referrer';image.loading='lazy';
       const placeholder='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="12" fill="%23dff1e7"/></svg>';
       image.src=safeProductUrl(product.image)||placeholder;image.addEventListener('error',()=>image.src=placeholder,{once:true});
       const info=node('div',undefined,'product-info');info.append(node('div',product.title,'product-title'),node('div',`${formatProductPrice(product.price,product.currency)} · ${product.retailer||product.brand||'Retailer'}`,'product-meta'));
-      info.append(shopping.actions(product,()=>card.checkoutSelection));
+      const actions=shopping.actions(product,()=>card.checkoutSelection);
+      info.append(actions);
+      const more=node('details',undefined,'product-more');more.append(node('summary','More ···'));
+      more.append(actions.querySelector('[data-compare-product]'));
       const assessment=ratings.get(product.id);
-      if(assessment){const labels={identifier_match:'Identifier agrees · variant not verified',possible_match:'Possible match',similar:'Similar product',contradicted:'Conflicting evidence'};info.append(node('div',labels[assessment.verdict],'match-label'));const evidence=node('details');evidence.append(node('summary','Why this result?'));for(const [name,values] of [['Matches',assessment.matches],['Differences',assessment.differences],['Unknown',assessment.unknowns]])if(values.length)evidence.append(node('p',`${name}: ${values.join(' · ')}`));evidence.append(node('small',current?.results?.comparedImageIds?.includes(product.id) ? 'AI compared the video crop with catalog photos and listing text. This is supporting evidence, not proof of exact identity.' : 'AI compared the video crop with catalog text. A catalog photo was unavailable for this comparison.'));info.append(evidence);if(assessment.differences.length)info.append(node('small',`Difference: ${assessment.differences[0]}`));}else {info.append(node('small',product.matchType || 'Unverified catalog candidate')); if(product.matchExplanation) {const why=node('details');why.append(node('summary','Why this result?'),node('p',product.matchExplanation));info.append(why);}}
+      if(assessment){const labels={identifier_match:'Identifier agrees · variant not verified',possible_match:'Possible match',similar:'Similar product',contradicted:'Conflicting evidence'};info.append(node('div',labels[assessment.verdict],'match-label'));const evidence=node('details');evidence.append(node('summary','Why this result?'));for(const [name,values] of [['Matches',assessment.matches],['Differences',assessment.differences],['Unknown',assessment.unknowns]])if(values.length)evidence.append(node('p',`${name}: ${values.join(' · ')}`));evidence.append(node('small',current?.results?.comparedImageIds?.includes(product.id) ? 'AI compared the video crop with catalog photos and listing text. This is supporting evidence, not proof of exact identity.' : 'AI compared the video crop with catalog text. A catalog photo was unavailable for this comparison.'));info.append(evidence);if(assessment.differences.length)info.append(node('small',`Difference: ${assessment.differences[0]}`));}else {if(product.matchExplanation) {const why=node('details');why.append(node('summary','Why this result?'),node('p',product.matchExplanation));info.append(why);}}
       card.checkoutSelection={id:product.id,selection:Object.fromEntries((product.variants?.selected||[]).map(v=>[v.name,v.label])),websiteIds:product.retailer?[product.retailer]:[],config:market(),expectedOffer:offerSnapshot(product)};
-      card.checkoutAction=checkoutAction(() => card.checkoutSelection,product);info.append(card.checkoutAction);
-      const details=node('button','View specifications','secondary');details.onclick=()=>showDetails(product,card,details);info.append(details);
-      const similar=node('button','Find similar products','secondary');similar.onclick=()=>findSimilar(product);info.append(similar);
-      const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','Buy from seller ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';info.append(link);}
+      card.checkoutAction=checkoutAction(() => card.checkoutSelection,product);more.append(card.checkoutAction);
+      const details=node('button','Details','secondary');details.setAttribute('aria-label',`Details for ${product.title}`);details.onclick=()=>showDetails(product,card,details);
+      const secondary=node('div',undefined,'product-secondary');secondary.append(details,more);info.append(secondary);
+      const similar=node('button','Find similar products','secondary');similar.onclick=()=>findSimilar(product);more.append(similar);
+      const url=safeProductUrl(product.purchaseUrl);if(url){const link=node('a','Buy from seller ↗','buy-button');link.href=url;link.target='_blank';link.rel='noopener noreferrer';more.append(link);}
       card.append(image,info);cards.append(card);
     }
     target.replaceChildren(cards);
