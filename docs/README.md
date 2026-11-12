@@ -1,6 +1,6 @@
 # BopIt documentation
 
-Start with the [README](../README.md) for the demo and quick verification.
+Start with the [README](../README.md) for quick verification, or [watch the BopIt demo on YouTube](https://www.youtube.com/watch?v=LPZSawMPDkE).
 
 - [Chrome extension and PayPal Sandbox](RUN_EXTENSION.md) covers pairing, inline order review, approval, and troubleshooting.
 - [Dashboard setup](SUPABASE_LOCAL_SETUP.md) covers environment files, database migrations, account creation, and demo seeding.

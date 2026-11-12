@@ -8,25 +8,20 @@ Your existing root `.env` is preserved. Put dashboard credentials in the two ign
 
 Use one Supabase project for all three values:
 
-1. Project URL, such as `https://<project-ref>.supabase.co`.
+1. The project URL from your Supabase project settings.
 2. Public publishable key or legacy `anon` key for that project. Never use the service-role/secret key.
 3. PostgreSQL connection string, including the database password. This is a database credential, not an API key. Use a direct connection or session-pooler connection reachable by your machine and URL-encode special characters in the password. Keep TLS verification enabled; use the project's CA certificate if your connection requires it.
 
-Copy `apps/dashboard/.env.example` to `apps/dashboard/.env` and fill in:
+Copy `apps/dashboard/.env.example` to `apps/dashboard/.env` and set:
 
-```dotenv
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<public-publishable-or-anon-key>
-```
+- `VITE_SUPABASE_URL` to the project URL.
+- `VITE_SUPABASE_ANON_KEY` to the public publishable or legacy anon key.
 
-Copy `apps/retail-api/.env.example` to `apps/retail-api/.env` and fill in:
+Copy `apps/retail-api/.env.example` to `apps/retail-api/.env` and set:
 
-```dotenv
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_ANON_KEY=<same-public-publishable-or-anon-key>
-RETAIL_STORAGE=postgres
-RETAIL_DATABASE_URL=<postgresql-connection-string-with-database-password>
-```
+- `SUPABASE_URL` and `SUPABASE_ANON_KEY` to the same project URL and public key.
+- `RETAIL_STORAGE` to `postgres`.
+- `RETAIL_DATABASE_URL` to the PostgreSQL connection string.
 
 The database password belongs only in the Retail API file. No Gemini, Channel3 or PayPal secret should go in any `VITE_*` variable. The dashboard's public key is browser-visible by design; access control depends on Auth and the migration's RLS policies.
 
@@ -77,4 +72,4 @@ Live migrations, email delivery and database RLS still need verification against
 
 If the API reports `ENOENT` while parsing `RETAIL_DATABASE_URL`, check whether its `sslrootcert` parameter references an existing certificate file. Download your project's server root certificate from Supabase Dashboard → Database Settings → SSL Configuration, save it locally, and set `sslrootcert` to its absolute path in `apps/retail-api/.env`. Keep `sslmode=verify-full`. See [Supabase SSL enforcement](https://supabase.com/docs/guides/platform/ssl-enforcement).
 
-For example, on Windows the connection string's query parameters can end with `sslmode=verify-full&sslrootcert=C:/path/to/BopIt/.local/supabase-ca.crt`. Replace the example path with the certificate's actual location and restart the API.
+On Windows, use forward slashes in the absolute certificate path. URL-encode the path if it contains spaces or reserved characters, then restart the API.

@@ -2,9 +2,9 @@
 
 **You paused the video for a reason. Find what caught your eye.**
 
-You spot a pair of headphones in a video. You open a new tab, type “black headphones with silver sides,” and scroll past dozens of almost-right results. BopIt starts with the frame you already have. Select the headphones, compare listings, and try PayPal checkout without losing your place in the video.
+You pause Iron Man and think, “I need those glasses.” A new tab and a few guessed search terms get you a page full of almost-right pairs. BopIt starts with the frame you already have. Select the glasses, compare similar listings, and try PayPal checkout without losing your place in the video.
 
-*Built for the PayPal AI Hackathon. The YouTube demo will be linked here once published.*
+Built for the PayPal AI Hackathon. **[Watch the BopIt demo on YouTube](https://www.youtube.com/watch?v=LPZSawMPDkE)**
 
 ## Follow the demo
 

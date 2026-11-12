@@ -89,27 +89,9 @@ Keep the current SQLite analytics/import pipeline as an explicitly separate subs
 
 ## Supabase project setup
 
-No Supabase project, URL, or credentials are configured in this repository. Create/select the application's Supabase project and apply the existing PostgreSQL migrations in order: `001_retail_foundation.sql`, `002_supabase_dashboard_auth.sql`, then `003_dashboard_demo_data.sql` (all under `apps/dashboard/db/migrations`). Configure email/password auth and the email confirmation redirect to `<dashboard-origin>/auth/callback`. Dashboard authentication and the demo API require PostgreSQL in the same Supabase project; SQLite remains available only for the separate legacy retailer CSV analytics pipeline.
+Follow the [Supabase local setup guide](SUPABASE_LOCAL_SETUP.md) for the two environment files, ordered migrations, Auth callback, and demo seeding. Dashboard authentication and the demo API use PostgreSQL in the same Supabase project. The separate retailer CSV analytics pipeline uses SQLite.
 
-Set these values for the dashboard build (the browser key is the publishable/legacy anon key and relies on RLS):
-
-```dotenv
-VITE_SUPABASE_URL=https://<project-ref>.supabase.co
-VITE_SUPABASE_ANON_KEY=<publishable-or-anon-key>
-```
-
-Set these server-side for `apps/retail-api`:
-
-```dotenv
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_ANON_KEY=<publishable-or-anon-key>
-RETAIL_STORAGE=postgres
-RETAIL_DATABASE_URL=<postgres-connection-string>
-```
-
-`RETAIL_DATABASE_URL` should be a database connection suitable for the API host. Never set a Supabase service-role key in browser or server configuration for this flow. Keep project-specific values out of source control; `.env.example` contains placeholders only. The app intentionally reports configuration unavailable until both URL and anon/publishable key are supplied.
-
-The migration must be applied before enabling signup. Verify the Auth trigger, RLS, email confirmation, and creator/retailer profile creation in the selected Supabase project before inviting users. A live Supabase integration could not be validated because the repository has no project or credentials; automated auth tests use mocked Supabase Auth/PostgREST responses and test API authorization locally.
+Apply the migrations before registering users. Verify the Auth trigger, row-level security, email confirmation, and profile creation against your project before inviting users. Automated auth tests use mocked Supabase Auth and PostgREST responses.
 
 ## Final validation (2026-11-10)
 

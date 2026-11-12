@@ -8,7 +8,7 @@ The backend uses `POST /v1/product-subscriptions`, paginated `GET /v1/product-su
 
 ### Configure Channel3 webhook delivery
 
-1. In the [Channel3 webhook dashboard](https://channel3.ai/dashboard/webhooks), add an HTTPS endpoint for `https://YOUR_PUBLIC_HOST/webhooks/channel3` and enable the desired `offer.*` events.
+1. In the [Channel3 webhook dashboard](https://channel3.ai/dashboard/webhooks), register the `/webhooks/channel3` path on your public HTTPS endpoint and enable the desired `offer.*` events.
 2. Copy that endpoint's `whsec_...` signing secret into server-side `CHANNEL3_WEBHOOK_SECRET` in `.env`, alongside `CHANNEL3_API_KEY`. Restart the backend. Never put either secret in extension code.
 3. Keep the receiver behind an HTTPS-terminating reverse proxy or trusted tunnel. BopIt binds to `127.0.0.1`; Channel3 cannot call a local loopback URL directly. The proxy must overwrite `X-Forwarded-Proto` as `https`, not trust a caller-supplied value. For temporary local development, a tunnel such as `cloudflared tunnel --url http://127.0.0.1:4317` can provide a public HTTPS URL; configure its `/webhooks/channel3` address in the dashboard.
 4. Send a test event or replay a delivery from the Channel3 dashboard for that endpoint. Then open the extension's **Product alert inbox** and click **Refresh alerts**. This pull-based inbox shows persisted events; it is not browser push and does not notify a closed extension.
