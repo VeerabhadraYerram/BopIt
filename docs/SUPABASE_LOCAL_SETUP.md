@@ -1,6 +1,6 @@
 # Supabase configuration for the creator/retailer dashboard
 
-Supabase is required for this branch's dashboard authentication, profiles and PostgreSQL-backed views. It is not required for the Chrome extension's existing recognition, discovery or Sandbox checkout. No service-role key is used by this integration.
+Supabase provides dashboard authentication, profiles, and PostgreSQL storage. The Chrome extension and PayPal Sandbox checkout run independently. Use Node.js 22 and a dedicated Supabase project for this walkthrough.
 
 Your existing root `.env` is preserved. Put dashboard credentials in the two ignored local files below. They are separate because Vite loads environment from the dashboard directory and the Retail API's start/seed commands load `.env` from the Retail API directory.
 
@@ -12,14 +12,14 @@ Use one Supabase project for all three values:
 2. Public publishable key or legacy `anon` key for that project. Never use the service-role/secret key.
 3. PostgreSQL connection string, including the database password. This is a database credential, not an API key. Use a direct connection or session-pooler connection reachable by your machine and URL-encode special characters in the password. Keep TLS verification enabled; use the project's CA certificate if your connection requires it.
 
-In `C:/hackthons/BopIt/apps/dashboard/.env` fill:
+Copy `apps/dashboard/.env.example` to `apps/dashboard/.env` and fill in:
 
 ```dotenv
 VITE_SUPABASE_URL=https://<project-ref>.supabase.co
 VITE_SUPABASE_ANON_KEY=<public-publishable-or-anon-key>
 ```
 
-In `C:/hackthons/BopIt/apps/retail-api/.env` fill:
+Copy `apps/retail-api/.env.example` to `apps/retail-api/.env` and fill in:
 
 ```dotenv
 SUPABASE_URL=https://<project-ref>.supabase.co
@@ -32,7 +32,7 @@ The database password belongs only in the Retail API file. No Gemini, Channel3 o
 
 ## Database and Auth setup
 
-Use a dedicated BopIt project/database: the signup trigger applies to new Auth users in this project. Apply these SQL files in order before registering dashboard users:
+In your Supabase project's SQL Editor, run the contents of each file in this order before registering dashboard users:
 
 1. `apps/dashboard/db/migrations/001_retail_foundation.sql`
 2. `apps/dashboard/db/migrations/002_supabase_dashboard_auth.sql`
@@ -40,30 +40,32 @@ Use a dedicated BopIt project/database: the signup trigger applies to new Auth u
 
 Enable email/password sign-in and configure the dashboard site URL as `http://127.0.0.1:5173`, with allowed callback `http://127.0.0.1:5173/auth/callback`. Use the same hostname throughout. Complete email confirmation when registering; the API requires a confirmed account. Accounts created before the profile trigger will need separate profile provisioning.
 
-## Run locally (PowerShell)
+## Run locally
 
-Terminal one:
+Open two terminals at the repository root. In terminal one:
 
-```powershell
-Set-Location C:/hackthons/BopIt/apps/retail-api
+```sh
+cd apps/retail-api
 npm ci
 npm start
 ```
 
 Terminal two:
 
-```powershell
-Set-Location C:/hackthons/BopIt/apps/dashboard
+```sh
+cd apps/dashboard
 npm ci
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173` and register a Creator or Retailer. To populate explicitly labeled synthetic sample data after registration:
+Open [the dashboard](http://127.0.0.1:5173) and register a Creator. Register a separate Retailer account if you want to review both workspaces. Confirm each email address and sign in. From a third terminal at the repository root, seed sample data for the registered profiles:
 
-```powershell
-Set-Location C:/hackthons/BopIt/apps/retail-api
+```sh
+cd apps/retail-api
 npm run seed:demo
 ```
+
+Refresh the Creator dashboard and open **Channel3 → Moments that sell**. A populated table with a demo data label confirms that the account can read its seeded records. Open **Interest & drop-off** for the next view in the demo. If the table is empty, check the seed output and confirm both apps use the same Supabase project.
 
 For live product search, also start the root recognition server with its existing Channel3 configuration and pairing token. Dashboard reporting/subscription access remains blocked until dashboard account ownership is linked to extension installation identity. SQLite CSV imports/analytics are a separate pipeline and are not implemented by these PostgreSQL migrations.
 
@@ -73,6 +75,6 @@ Live migrations, email delivery and database RLS still need verification against
 
 ## Missing database certificate
 
-If the API reports `ENOENT` while parsing `RETAIL_DATABASE_URL`, check whether its `sslrootcert` parameter references an existing certificate file. Download your project's server root certificate from Supabase Dashboard → Database Settings → SSL Configuration, save it locally, and set `sslrootcert` to its absolute path in both root `.env` and `apps/retail-api/.env`. Keep `sslmode=verify-full`. See [Supabase SSL enforcement](https://supabase.com/docs/guides/platform/ssl-enforcement).
+If the API reports `ENOENT` while parsing `RETAIL_DATABASE_URL`, check whether its `sslrootcert` parameter references an existing certificate file. Download your project's server root certificate from Supabase Dashboard → Database Settings → SSL Configuration, save it locally, and set `sslrootcert` to its absolute path in `apps/retail-api/.env`. Keep `sslmode=verify-full`. See [Supabase SSL enforcement](https://supabase.com/docs/guides/platform/ssl-enforcement).
 
-For example, the connection string's query parameters can end with `sslmode=verify-full&sslrootcert=C:/hackthons/BopIt/.local/supabase-ca.crt` once the correct certificate exists there. The certificate is separate from the API keys and database password. Restart the API after changing the connection string; the database migrations can only be checked after the connection succeeds.
+For example, on Windows the connection string's query parameters can end with `sslmode=verify-full&sslrootcert=C:/path/to/BopIt/.local/supabase-ca.crt`. Replace the example path with the certificate's actual location and restart the API.
