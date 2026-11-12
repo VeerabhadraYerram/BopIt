@@ -293,6 +293,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   }
   async function select(object, force = false) {
     cancel(); const version = generation; controller = new AbortController(); const signal = controller.signal;
+    if(selected?.id!==object.id){intent='exact';$('#match-mode').value='exact';$('#match-options > summary').textContent='Change what to match';$('#match-mode-help').textContent='Uses readable names and visible details. An exact product match is not guaranteed.';}
     selected = object; selectedProductContext = null; current = null; $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren(); $('#products-container').replaceChildren();
     useObjectContext = true; previousRequest = '';appliedPreferenceFilters=null; voice.cancel(); $('#voice-search-status').textContent = ''; $('#shopping-reply').textContent = ''; updateSearchContext();
     palette = []; renderPalette(); resetStages();
@@ -874,11 +875,12 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     };
     const outcome = await discoverySearch(request, signal);
     const products = outcome.data.products || [];
-    renderProducts(products, [], { target, sceneObject });
+    renderSceneResults({...sceneObject,results:products},target);
     return products;
   }
   function renderSceneResults(sceneObject, target) {
-    renderProducts(sceneObject.results || [], [], { target, sceneObject });
+    const products=sceneObject.results||[];renderProducts(products.slice(0,3),[],{target,sceneObject});
+    if(products.length>3){const more=node('button',`Show ${products.length-3} more options`,'secondary');more.type='button';more.onclick=()=>renderProducts(products,[],{target,sceneObject});target.append(more);}
   }
   function listSubscriptionEvents() { return api('subscriptions/events', { limit: 100 }); }
   function markSubscriptionEventsRead(eventIds) { return api('subscriptions/events/read', { eventIds }); }
@@ -1220,7 +1222,13 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     } finally { if(version===generation)$('#lookup-product-btn').disabled=false; }
   }
   function changeSearch() { appliedPreferenceFilters=null;if(!current){if(selected)select(selected);return;}cancel();const version=generation;controller=new AbortController();$('#products-container').replaceChildren();runSearch(version,controller.signal,false); }
-  for(const chip of document.querySelectorAll('[data-intent]'))chip.onclick=()=>{intent=chip.dataset.intent;document.querySelectorAll('[data-intent]').forEach(b=>b.setAttribute('aria-pressed',String(b===chip)));if(intent==='look'&&selectedProductContext?.id)findSimilar(selectedProductContext);else changeSearch();};
+  function setIntent(value){
+    intent=value;$('#match-options > summary').textContent=value==='look'?'Matching by appearance · change':value==='function'?'Matching by purpose · change':'Change what to match';$('#match-mode').value=['exact','look','function'].includes(value)?value:'exact';
+    $('#match-mode-help').textContent={exact:'Uses readable names and visible details. An exact product match is not guaranteed.',look:'Matches colours, shape and style. The brand or model may differ.',function:'Looks for products that do the same job, even when they look different.'}[value]||'';
+    if(intent==='look'&&selectedProductContext?.id)findSimilar(selectedProductContext);else changeSearch();
+  }
+  $('#match-mode').onchange=()=>setIntent($('#match-mode').value);
+  $('#cheaper-alternatives').onclick=()=>setIntent('cheaper');
   let lastPreferences = JSON.stringify([$('#budget').value,$('#market').value]);
   function changePreferences() { const key = JSON.stringify([$('#budget').value,$('#market').value]); if (key === lastPreferences) return; lastPreferences = key; changeSearch(); }
   $('#budget').addEventListener('change',changePreferences);$('#market').addEventListener('change',changePreferences);

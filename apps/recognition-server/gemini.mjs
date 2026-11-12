@@ -1,3 +1,4 @@
+import {recoverDetection} from './detection-recovery.mjs';
 import { detectionSchema, validateDetections } from '../../packages/contracts/recognition.mjs';
 import { validateProfile } from '../../packages/contracts/profile.mjs';
 
@@ -26,14 +27,15 @@ const str = { type: 'string' };
 const arr = items => ({ type: 'array', items });
 const obj = properties => ({ type: 'object', properties, required: Object.keys(properties) });
 const transientStatuses = new Set([500, 502, 503, 504]);
-async function requestGemini(url, options, { fetcher, timeoutMs, retryDelayMs = 600 }) {
+async function requestGemini(url, options, { fetcher, timeoutMs, retryDelayMs = 600, signal:externalSignal, maxAttempts=2,backupApiKey='' }) {
   // One retry for a brief provider outage, inside the original total deadline.
   // Invalid keys, quota limits, rejected inputs and invalid outputs are not retried.
-  const signal = AbortSignal.timeout(timeoutMs);
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  const signal = externalSignal?AbortSignal.any([AbortSignal.timeout(timeoutMs),externalSignal]):AbortSignal.timeout(timeoutMs);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     signal.throwIfAborted();
-    const response = await fetcher(url, { ...options, signal });
-    if (attempt === 2 || !transientStatuses.has(response.status)) return { response, attempts: attempt };
+    const headers=attempt>1&&backupApiKey?{...options.headers,'x-goog-api-key':backupApiKey}:options.headers;
+    const response = await fetcher(url, { ...options,headers, signal });
+    if (attempt === maxAttempts || !transientStatuses.has(response.status)) return { response, attempts: attempt };
     const retryAfter = response.headers?.get('retry-after');
     const requestedDelay = retryAfter ? (/^\d+(?:\.\d+)?$/.test(retryAfter) ? Number(retryAfter) * 1000 : Date.parse(retryAfter) - Date.now()) : 0;
     // Leave long recovery periods to an explicit user retry rather than hanging.
@@ -67,12 +69,12 @@ const profileSchema = obj({
   useInScene: str, relationships: arr(str), unknowns: arr(str), contradictions: arr(str),
   queries: obj({ exact: str, look: str, function: str })
 });
-export async function structuredGemini(parts, schema, { apiKey, model, fetcher = fetch, timeoutMs = 60000, retryDelayMs = 600 }) {
+export async function structuredGemini(parts, schema, { apiKey, model, fetcher = fetch, timeoutMs = 60000, retryDelayMs = 600,backupApiKey='' }) {
   const { response, attempts } = await requestGemini(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({ contents: [{ role: 'user', parts }], generationConfig: { maxOutputTokens: 10000, responseMimeType: 'application/json', responseSchema: providerSchema(schema) } })
-  }, { fetcher, timeoutMs, retryDelayMs });
+  }, { fetcher, timeoutMs, retryDelayMs,backupApiKey });
   if (!response.ok) {
     throw providerError(response.status, attempts);
   }
@@ -110,7 +112,12 @@ export async function compareWithGemini(crop, profile, candidates, options) {
     })) }));
 }
 
-export async function detectWithGemini(imageBase64, { apiKey, model, fetcher = fetch, onTiming = () => {}, retryDelayMs = 600 }) {
+export async function detectWithGemini(imageBase64, { apiKey, model, fetcher = fetch, onTiming = () => {}, retryDelayMs = 600,fallbackModel='',hedgeAfterMs=12000,signal,maxAttempts=2,backupApiKey='' }) {
+  if((fallbackModel&&fallbackModel!==model)||(backupApiKey&&backupApiKey!==apiKey)){
+    let totalGeminiAttempts=0;
+    const run=(chosen,key,credentialUsed)=>async attemptSignal=>{totalGeminiAttempts++;let timing={};const result=await detectWithGemini(imageBase64,{apiKey:key,model:chosen,fetcher,retryDelayMs,signal:attemptSignal,maxAttempts:1,onTiming:value=>timing=value});return {result,timing:{...timing,modelUsed:chosen,credentialUsed,fallbackUsed:chosen!==model}};};
+    const winner=await recoverDetection(run(model,apiKey,'primary'),run(fallbackModel||model,backupApiKey||apiKey,backupApiKey?'backup':'primary'),{hedgeAfterMs,timeoutMs:45000});onTiming({...winner.timing,totalGeminiAttempts});return winner.result;
+  }
   const timings = {};
   const requestPreparationStarted = performance.now();
   const requestBody = JSON.stringify({
@@ -123,7 +130,7 @@ export async function detectWithGemini(imageBase64, { apiKey, model, fetcher = f
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
     body: requestBody
-  }, { fetcher, timeoutMs: 45000, retryDelayMs });
+  }, { fetcher, timeoutMs: 45000, retryDelayMs,signal,maxAttempts });
   timings.geminiAttempts = attempts;
   timings.geminiResponseMs = performance.now() - responseStarted;
   if (!response.ok) {

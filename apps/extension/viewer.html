@@ -141,34 +141,19 @@
        </details>
       </section>
       <details class="panel scene-planner" hidden="" id="scene-planning">
-       <summary>
-        Recreate this setup
-       </summary>
-       <div class="panel-heading">
-        <h2>
-         Your set
-        </h2>
-        <span class="badge" id="scene-object-count">
-        </span>
-       </div>
-       <p class="muted" id="scene-observation">
-       </p>
-       <div id="scene-relationships">
-       </div>
-       <div id="scene-combinations">
-       </div>
-       <label class="setup-budget-label">Total budget (optional)<input id="setup-budget" type="number" min="0.01" max="100000" step="0.01" placeholder="Any budget"/></label>
-       <p id="setup-budget-summary" class="muted" role="status"></p>
-       <button id="run-scene-plan" type="button">
-        Discover selected objects
-       </button>
-       <button class="secondary" id="rebuild-scene-plan" type="button">
-        Rebuild plan from finds
-       </button>
-       <p class="muted" id="scene-plan-status" role="status">
-       </p>
-       <div id="scene-plan-objects">
-       </div>
+       <summary>Recreate this setup</summary>
+       <button class="setup-back secondary" id="setup-back" type="button">← Back to your find</button>
+       <div class="panel-heading"><h2>Make this setup yours</h2><span id="scene-object-count" class="badge"></span></div>
+       <p class="setup-intro">Choose any items from this moment. We’ll find options for each, with an optional budget for the whole set.</p>
+       <div class="setup-selection-heading"><strong>1. Choose your items</strong><button id="setup-clear" class="secondary" type="button">Clear selection</button></div>
+       <div id="setup-selections" class="setup-selections"></div>
+       <div class="setup-budget-row"><label class="setup-budget-label" for="setup-budget">2. Total budget <span class="muted">(optional)</span></label><div class="setup-budget-input"><span id="setup-currency">USD</span><input id="setup-budget" type="number" min="0.01" max="100000" step="0.01" placeholder="Any budget"/></div></div>
+       <div class="setup-actions"><button id="run-scene-plan" type="button">Build my setup</button><button id="cancel-scene-plan" class="secondary" type="button" hidden>Stop searching</button></div>
+       <p class="muted" id="scene-plan-status" role="status"></p>
+       <div id="setup-budget-summary" class="setup-summary" role="status" hidden></div>
+       <div id="scene-plan-objects"></div>
+       <p class="setup-footnote">Item prices exclude shipping and tax. Check each seller’s stock, variants and compatibility.</p>
+       <details class="setup-evidence"><summary>About these suggestions</summary><p class="muted" id="scene-observation"></p><div id="scene-relationships"></div><div id="scene-combinations"></div><button class="secondary" id="rebuild-scene-plan" type="button">Reset to current finds</button></details>
       </details>
       <section class="panel" hidden="" id="detail" tabindex="-1">
        <div class="selected-object">
@@ -305,17 +290,16 @@
          Product matches
         </span>
        </div>
-       <div aria-label="Shopping intent" id="intent-chips">
-        <button aria-pressed="true" data-intent="exact">
-         Find this
-        </button>
-        <button aria-pressed="false" data-intent="look">
-         Similar look
-        </button>
-        <button aria-pressed="false" data-intent="function">
-         Same function
-        </button>
-       </div>
+       <details class="match-options" id="match-options">
+        <summary>Change what to match</summary>
+        <label for="match-mode">Look for</label>
+        <select id="match-mode" aria-describedby="match-mode-help">
+         <option value="exact">Closest available match</option>
+         <option value="look">A similar appearance</option>
+         <option value="function">Something for the same purpose</option>
+        </select>
+        <p class="muted" id="match-mode-help">Uses readable names and visible details. An exact product match is not guaranteed.</p>
+       </details>
        <div class="search-context" id="search-context">
         <span id="search-context-label">
          Search products or describe what you need.

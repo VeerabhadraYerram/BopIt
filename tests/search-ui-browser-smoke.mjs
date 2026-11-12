@@ -11,7 +11,7 @@ const { chromium } = require(process.env.BOPIT_PLAYWRIGHT_MODULE || 'playwright'
 const profile = await mkdtemp(join(tmpdir(), 'bopit-search-ui-'));
 let browser;
 const calls = [], errors = [];
-let detectAttempts = 0,currentPrice=99,historyMode='normal';
+let largeSetup=false;let detectAttempts = 0,currentPrice=99,historyMode='normal';
 const product = { id: 'camera-fixture', title: 'Fixture camera', brand: 'Fixture', price: 99, currency: 'USD', retailer: 'example.com', purchaseUrl: 'https://example.com/camera', availability: 'InStock', offers: [{retailer:'example.com',price:99,currency:'USD',condition:'new',availability:'InStock',purchaseUrl:'https://example.com/camera'}], variants: { selected: [], options: [] } };
 try {
   browser = await chromium.launchPersistentContext(profile, { headless: true, channel: 'chromium', args: [`--disable-extensions-except=${resolve('dist/extension')}`, `--load-extension=${resolve('dist/extension')}`] });
@@ -29,12 +29,14 @@ try {
       detectAttempts++;
       if (detectAttempts === 1) return route.fulfill({status:503,json:{error:'Gemini is busy right now (503). Your frame is preserved; retry the scan shortly.'}});
       const found=rawResult();found.objects[0].label='Polo shirt';found.objects[0].color='orange';found.objects[0].visibleAttributes=['orange polo shirt'];found.objects[1].label='Chair';
+      if(largeSetup)found.objects=Array.from({length:8},(_,i)=>({...rawResult().objects[0],label:`Desk item ${i+1}`,box_2d:[50+Math.floor(i/4)*450,25+(i%4)*240,350+Math.floor(i/4)*450,205+(i%4)*240]}));
       data={...validateDetections(found),captureId:body.captureId,mode:'fixture',model:'mock'};
     }
     else if (path.endsWith('/profile')) {const profile=rawProfile();if(body.label==='Polo shirt'){profile.category='Polo shirt';profile.summary='An orange polo shirt.';profile.queries={exact:'orange polo shirt',look:'orange polo shirt',function:'polo shirt'};}data={profile,contextUsed:{}};}
     else if (path.endsWith('/compare')) data = { products: [product], assessments: [], comparedImageIds: [] };
     else if(path.endsWith('/preferences'))data=body.query.includes('black')?{action:'refine',interpretation:'Finding black polo shirts.',query:'black polo shirt',filters:{colors:{palette:[{hex:'#000000'}]},category_ids:['polo-shirts']},products:[{...product,id:'black-polo',title:'Black cotton polo shirt',category:'Polo shirts'}]}:{action:'refine',interpretation:'Finding cheaper options.',query:'cheaper camera',filters:{},products:[{...product,title:'Fixture cheaper option'}]};
     else if(path.endsWith('/catalog/categories/search'))data={categories:[{slug:'polo-shirts',title:'Polo shirts'}]};
+    else if (path.endsWith('/search')&&body.filters?.price?.max_price===201){await new Promise(resolve=>setTimeout(resolve,600));data={products:[product]};}
     else if (path.endsWith('/search')) data = { products: body.filters?.colors?.palette?.some(c=>c.hex==='#000000')?[{...product,id:'black-polo',title:'Black cotton polo shirt',category:'Polo shirts'},{...product,id:'socks',title:'Orange and black polo socks',category:'Socks'},{...product,id:'dress',title:'Black dress',category:'Dresses'}]:[product], nextPageToken: null };
     else if(path.endsWith('/browse'))data={products:[{...product,id:'seller-other',title:'Another item from this seller'}]};
     else if (path.endsWith('/similar')) data = { products: [{ ...product, id: 'similar-fixture', title: 'Fixture alternative' }], nextPageToken: null };
@@ -45,7 +47,7 @@ try {
     else if (path.endsWith('/subscriptions/list')) data = { subscriptions: [] };
     else if (path.endsWith('/conversations/turn')) data = { conversationId: 'fixture-conversation', message: { text: 'Fixture preference response', products: [{ ...product, title: 'Fixture cheaper option' }] } };
     else data = {};
-    await route.fulfill({ json: data });
+    try{await route.fulfill({json:data});}catch(error){if(!route.request().failure())throw error;}
   });
   const worker = browser.serviceWorkers()[0] || await browser.waitForEvent('serviceworker');
   await worker.evaluate(() => chrome.storage.local.set({ pairingToken: 'fixture-token' }));
@@ -130,9 +132,12 @@ try {
   await page.setViewportSize({width:520,height:1000});await page.screenshot({path:'test-results/preference-refinement.png',fullPage:true});
   const blackRequest=calls.filter(c=>c.path.endsWith('/preferences')).at(-1).body;assert.match(blackRequest.query,/similar shirt but black/);assert.equal(blackRequest.context.object.label,'Polo shirt');assert.equal(blackRequest.image,undefined);
   await page.locator('#recreate-setup').click();assert.equal(await page.locator('#scene-planning').evaluate(el=>el.open),true);
+  assert.equal(await page.locator('body').getAttribute('data-view'),'setup');assert.equal(await page.locator('#products-panel').isVisible(),false);
+  await page.locator('#setup-clear').click();assert.equal(await page.locator('#run-scene-plan').isDisabled(),true);assert.match(await page.locator('#scene-object-count').innerText(),/0 of 2/);await page.locator('#setup-selections input').nth(0).check();await page.locator('#setup-selections input').nth(1).check();
   await page.locator('#setup-budget').fill('200');await page.locator('#run-scene-plan').click();await page.waitForFunction(()=>document.querySelector('#setup-budget-summary').textContent.includes('Partial setup'));
   await page.screenshot({path:'test-results/setup-budget.png',fullPage:true});
-  assert.match(await page.locator('#setup-budget-summary').textContent(),/99/);
+  assert.match(await page.locator('#setup-budget-summary').textContent(),/99/);const beforeSetupBack=calls.length;await page.locator('#setup-back').click();assert.equal(await page.locator('body').getAttribute('data-view'),'detail');assert.equal(calls.length,beforeSetupBack,'Returning from setup preserves the original results without a request');assert.deepEqual(await page.locator('#products-container .product-title').allTextContents(),['Black cotton polo shirt']);assert.equal(await page.locator('#scene-planning').isVisible(),false);
+  await page.locator('#recreate-setup').click();await page.locator('#setup-budget').fill('201');await page.locator('#run-scene-plan').click();await page.locator('#cancel-scene-plan').click();assert.equal(await page.locator('#run-scene-plan').isEnabled(),true);assert.match(await page.locator('#scene-plan-status').textContent(),/Search stopped/);await page.waitForTimeout(750);assert.match(await page.locator('#scene-plan-status').textContent(),/Search stopped/);assert.match(await page.locator('#scene-object-count').textContent(),/2 of 2/);await page.locator('#setup-back').click();await page.locator('#back-to-items').click();
 
   // Persist the source moment in the actual worker, then explicitly accept a changed seller price.
   await page.evaluate(async product=>chrome.runtime.sendMessage({type:'BOPIT_CART',action:'clear'}),product);
@@ -149,6 +154,10 @@ try {
   await page.getByRole('button',{name:'Discover',exact:true}).click();await page.locator('#objects button').first().click();await page.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));await page.locator('#product-query').fill('similar but softer');await page.locator('#search-products-btn').click();await page.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
   assert.equal(calls.filter(c=>c.path.endsWith('/preferences')).at(-1).body.context.personalization.ownedProducts,'Canon EOS R6');
   await page.locator('#app-menu > summary').click();await page.getByRole('button',{name:'Shopping preferences',exact:true}).click();await page.locator('#clear-shopping-preferences').click();assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('bopitPersonalization')).bopitPersonalization),undefined);await page.getByRole('button',{name:'Close preferences',exact:true}).click();
+  largeSetup=true;await page.locator('#app-menu > summary').click();await page.getByRole('button',{name:'Frame & editing tools',exact:true}).click();await page.locator('#analyze').click();await page.waitForFunction(()=>document.querySelector('#count').textContent==='8 items');
+  await page.getByRole('button',{name:'Discover',exact:true}).click();await page.locator('#recreate-from-moment').click();assert.match(await page.locator('#scene-object-count').textContent(),/8 of 8/);assert.equal(await page.locator('#setup-selections input:checked').count(),8);
+  const lastChoice=page.locator('#setup-selections input').last();await lastChoice.uncheck();assert.equal(await lastChoice.isEnabled(),true);await lastChoice.check();assert.equal(await page.locator('#setup-selections input:checked').count(),8);
+  await page.locator('#setup-budget').fill('');const beforeLargeSetup=calls.filter(call=>call.path.endsWith('/search')).length;await page.locator('#run-scene-plan').click();await page.waitForFunction(()=>document.querySelector('#scene-plan-status').textContent.includes('8 of 8 items have options'));assert.equal(calls.filter(call=>call.path.endsWith('/search')).length-beforeLargeSetup,8);assert.equal(await page.locator('#scene-plan-objects > article:not([hidden])').count(),8);
   console.log('PASS: Discover/Saved/Alerts/Cart navigation, progressive controls, responsive embedded layout, contextual search, editable voice, labelled history, seller browsing, retained Back navigation, black-shirt voice regression, budget setup, cart source persistence and explicit price refresh. Providers mocked.');
 } finally {
   await browser?.close();

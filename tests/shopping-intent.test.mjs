@@ -49,6 +49,12 @@ test('setup selection enforces one currency, distinct products and total budget,
  assert.throws(()=>budgetSetup(roles,-1,'USD'));
 });
 
+test('budget setup includes every selected role beyond six, retaining budget and unique-product constraints',()=>{
+ const roles=Array.from({length:24},(_,i)=>({label:`Item ${i+1}`,products:[{id:`product-${i}`,title:`Product ${i+1}`,price:10,currency:'USD'}]}));
+ const full=budgetSetup(roles,240,'USD');assert.equal(full.items.length,24);assert.equal(full.complete,true);assert.equal(full.total,240);assert.equal(new Set(full.items.map(item=>item.product.id)).size,24);
+ const partial=budgetSetup(roles,70,'USD');assert.equal(partial.items.length,24);assert.equal(partial.complete,false);assert.equal(partial.items.filter(item=>item.product).length,7);assert.ok(partial.total<=70);
+});
+
 test('cart source links preserve the moment while dropping unsafe links and unrelated query data',()=>{
  assert.deepEqual(cartSource({url:'https://www.youtube.com/watch?v=abcdefghijk&private=omit',timestamp:42,label:'Chair'}),{url:'https://www.youtube.com/watch?v=abcdefghijk',timestamp:42,label:'Chair'});
  assert.equal(cartSource({url:'javascript:alert(1)'}),null);assert.equal(cartSource({url:'https://user:secret@example.com'}),null);

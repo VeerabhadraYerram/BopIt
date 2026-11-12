@@ -46,7 +46,8 @@ test('invalid image never reaches provider; validated response retains capture i
   assert.ok(data.timings.imageValidationMs >= 0);
   assert.ok(data.timings.serverDetectionMs >= 0);
   assert.equal(data.timings.geminiResponseMs, undefined, 'mock provider does not fabricate Gemini timings');
-  assert.equal((await fetch(`${base}/api/detect`, { method: 'POST', headers, body: JSON.stringify({ captureId: 'capture-1', image: makePng() }) })).status, 429);
+  const cached=await fetch(`${base}/api/detect`,{method:'POST',headers,body:JSON.stringify({captureId:'capture-2',image:makePng()})});assert.equal(cached.status,200);assert.equal((await cached.json()).timings.cacheHit,true);
+  assert.equal((await fetch(`${base}/api/detect`,{method:'POST',headers,body:JSON.stringify({captureId:'changed-frame',image:makePng(33,32)})})).status,429);
 }));
 test('segmentation reports its independent validation and model timing', () => withServer({
   segment: async (_image, regions) => ({ regions: regions.map(({ id }) => ({ id, contours: [] })) })

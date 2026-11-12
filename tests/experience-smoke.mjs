@@ -83,14 +83,14 @@ try{
  await inspector.locator('#budget-preset').selectOption('no-limit');await inspector.locator('#budget-currency').selectOption('');await inspector.locator('#product-sort').selectOption('auto');
  await inspector.locator('#product-sort').selectOption('price-asc');
  assert.equal(await inspector.locator('#cheaper-alternatives').isVisible(),false,'price sorting replaces the duplicate cheaper button');
- await inspector.locator('[data-intent="exact"]').click();await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
+ await inspector.locator('#match-options > summary').click();await inspector.locator('#match-mode').selectOption('exact');await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
  await inspector.getByRole('button',{name:'Saved',exact:true}).click();await inspector.locator('.saved-more > summary').first().click();await inspector.getByRole('button',{name:'Remove',exact:true}).click();await inspector.waitForFunction(()=>document.querySelector('#saved-count').textContent==='0');
  await inspector.getByRole('button',{name:'Discover',exact:true}).click();
  const firstProfiles=calls.filter(c=>c.path.endsWith('/profile')).length;
  await inspector.locator('#back-to-items').click();assert.equal(await inspector.locator('#detail').isVisible(),false);await inspector.locator('#objects button').nth(1).click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));
  await inspector.locator('#back-to-items').click();await inspector.locator('#objects button').first().click();await inspector.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));
  assert.equal(calls.filter(c=>c.path.endsWith('/profile')).length,firstProfiles+1,'object switching reuses cached profiles');
- await inspector.locator('[data-intent="function"]').click();await inspector.locator('.product-card').first().waitFor();
+ if(!await inspector.locator('#match-options').evaluate(el=>el.open))await inspector.locator('#match-options > summary').click();await inspector.locator('#match-mode').selectOption('function');await inspector.locator('.product-card').first().waitFor();
  const functionSearch=calls.filter(c=>c.path.endsWith('/search')).at(-1);assert.equal(functionSearch.body.query,'camera for video recording');assert.equal(functionSearch.body.image,undefined);
  await inspector.locator('#budget').fill('150');const budgetResponse=page.waitForResponse(r=>r.url().endsWith('/api/products/search')&&r.request().postDataJSON().filters?.price?.max_price===150);await inspector.locator('#budget').dispatchEvent('change');await budgetResponse;await inspector.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);assert.equal(calls.filter(c=>c.path.endsWith('/search')).at(-1).body.filters.price.max_price,150);
  await page.waitForTimeout(150);await inspector.locator('.product-secondary > button').first().click();await inspector.locator('.catalog-details select').first().waitFor();await inspector.locator('.catalog-details select').first().selectOption('White');await inspector.getByText(/Requested variant changed:/).waitFor();assert.match(await inspector.getByText(/Requested variant changed:/).innerText(),/White → Black/);

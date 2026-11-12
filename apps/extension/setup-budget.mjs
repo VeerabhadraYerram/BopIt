@@ -3,7 +3,7 @@ export function budgetSetup(roles,budget,currency){
   if(!Number.isFinite(budget)||budget<=0||budget>100000)throw new Error('Enter a total budget between 0 and 100,000.');
   const cap=Math.round(budget*100);
   let states=[{lines:[],ids:new Set(),cents:0,count:0}];
-  for(const role of roles.slice(0,6)){
+  for(const role of roles){
     const candidates=(role.products||[]).filter(p=>p.currency===currency&&Number.isFinite(p.price)&&p.price>0&&!['OutOfStock','out_of_stock'].includes(p.availability)).slice(0,8);
     const next=[];
     for(const state of states){

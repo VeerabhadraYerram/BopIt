@@ -136,85 +136,45 @@ function render() {
   syncScenePlan();
   publish();
 }
-function renderScenePlan() {
-  const section = $('#scene-planning');
-  if (!scenePlan || objects.length < 2) { section.hidden = true; return; }
-  section.hidden = false;
-  $('#scene-object-count').textContent = `${scenePlan.objects.length} planned`;
-  $('#scene-observation').textContent = scenePlan.sceneObservation
-    ? `Scene observation · ${scenePlan.sceneObservation}`
-    : 'No scene-level observation was supplied.';
-  const relationships = $('#scene-relationships');
-  relationships.replaceChildren();
-  const evidence = scenePlan.objects.filter(item => item.relationshipEvidence);
-  if (!evidence.length) {
-    relationships.append(node('p', 'No object relationships were reported. BopIt will not infer compatibility or combinations.', 'muted'));
-  } else {
-    relationships.append(node('p', 'Visual relationship notes · unverified, not product compatibility:', 'muted'));
-    for (const item of evidence) relationships.append(node('p', `${item.label}: ${item.relationshipEvidence.description}`, 'muted'));
-  }
-  const combinations = $('#scene-combinations');
-  combinations.replaceChildren();
-  const plannedIds = new Set(scenePlan.objects.map(item => item.id));
-  const suggestions = scenePlan.combinations.filter(item => item.objectIds.every(id => plannedIds.has(id)));
-  if (suggestions.length) {
-    combinations.append(node('p', 'Possible related finds · grouped only because the visual description explicitly named both objects:', 'muted'));
-    for (const suggestion of suggestions) {
-      const labels = suggestion.objectIds.map(id => scenePlan.objects.find(item => item.id === id)?.label).filter(Boolean);
-      combinations.append(node('p', `${labels.join(' + ')} · ${suggestion.evidence} · not a compatibility claim.`, 'muted'));
-    }
-  } else {
-    combinations.append(node('p', 'No evidence-backed object combinations were supplied; no combinations are suggested.', 'muted'));
-  }
-  const target = $('#scene-plan-objects');
-  target.replaceChildren();
-  sceneElements.clear();
-  for (const item of scenePlan.objects) {
-    const article = node('article', undefined, 'scene-object-plan');
-    const heading = node('div', undefined, 'scene-object-heading');
-    const chooseLabel = node('label');
-    const choose = document.createElement('input');
-    choose.type = 'checkbox'; choose.checked = item.selected;
-    choose.addEventListener('change', () => {
-      item.selected = choose.checked;
-      $('#scene-plan-status').textContent = `${item.label} ${item.selected ? 'included in' : 'excluded from'} the next scene search.`;
-      $('#run-scene-plan').textContent = scenePlan.objects.some(object => object.status !== 'not-searched')
-        ? 'Rerun scene plan' : 'Discover selected objects';
-    });
-    const thumb = node('img'); thumb.alt = ''; thumb.src = item.crop;
-    chooseLabel.append(choose, thumb, node('span', item.label));
-    const remove = node('button', 'Remove from plan', 'secondary');
-    remove.type = 'button';
-    remove.addEventListener('click', () => {
-      scenePlan.objects = scenePlan.objects.filter(object => object.id !== item.id);
-      renderScenePlan();
-      $('#scene-plan-status').textContent = `${item.label} removed from this plan; the detected find is unchanged.`;
-    });
-    heading.append(chooseLabel, remove);
-    const details = node('details', undefined, 'scene-object-results');
-    details.open = true;
-    const summary = node('summary', `${item.label} · results`);
-    const status = node('p', sceneSearchStatus(item), 'muted');
-    const rerun = node('button', 'Rerun this object', 'secondary');
-    rerun.type = 'button';
-    const resultTarget = node('div', undefined, 'products-container scene-products');
-    rerun.addEventListener('click', () => discoverScenePlan([item.id], true));
-    details.append(summary, status, rerun, resultTarget);
-    article.append(heading, details);
-    target.append(article);
-    sceneElements.set(item.id, { status, results: resultTarget, details });
-    if (item.results) investigator.renderSceneResults(item, resultTarget);
-  }
-  $('#run-scene-plan').textContent = scenePlan.objects.some(item => item.status !== 'not-searched')
-    ? 'Rerun scene plan' : 'Discover selected objects';
+function updateSetupSelection(invalidate=false){
+  if(!scenePlan)return;
+  const selected=scenePlan.objects.filter(item=>item.selected).length;
+  $('#scene-object-count').textContent=`${selected} of ${scenePlan.objects.length} selected`;
+  $('#run-scene-plan').disabled=Boolean(sceneSearchController)||!selected;
+  $('#run-scene-plan').textContent=sceneSearchController?'Finding your setup…':`Build my setup${selected?` · ${selected} item${selected===1?'':'s'}`:''}`;
+  for(const item of scenePlan.objects){const el=sceneElements.get(item.id);if(!el)continue;el.choose.disabled=Boolean(sceneSearchController);el.choice.classList.toggle('is-selected',item.selected);if(invalidate)el.article.hidden=true;}
+  if(invalidate){$('#setup-budget-summary').hidden=true;$('#scene-plan-status').textContent='Ready when you are. Build again to apply your changes.';}
+  $('#setup-clear').disabled=Boolean(sceneSearchController)||!selected;$('#setup-budget').disabled=Boolean(sceneSearchController);$('#rebuild-scene-plan').disabled=Boolean(sceneSearchController);
 }
-function sceneSearchStatus(item) {
-  if (item.status === 'searching') return 'Searching Channel3…';
-  if (item.status === 'error') return `Search failed: ${item.error || 'Channel3 request failed.'}`;
-  if (item.status === 'complete') return item.results?.length
-    ? `${item.results.length} Channel3 products returned for this detected object.`
-    : 'Channel3 returned no products for this object.';
-  return item.confidence === null ? 'Detected object · confidence not supplied. Not searched yet.' : `Detected object · confidence ${item.confidence}. Not searched yet.`;
+function renderScenePlan() {
+  const section=$('#scene-planning');
+  if(!scenePlan||objects.length<2){section.hidden=true;$('#recreate-from-moment').hidden=true;return;}
+  section.hidden=false;$('#recreate-from-moment').hidden=false;
+  $('#setup-currency').textContent=investigator.sceneSearchContext().config.currency;
+  $('#scene-observation').textContent=scenePlan.sceneObservation||'Based on the objects detected in this paused frame.';
+  $('#scene-relationships').replaceChildren();$('#scene-combinations').replaceChildren();
+  for(const item of scenePlan.objects.filter(item=>item.relationshipEvidence))$('#scene-relationships').append(node('p',`${item.label}: ${item.relationshipEvidence.description}`,'muted'));
+  $('#scene-combinations').append(node('p','Scene relationships are visual observations. Products are searched separately; this does not verify that a complete setup works together.','muted'));
+  const choices=$('#setup-selections'),target=$('#scene-plan-objects');choices.replaceChildren();target.replaceChildren();sceneElements.clear();
+  for(const item of scenePlan.objects){
+    const choice=node('label',undefined,'setup-choice'),choose=document.createElement('input');choose.type='checkbox';choose.checked=item.selected;choose.setAttribute('aria-label',`Include ${item.label}`);
+    const thumb=node('img');thumb.src=item.crop;thumb.alt='';choice.append(choose,thumb,node('span',item.label));choices.append(choice);
+    const article=node('article',undefined,'scene-object-plan');article.hidden=!item.results?.length;
+    const details=node('details',undefined,'scene-object-results');details.open=true;details.append(node('summary',item.label));
+    const status=node('p',sceneSearchStatus(item),'muted'),resultTarget=node('div',undefined,'products-container scene-products');
+    const retry=node('button','Try this item again','secondary');retry.type='button';retry.hidden=item.status!=='error';retry.onclick=()=>discoverScenePlan([item.id],true);
+    details.append(status,resultTarget,retry);article.append(details);target.append(article);
+    sceneElements.set(item.id,{status,results:resultTarget,details,article,choose,choice,retry});
+    choose.onchange=()=>{item.selected=choose.checked;updateSetupSelection(true);};
+    if(item.results)investigator.renderSceneResults(item,resultTarget);
+  }
+  updateSetupSelection();
+}
+function sceneSearchStatus(item){
+  if(item.status==='searching')return 'Finding options…';
+  if(item.status==='error')return item.error||'Could not load options. Try this item again.';
+  if(item.status==='complete')return item.results?.length?`${item.results.length} options found. Review a product before adding it.`:'No options found for this item. Try another description from its object card.';
+  return '';
 }
 function syncScenePlan() {
   const signature = JSON.stringify([
@@ -246,12 +206,12 @@ function syncScenePlan() {
       item.error = old.error;
     }
   }
+  $('#setup-budget-summary').hidden=true;
   renderScenePlan();
 }
 async function discoverScenePlan(objectIds = scenePlan?.objects.filter(item => item.selected).map(item => item.id) || [], force = false) {
   if (!scenePlan) return;
   if (!objectIds.length) { $('#scene-plan-status').textContent = 'Select at least one detected object to search.'; return; }
-  if(objectIds.length>6){$('#scene-plan-status').textContent='Choose up to six items for one setup.';return;}
   const budget=$('#setup-budget').value===''?null:Number($('#setup-budget').value);
   if(budget!==null&&(!Number.isFinite(budget)||budget<=0||budget>100000)){$('#scene-plan-status').textContent='Enter a total budget between 0 and 100,000.';return;}
   if (sceneSearchController) {
@@ -264,17 +224,17 @@ async function discoverScenePlan(objectIds = scenePlan?.objects.filter(item => i
   for (const item of scenePlan.objects) if (objectIds.includes(item.id)) {
     item.status = 'searching';
     const elements = sceneElements.get(item.id);
-    if (elements) elements.status.textContent = sceneSearchStatus(item);
+    if (elements) {elements.status.textContent=sceneSearchStatus(item);elements.article.hidden=false;elements.retry.hidden=true;}
   }
   const button = $('#run-scene-plan');
-  button.disabled = true;
-  $('#scene-plan-status').textContent = `Searching ${objectIds.length} selected object${objectIds.length === 1 ? '' : 's'} with at most two concurrent requests…`;
+  updateSetupSelection();$('#cancel-scene-plan').hidden=false;$('#setup-budget-summary').hidden=true;$('#scene-plan-objects').setAttribute('aria-busy','true');
+  $('#scene-plan-status').textContent=`Finding options for ${objectIds.length} item${objectIds.length===1?'':'s'}…`;
   try {
     const requestContext = investigator.sceneSearchContext();
     requestContext.filters=budget===null?{}:{price:{max_price:budget}};
     const results = await sceneSearchRunner.run(
       scenePlan,
-      (item, signal) => investigator.discoverSceneObject(item, sceneElements.get(item.id)?.results, signal, requestContext),
+      async(item,signal)=>{const products=await investigator.discoverSceneObject(item,sceneElements.get(item.id)?.results,signal,requestContext);if(version===sceneSearchGeneration){sceneElements.get(item.id).status.textContent=products.length?`${products.length} options found.`:'No options found.';}return products;},
       {
         selectedIds: objectIds, signal: controller.signal, force,
         keyForObject: item => investigator.sceneSearchCacheKey(item, requestContext)
@@ -284,20 +244,21 @@ async function discoverScenePlan(objectIds = scenePlan?.objects.filter(item => i
     for (const outcome of results) {
       const item = scenePlan.objects.find(object => object.id === outcome.objectId);
       const elements = sceneElements.get(outcome.objectId);
-      if (item && elements) elements.status.textContent = sceneSearchStatus(item);
+      if(item&&elements){elements.status.textContent=sceneSearchStatus(item);elements.retry.hidden=item.status!=='error';}
     }
     const errors = results.filter(outcome => outcome.status === 'error').length;
     const returned = results.filter(outcome => outcome.status === 'complete' && outcome.products.length).length;
     if(budget!==null){
       const plan=budgetSetup(results.map(outcome=>({label:scenePlan.objects.find(item=>item.id===outcome.objectId)?.label||'Item',products:outcome.products})),budget,requestContext.config.currency);
-      $('#setup-budget-summary').textContent=`${plan.complete?'Candidate setup':'Partial setup'}: ${formatProductPrice(plan.total,plan.currency)} of ${formatProductPrice(budget,plan.currency)}. Check seller stock, variants and compatibility.`;
+      $('#setup-budget-summary').hidden=false;$('#setup-budget-summary').dataset.partial=String(!plan.complete);
+      $('#setup-budget-summary').textContent=`${plan.complete?'Your setup':'Partial setup'} · ${plan.items.filter(item=>item.product).length} of ${results.length} items · ${formatProductPrice(plan.total,plan.currency)} of ${formatProductPrice(budget,plan.currency)}${plan.complete?'':'. No complete combination was found within this budget.'}`;
       for(let i=0;i<results.length;i++){const item=scenePlan.objects.find(item=>item.id===results[i].objectId),elements=sceneElements.get(item.id),chosen=plan.items[i].product;
         investigator.renderSceneResults({...item,results:chosen?[chosen]:[]},elements.results);
-        elements.status.textContent=chosen?'Selected within the total budget. Review details before adding to cart.':'No distinct option fits the remaining total budget.';}
-    }else $('#setup-budget-summary').textContent='Options are grouped by item. No total budget was applied.';
+        elements.status.textContent=chosen?'Selected within the total budget. Review details before adding to cart.':'No option was selected within this total budget. Raise the budget or choose fewer items.';}
+    }else{$('#setup-budget-summary').hidden=false;$('#setup-budget-summary').textContent='Your options are ready. Choose a product from each item below.';}
     $('#scene-plan-status').textContent = errors
-      ? `${errors} object search${errors === 1 ? '' : 'es'} failed; successful object results remain available.`
-      : `${returned} of ${results.length} object searches returned products. Results stay grouped by detected object.`;
+      ? `${errors} item${errors===1?' needs':'s need'} another try. Other results are ready.`
+      : `${returned} of ${results.length} items have options.`;
   } catch (error) {
     if (version === sceneSearchGeneration && error.name !== 'AbortError') {
       $('#scene-plan-status').textContent = `Scene search could not run: ${error.message}`;
@@ -305,7 +266,7 @@ async function discoverScenePlan(objectIds = scenePlan?.objects.filter(item => i
   } finally {
     if (version === sceneSearchGeneration) {
       button.disabled = false;
-      sceneSearchController = null;
+      sceneSearchController = null;$('#cancel-scene-plan').hidden=true;$('#scene-plan-objects').setAttribute('aria-busy','false');updateSetupSelection();
     }
   }
 }
@@ -504,9 +465,18 @@ function showAll() {
   selectedId = null; document.body.dataset.view = 'all'; $('#back-to-items').hidden = true;
   window.scrollTo({ top: 0, behavior: 'instant' }); render();
 }
-const recreate=document.createElement('button');recreate.id='recreate-setup';recreate.type='button';recreate.className='secondary';recreate.textContent='Recreate this setup';
-$('#products-panel .panel-heading').after(recreate);
-recreate.onclick=()=>{showWorkspace('explore');showAll();const panel=$('#scene-planning');if(panel.hidden){notice('Scan a moment with at least two objects to build a setup.');return;}panel.open=true;panel.scrollIntoView({block:'start',behavior:'instant'});};
+let setupReturnView='all',setupReturnScroll=0;
+function openSetup(){
+  if(!scenePlan){notice('Scan a moment with at least two objects to build a setup.');return;}
+  setupReturnView=document.body.dataset.view||'all';setupReturnScroll=window.scrollY;showWorkspace('explore');document.body.dataset.view='setup';
+  const panel=$('#scene-planning');panel.open=true;$('#setup-back').textContent=setupReturnView==='detail'?'← Back to your find':'← Back to all items';updateSetupSelection();window.scrollTo({top:0,behavior:'instant'});$('#setup-back').focus({preventScroll:true});
+}
+const recreate=document.createElement('button');recreate.id='recreate-setup';recreate.type='button';recreate.className='secondary';recreate.textContent='Recreate this setup';$('#products-panel .panel-heading').after(recreate);recreate.onclick=openSetup;
+const recreateMoment=document.createElement('button');recreateMoment.id='recreate-from-moment';recreateMoment.className='setup-entry secondary';recreateMoment.type='button';recreateMoment.hidden=true;recreateMoment.textContent='Recreate this setup →';$('#moment-gallery .panel-heading').after(recreateMoment);recreateMoment.onclick=openSetup;
+$('#setup-back').onclick=()=>{document.body.dataset.view=setupReturnView==='detail'&&selectedId?'detail':'all';$('#scene-planning').open=false;window.scrollTo({top:setupReturnScroll,behavior:'instant'});(document.body.dataset.view==='detail'?recreate:recreateMoment).focus({preventScroll:true});};
+$('#setup-clear').onclick=()=>{if(!scenePlan)return;for(const item of scenePlan.objects){item.selected=false;sceneElements.get(item.id).choose.checked=false;}updateSetupSelection(true);};
+$('#setup-budget').oninput=()=>updateSetupSelection(true);
+$('#cancel-scene-plan').onclick=()=>{sceneSearchController?.abort();sceneSearchController=null;sceneSearchGeneration++;for(const item of scenePlan?.objects||[])if(item.status==='searching'){item.status=item.results?'complete':'not-searched';const el=sceneElements.get(item.id);el.article.hidden=!item.results?.length;el.status.textContent=sceneSearchStatus(item);}$('#cancel-scene-plan').hidden=true;$('#scene-plan-status').textContent='Search stopped. Your selections are saved.';$('#scene-plan-objects').setAttribute('aria-busy','false');updateSetupSelection();};
 $('#back-to-items').onclick = () => { if(!investigator.backToResults())showAll(); };
 chrome.runtime.onMessage.addListener(message => {
   if (message?.captureId !== capture?.captureId) return;
@@ -520,9 +490,9 @@ chrome.runtime.onMessage.addListener(message => {
 document.querySelectorAll('[data-jump]').forEach(button => button.onclick = () => document.getElementById(button.dataset.jump).scrollIntoView({ block: 'start', behavior: 'smooth' }));
 $('#run-scene-plan').addEventListener('click', () => discoverScenePlan());
 $('#rebuild-scene-plan').addEventListener('click', () => {
-  scenePlanSignature = '';
+  scenePlan=null;scenePlanSignature = '';
   syncScenePlan();
-  $('#scene-plan-status').textContent = 'Plan rebuilt from the current detected finds. Select objects and start discovery.';
+  $('#scene-plan-status').textContent = 'Selection reset to the current finds. Choose items and build your setup.';
 });
 $('#refresh-subscription-inbox').addEventListener('click', refreshSubscriptionInbox);
 $('#enable-desktop-alerts').addEventListener('click', async event => {

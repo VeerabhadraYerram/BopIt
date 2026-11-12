@@ -1,6 +1,7 @@
 import http from 'node:http';
 import {cartItems} from '../../packages/contracts/cart.mjs';
 import {compareCameraMounts} from './compatibility.mjs';
+import {compressDetectionPng} from './detection-png.mjs';
 import {transcribeClip} from './video-audio.mjs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -150,11 +151,12 @@ function validateLocale(config = {}) {
   return result;
 }
 
-export function createApp({ transcribe=transcribeClip,resolvePreference=resolveShoppingIntent,reviewPreference=assessShoppingResults,token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, similarProducts = similarChannel3, lookupProduct = lookupChannel3, browseProducts = browseChannel3, searchCategories = searchCategoriesChannel3, listCategories = listCategoriesChannel3, retrieveCategory = retrieveCategoryChannel3, searchBrands = searchBrandsChannel3, listBrands = listBrandsChannel3, retrieveBrand = retrieveBrandChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, converse = converseChannel3, priceHistory = priceHistoryChannel3, reporting = reportingChannel3, segment = segmentObjects, createSubscription = createProductSubscriptionChannel3, listSubscriptions = listProductSubscriptionsChannel3, getSubscription = getProductSubscriptionChannel3, cancelSubscription = cancelProductSubscriptionChannel3, subscriptionStore = DEFAULT_SUBSCRIPTION_STORE, webhookSecret = '', verifyWebhook = verifyChannel3Webhook, paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
+export function createApp({ backupApiKey='',fallbackModel='',transcribe=transcribeClip,resolvePreference=resolveShoppingIntent,reviewPreference=assessShoppingResults,token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, similarProducts = similarChannel3, lookupProduct = lookupChannel3, browseProducts = browseChannel3, searchCategories = searchCategoriesChannel3, listCategories = listCategoriesChannel3, retrieveCategory = retrieveCategoryChannel3, searchBrands = searchBrandsChannel3, listBrands = listBrandsChannel3, retrieveBrand = retrieveBrandChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, converse = converseChannel3, priceHistory = priceHistoryChannel3, reporting = reportingChannel3, segment = segmentObjects, createSubscription = createProductSubscriptionChannel3, listSubscriptions = listProductSubscriptionsChannel3, getSubscription = getProductSubscriptionChannel3, cancelSubscription = cancelProductSubscriptionChannel3, subscriptionStore = DEFAULT_SUBSCRIPTION_STORE, webhookSecret = '', verifyWebhook = verifyChannel3Webhook, paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
   const pairing = createPairingHandler(token);
   const paymentOrders = new Map();
   const priceHistoryCache = new Map();
   const profileRequests = new Map();
+  const detectionResults=new Map(),detectionPending=new Map();let primaryUnavailableUntil=0;
   const paymentsConfigured = Boolean(paypalClientId && paypalClientSecret && !/^(your_|replace_)/i.test(paypalClientId) && !/^(your_|replace_)/i.test(paypalClientSecret));
   let inFlight = 0, webhookInFlight = 0;
   let lastRequest = 0;
@@ -254,7 +256,7 @@ export function createApp({ transcribe=transcribeClip,resolvePreference=resolveS
         inFlight++;
         let data;
         try {
-          if(req.url==='/api/audio/transcribe'){if(!apiKey)throw new Error('Gemini is not configured.');data=await transcribe(body,{apiKey,model});
+          if(req.url==='/api/audio/transcribe'){if(!apiKey)throw new Error('Gemini is not configured.');data=await transcribe(body,{apiKey,model,backupApiKey});
           }else if(req.url==='/api/products/compatibility'){
             if(!Array.isArray(body.others)||body.others.length>4)throw new Error('Compare up to four cart products.');
             const lines=cartItems([body.item,...body.others]);const products=[];
@@ -264,7 +266,7 @@ export function createApp({ transcribe=transcribeClip,resolvePreference=resolveS
             if(!apiKey)throw new Error('Gemini is not configured for understanding shopping preferences.');
             if(typeof body.query!=='string'||!body.query.trim()||body.query.length>2500)throw new Error('Describe your request in under 2500 characters.');
             if(!body.context||typeof body.context!=='object'||Array.isArray(body.context)||JSON.stringify(body.context).length>16000)throw new Error('Shopping context is too large or invalid.');
-            const plan=await resolvePreference({request:body.query,context:body.context,currentFilters:filters,market:config},{apiKey,model});
+            const plan=await resolvePreference({request:body.query,context:body.context,currentFilters:filters,market:config},{apiKey,model,backupApiKey});
             let intendedFilters=validateDiscoveryFilters(mergeIntentFilters(filters,plan));
             if(body.budget!==undefined&&body.budget!==''&&!plan.changes.includes('budget')&&!intendedFilters.price){const max=Number(body.budget);if(!Number.isFinite(max)||max<=0||max>1000000)throw new Error('Invalid budget.');intendedFilters.price={max_price:max};}
             if(plan.categoryQuery){const found=await searchCategories(plan.categoryQuery,{apiKey:channel3Key,limit:3});const category=(found.categories||found.items||[])[0];if(category?.slug)intendedFilters.category_ids=[category.slug];}
@@ -272,7 +274,7 @@ export function createApp({ transcribe=transcribeClip,resolvePreference=resolveS
               ?await converse({apiKey:channel3Key,message:plan.query,filters:intendedFilters,config,userId})
               :await searchProducts(plan.query,{apiKey:channel3Key,filters:intendedFilters,config,limit:9,userId});
             const candidates=(raw.products||raw.message?.products||[]).slice(0,9);
-            const assessed=await reviewPreference(plan,candidates,{apiKey,model});
+            const assessed=await reviewPreference(plan,candidates,{apiKey,model,backupApiKey});
             const matches=new Map(assessed.filter(row=>row.verdict==='match').map(row=>[row.id,row]));
             data={products:candidates.filter(p=>matches.has(p.id)).map(p=>({...p,matchExplanation:matches.get(p.id).reason})),interpretation:plan.summary,action:plan.action,query:plan.query,changes:plan.changes,excludedCount:candidates.length-matches.size,unverifiedCount:assessed.filter(row=>row.verdict==='unknown').length,filters:intendedFilters,tool:plan.tool,nextPageToken:null};
           } else if (req.url === '/api/products/similar') {
@@ -559,7 +561,7 @@ export function createApp({ transcribe=transcribeClip,resolvePreference=resolveS
             profileRequest = Promise.resolve().then(async () => {
               try {
                 let profile, usedVideo = Boolean(context.youtubeUrl), contextWarning = '';
-                const options = { scene, context, additionalImages, label: body.label, apiKey, model };
+                const options = { scene, context, additionalImages, label: body.label, apiKey, model, backupApiKey };
                 try { profile = await inspect(crop.base64, options); }
                 catch (error) {
                   const retryableVideoFailure = context.youtubeUrl && /video|youtube|media|unavailable/i.test(error.message || '');
@@ -601,7 +603,7 @@ export function createApp({ transcribe=transcribeClip,resolvePreference=resolveS
           const userId = validateChannel3UserId(req.headers['x-bopit-user-id']);
           const products = await Promise.all(body.ids.map(id => retrieve(id, { apiKey: channel3Key, userId })));
           const candidateImages = (await Promise.all(products.slice(0, 3).map(p => catalogImage(p)))).filter(Boolean);
-          const assessments = await compare(crop.base64, profile, products, { apiKey, model, candidateImages });
+          const assessments = await compare(crop.base64, profile, products, { apiKey, model,backupApiKey, candidateImages });
           return send(200, { assessments, products, comparedImageIds: candidateImages.map(i => i.id), method: 'AI comparison of object crop, available catalog photos and listing text; not proof of exact identity' });
         } finally { inFlight--; }
       } catch (error) { if (!res.headersSent) send(/Invalid|Only|Unknown|Image|PNG|Use a/.test(error.message) ? 400 : 502, { error: error.name === 'TimeoutError' ? 'Analysis timed out. Try again without video context.' : error.message || 'Request failed.' }); }
@@ -652,7 +654,6 @@ export function createApp({ transcribe=transcribeClip,resolvePreference=resolveS
     if (!extensionOrigin || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'Pair the extension using the local setup page first.' });
     if (!apiKey) return send(503, { code: 'KEY_MISSING', error: 'Add GEMINI_API_KEY to the server .env file, restart it, and try again.' });
     if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required.' });
-    if (inFlight >= 2 || Date.now() - lastRequest < 1000) return send(429, { error: 'A request is running or was just sent. Wait a moment.' });
     const requestStarted = performance.now();
     let size = 0;
     try {
@@ -669,30 +670,36 @@ export function createApp({ transcribe=transcribeClip,resolvePreference=resolveS
       const imageValidationStarted = performance.now();
       try { image = validateImage(body.image); } catch (error) { return send(400, { error: error.message }); }
       const imageValidationMs = performance.now() - imageValidationStarted;
-      inFlight++; lastRequest = Date.now();
-      try {
-        const detectionStarted = performance.now(), geminiTimings = {};
-        const result = await detect(image.base64, { apiKey, model, onTiming: value => Object.assign(geminiTimings, value) });
-        const timings = {
-          requestReadMs,
-          imageValidationMs,
-          ...geminiTimings,
-          serverDetectionMs: performance.now() - detectionStarted
-        };
-        console.info('[bopit-detection-timing]', JSON.stringify({
-          stage: 'server-detection',
-          ...timings,
-          requestBytes: size,
-          imageBytes: Buffer.byteLength(image.base64, 'base64'),
-          imageWidth: image.width,
-          imageHeight: image.height,
-          objectCount: result.objects.length
-        }));
-        send(200, { ...result, captureId: body.captureId, mode: 'live', model, elapsedMs: timings.serverDetectionMs, timings, image: { width: image.width, height: image.height } });
-      } catch (error) {
-        console.warn('[bopit-detection-error]', JSON.stringify({ code: error.code || 'DETECTION_FAILED', providerStatus: error.status, attempts: error.attempts, model, timedOut: error.name === 'TimeoutError' }));
-        send(502, { code: error.code || 'DETECTION_FAILED', error: error.name === 'TimeoutError' ? 'Gemini timed out. Your frame is preserved; try a smaller area.' : error.message || 'Detection failed.' });
-      } finally { inFlight--; }
+      const cacheKey=createHash('sha256').update(`${origin}:${model}:${fallbackModel}:`).update(image.base64).digest('hex');
+      const cached=detectionResults.get(cacheKey);
+      if(cached&&cached.expires>Date.now()){return send(200,{...cached.value,captureId:body.captureId,timings:{...cached.value.timings,cacheHit:true},elapsedMs:0});}
+      if(cached)detectionResults.delete(cacheKey);
+      let operation=detectionPending.get(cacheKey),shared=Boolean(operation);
+      if(!operation){
+        if(inFlight>=2||Date.now()-lastRequest<1000)return send(429,{error:'A request is running or was just sent. Wait a moment.'});
+        inFlight++;lastRequest=Date.now();
+        operation=(async()=>{
+          try{
+            const detectionStarted=performance.now(),geminiTimings={};const compressionStarted=performance.now();
+            const optimized=await compressDetectionPng(image.base64);
+            const compressionMs=performance.now()-compressionStarted;
+            const primaryCooling=Boolean(fallbackModel)&&primaryUnavailableUntil>Date.now();
+            const requestedModel=primaryCooling?fallbackModel:model;
+            const result=await detect(optimized.base64,{apiKey,backupApiKey,model:requestedModel,fallbackModel:primaryCooling?'':fallbackModel,onTiming:value=>Object.assign(geminiTimings,value)});
+            const usedModel=geminiTimings.modelUsed||requestedModel;
+            geminiTimings.modelUsed=usedModel;geminiTimings.fallbackUsed=usedModel!==model;
+            if(geminiTimings.fallbackUsed&&!primaryCooling)primaryUnavailableUntil=Date.now()+30000;
+            const timings={requestReadMs,imageValidationMs,compressionMs,...geminiTimings,cacheHit:false,serverDetectionMs:performance.now()-detectionStarted};
+            const actualModel=geminiTimings.modelUsed||model;
+            console.info('[bopit-detection-timing]',JSON.stringify({stage:'server-detection',...timings,requestBytes:size,imageBytes:optimized.inputBytes,providerImageBytes:optimized.outputBytes,imageWidth:image.width,imageHeight:image.height,objectCount:result.objects.length}));
+            const value={...result,mode:'live',model:actualModel,elapsedMs:timings.serverDetectionMs,timings,image:{width:image.width,height:image.height}};
+            detectionResults.set(cacheKey,{value,expires:Date.now()+5*60000});while(detectionResults.size>8)detectionResults.delete(detectionResults.keys().next().value);
+            return value;
+          }finally{inFlight--;detectionPending.delete(cacheKey);}
+        })();detectionPending.set(cacheKey,operation);
+      }
+      try{const value=await operation;send(200,{...value,captureId:body.captureId,timings:{...value.timings,sharedRequest:shared}});}
+      catch(error){if(error.status===503||error.name==='TimeoutError')primaryUnavailableUntil=Date.now()+30000;console.warn('[bopit-detection-error]',JSON.stringify({code:error.code||'DETECTION_FAILED',providerStatus:error.status,attempts:error.attempts,model,timedOut:error.name==='TimeoutError'}));send(502,{code:error.code||'DETECTION_FAILED',error:error.name==='TimeoutError'?'Recognition took too long. Your frame is preserved; retry shortly.':error.message||'Detection failed.'});}
     } catch { if (!res.headersSent) send(400, { error: 'Invalid request.' }); }
   });
 }
@@ -704,7 +711,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   let token;
   try { token = (await readFile(tokenPath, 'utf8')).trim(); } catch { token = randomBytes(32).toString('hex'); await writeFile(tokenPath, token, { mode: 0o600 }); }
   const dataDir = resolve(root, process.env.BOPIT_DATA_DIR || '.local');
-  const app = createApp({ token, apiKey: process.env.GEMINI_API_KEY, channel3Key: process.env.CHANNEL3_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', webhookSecret: process.env.CHANNEL3_WEBHOOK_SECRET || '', subscriptionStore: createSubscriptionStore(resolve(dataDir, 'channel3-subscriptions.json')), paypalClientId: process.env.PAYPAL_SANDBOX_CLIENT_ID, paypalClientSecret: process.env.PAYPAL_SANDBOX_CLIENT_SECRET });
+  const app = createApp({ backupApiKey:process.env.GEMINI_BACKUP_API_KEY||'',fallbackModel:process.env.GEMINI_FALLBACK_MODEL??'gemini-3.1-flash-lite',token, apiKey: process.env.GEMINI_API_KEY, channel3Key: process.env.CHANNEL3_API_KEY, model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite', webhookSecret: process.env.CHANNEL3_WEBHOOK_SECRET || '', subscriptionStore: createSubscriptionStore(resolve(dataDir, 'channel3-subscriptions.json')), paypalClientId: process.env.PAYPAL_SANDBOX_CLIENT_ID, paypalClientSecret: process.env.PAYPAL_SANDBOX_CLIENT_SECRET });
   app.on('error', error => { console.error(error.code === 'EADDRINUSE' ? 'Port 4317 is already in use. Stop the other BopIt server first.' : 'Server could not start.'); process.exitCode = 1; });
   app.listen(PORT, '127.0.0.1', () => console.log(`BopIt setup: ${BASE}\nGemini key ${process.env.GEMINI_API_KEY ? 'configured; live call still needs verification' : 'missing; see README.md'}\nChannel3 key ${process.env.CHANNEL3_API_KEY ? 'configured' : 'missing; add CHANNEL3_API_KEY to .env'}. No images or credentials are logged.`));
 }
