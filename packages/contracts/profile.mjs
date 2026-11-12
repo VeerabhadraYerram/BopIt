@@ -40,7 +40,7 @@ export function validateContext(raw = {}) {
   const cues = list(raw.cues ?? [], 80).map(c => {
     const start = Number(c.start), end = Number(c.end);
     if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end < start || end > 86400) throw new Error('Invalid caption timestamp');
-    return { start, end, text: text(c.text, 1500) };
+    return { start, end, text: text(c.text, 1500),...(c.source==='video_speech'?{source:'video_speech'}:{}) };
   }).filter(c => c.end >= timestamp - 40 && c.start <= timestamp + 20);
   let youtubeUrl = '';
   if (raw.youtubeUrl) {

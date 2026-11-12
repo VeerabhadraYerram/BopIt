@@ -133,7 +133,30 @@
     const close = document.createElement('button'); close.textContent = 'Cancel'; close.onclick = () => host.style.display = 'none'; status.append(close);
     status.hidden = false; host.style.display = 'block'; return { started: false, choosing: true };
   }
+  let audioRestore=null;
+  function restoreAudio(){if(!audioRestore)return;const state=audioRestore;audioRestore=null;clearTimeout(state.timer);if(state.video.isConnected){state.video.pause();state.video.currentTime=state.time;state.video.muted=state.muted;state.video.playbackRate=state.rate;}}
   const onMessage = (msg, _sender, respond) => {
+    if(msg?.type==='BOPIT_AUDIO_RESTORE'){restoreAudio();respond({ok:true});return;}
+    if(msg?.type==='BOPIT_AUDIO_PREPARE'){
+      if(msg.captureId!==captureId||!selected?.paused||selected.mediaKeys||!Number.isFinite(selected.duration)){respond({error:'Pause an ordinary video and scan this moment first. Live or protected media cannot be sampled.'});return;}
+      const video=selected,time=video.currentTime,start=Math.max(0,time-12),duration=Math.min(12,video.duration-start);
+      audioRestore={video,time,muted:video.muted,rate:video.playbackRate,timer:setTimeout(restoreAudio,18000)};
+      video.playbackRate=1;video.muted=false;const ready=()=>respond({start,duration});if(Math.abs(video.currentTime-start)<.02){ready();return;}let done=false;const finish=()=>{if(done)return;done=true;video.removeEventListener('seeked',finish);ready();};video.addEventListener('seeked',finish,{once:true});video.currentTime=start;setTimeout(finish,2000);return true;
+    }
+    if(msg?.type==='BOPIT_AUDIO_DIRECT'){
+      if(!audioRestore||msg.captureId!==captureId){respond({error:'The source moment changed.'});return;}
+      const video=audioRestore.video;
+      let stream;try{stream=video.captureStream?.();if(!stream?.getAudioTracks().length){stream?.getTracks().forEach(t=>t.stop());respond({unsupported:true});return;}}catch{respond({unsupported:true});return;}
+      const audioOnly=new MediaStream(stream.getAudioTracks()),chunks=[],recorder=new MediaRecorder(audioOnly,{mimeType:'audio/webm'});
+      let finished=false;const finish=async error=>{if(finished)return;finished=true;stream.getTracks().forEach(t=>t.stop());if(error){respond({error});return;}const bytes=new Uint8Array(await new Blob(chunks).arrayBuffer());let binary='';for(let i=0;i<bytes.length;i+=8192)binary+=String.fromCharCode(...bytes.subarray(i,i+8192));respond({audio:btoa(binary),mimeType:'audio/webm'});};
+      recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};recorder.onerror=()=>finish('Could not record this video’s audio.');recorder.onstop=()=>finish();
+      recorder.start();setTimeout(()=>{if(recorder.state==='recording')recorder.stop();},15000);video.play().then(()=>{setTimeout(()=>{if(recorder.state==='recording')recorder.stop();},msg.duration*1000);}).catch(()=>{recorder.stop();finish('Chrome blocked video playback. Resume this video once and try again.');});return true;
+    }
+    if(msg?.type==='BOPIT_AUDIO_PLAY'){
+      if(!audioRestore||msg.captureId!==captureId){respond({error:'The source moment changed.'});return;}
+      audioRestore.video.play().then(()=>respond({ok:true})).catch(()=>respond({error:'Chrome blocked video playback. Resume the video once, pause it, and try again.'}));return true;
+    }
+
     if (msg?.type === 'BOPIT_SHOW_PANEL') { scanning = Boolean(msg.captureId); showPanel(msg.captureId,msg.error,false); render(); respond({ok:true}); }
     if (msg?.type === 'BOPIT_OVERLAY_STATE' && msg.captureId === captureId) {
       if (Array.isArray(msg.objects)) objects = msg.objects;
@@ -165,5 +188,5 @@
   };
   chrome.runtime.onMessage.addListener(onMessage);
   listen(window,'resize',update);listen(document,'scroll',update,true);listen(document,'fullscreenchange',update);listen(document,'play',update,true);listen(document,'seeked',update,true);timer=setInterval(update,250);
-  globalThis.__bopitInstalled = { version: VERSION, dispose() { lifetime.abort();clearInterval(timer);clearTimeout(statusTimer);chrome.runtime.onMessage.removeListener(onMessage);[host,overlay,panel,legacyStyle].filter(Boolean).forEach(el=>el.remove()); } };
+  globalThis.__bopitInstalled = { version: VERSION, dispose() { restoreAudio();lifetime.abort();clearInterval(timer);clearTimeout(statusTimer);chrome.runtime.onMessage.removeListener(onMessage);[host,overlay,panel,legacyStyle].filter(Boolean).forEach(el=>el.remove()); } };
 })();

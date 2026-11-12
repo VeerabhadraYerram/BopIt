@@ -104,6 +104,7 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
     res.end();
     return true;
   }
+  if (req.method === 'GET' && pathname === '/approval-return') { res.writeHead(200, {'content-type':'text/html; charset=utf-8'});res.end('<!doctype html><title>BopIt · PayPal</title><p>Return to your video. BopIt will verify the payment and show your receipt there. You can close this window.</p>');return true; }
   if (req.method === 'GET' && pathname === '/checkout') {
     const existingSession = readCookie(req, 'bopit_demo_session');
     const sessionId = existingSession && /^[a-f0-9]{64}$/.test(existingSession) ? existingSession : randomBytes(32).toString('hex');
@@ -133,11 +134,15 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
   const statusMatch = req.method === 'POST' && pathname.match(/^\/api\/payments\/orders\/([^/]+)\/status$/);
   if (!createOrderRoute && !captureMatch && !statusMatch) return false;
 
-  if (req.headers.origin !== BASE) {
+  const supplied = Buffer.from(String(req.headers['x-bopit-token'] || '')), expected = Buffer.from(token || '');
+  const extensionPayment = extensionOrigin && expected.length && supplied.length === expected.length && timingSafeEqual(supplied, expected);
+  const installation = String(req.headers['x-bopit-user-id'] || '');
+  if (extensionPayment && (!/^bopit_[a-f0-9-]{36}$/.test(installation) || !url.searchParams.has('quote'))) { send(400, { error: 'A signed quote and paired installation are required.' }); return true; }
+  if (req.headers.origin !== BASE && !extensionPayment) {
     send(403, { error: 'Payment requests must come from the local checkout.' });
     return true;
   }
-  const owner = readCookie(req, 'bopit_demo_session');
+  const owner = extensionPayment ? createHash('sha256').update(`${token}:${req.headers.origin}:${installation}`).digest('hex') : readCookie(req, 'bopit_demo_session');
   if (!owner || !/^[a-f0-9]{64}$/.test(owner)) {
     send(401, { error: 'Open the demo product page before starting checkout.' });
     return true;
@@ -173,8 +178,8 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
           brand_name: 'BopIt',
           user_action: 'PAY_NOW',
           shipping_preference: 'NO_SHIPPING',
-          return_url: `${BASE}/checkout${quoteSuffix}`,
-          cancel_url: `${BASE}/checkout${quoteSuffix}${quoteSuffix ? '&' : '?'}cancelled=1`
+          return_url: extensionPayment ? `${BASE}/approval-return` : `${BASE}/checkout${quoteSuffix}`,
+          cancel_url: extensionPayment ? `${BASE}/approval-return?cancelled=1` : `${BASE}/checkout${quoteSuffix}${quoteSuffix ? '&' : '?'}cancelled=1`
         }
       }, body.checkoutId
         ? createHash('sha256').update(`create:${owner}:${product.id}:${body.checkoutId}`).digest('hex').slice(0, 36)
@@ -282,7 +287,7 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
       return true;
     }
     if (statusMatch) {
-      send(200, { state: order.status === 'VOIDED' ? 'failed' : 'pending', message: order.status === 'VOIDED' ? 'PayPal voided this order.' : 'Waiting for PayPal Sandbox approval.' });
+      send(200, { state: order.status === 'VOIDED' ? 'failed' : 'pending', approved: order.status === 'APPROVED', message: order.status === 'VOIDED' ? 'PayPal voided this order.' : 'Waiting for PayPal Sandbox approval.' });
       return true;
     }
     if (order.status !== 'APPROVED') {

@@ -1,4 +1,7 @@
 import http from 'node:http';
+import {cartItems} from '../../packages/contracts/cart.mjs';
+import {compareCameraMounts} from './compatibility.mjs';
+import {transcribeClip} from './video-audio.mjs';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -147,7 +150,7 @@ function validateLocale(config = {}) {
   return result;
 }
 
-export function createApp({ resolvePreference=resolveShoppingIntent,reviewPreference=assessShoppingResults,token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, similarProducts = similarChannel3, lookupProduct = lookupChannel3, browseProducts = browseChannel3, searchCategories = searchCategoriesChannel3, listCategories = listCategoriesChannel3, retrieveCategory = retrieveCategoryChannel3, searchBrands = searchBrandsChannel3, listBrands = listBrandsChannel3, retrieveBrand = retrieveBrandChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, converse = converseChannel3, priceHistory = priceHistoryChannel3, reporting = reportingChannel3, segment = segmentObjects, createSubscription = createProductSubscriptionChannel3, listSubscriptions = listProductSubscriptionsChannel3, getSubscription = getProductSubscriptionChannel3, cancelSubscription = cancelProductSubscriptionChannel3, subscriptionStore = DEFAULT_SUBSCRIPTION_STORE, webhookSecret = '', verifyWebhook = verifyChannel3Webhook, paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
+export function createApp({ transcribe=transcribeClip,resolvePreference=resolveShoppingIntent,reviewPreference=assessShoppingResults,token, apiKey = '', channel3Key = '', model = 'gemini-3.5-flash-lite', detect = detectWithGemini, searchProducts = searchChannel3, similarProducts = similarChannel3, lookupProduct = lookupChannel3, browseProducts = browseChannel3, searchCategories = searchCategoriesChannel3, listCategories = listCategoriesChannel3, retrieveCategory = retrieveCategoryChannel3, searchBrands = searchBrandsChannel3, listBrands = listBrandsChannel3, retrieveBrand = retrieveBrandChannel3, inspect = inspectWithGemini, compare = compareWithGemini, retrieve = retrieveChannel3, converse = converseChannel3, priceHistory = priceHistoryChannel3, reporting = reportingChannel3, segment = segmentObjects, createSubscription = createProductSubscriptionChannel3, listSubscriptions = listProductSubscriptionsChannel3, getSubscription = getProductSubscriptionChannel3, cancelSubscription = cancelProductSubscriptionChannel3, subscriptionStore = DEFAULT_SUBSCRIPTION_STORE, webhookSecret = '', verifyWebhook = verifyChannel3Webhook, paypalClientId = '', paypalClientSecret = '', paypal = createPaypalClient({ clientId: paypalClientId, clientSecret: paypalClientSecret }) } = {}) {
   const pairing = createPairingHandler(token);
   const paymentOrders = new Map();
   const priceHistoryCache = new Map();
@@ -218,7 +221,7 @@ export function createApp({ resolvePreference=resolveShoppingIntent,reviewPrefer
     }
     if (req.method === 'GET' && req.url === '/health') return send(200, { ok: true, configured: Boolean(apiKey), channel3Configured: Boolean(channel3Key), paypalConfigured: paymentsConfigured, model });
     const catalogRoutes = [
-      '/api/products/preferences', '/api/products/similar', '/api/products/lookup', '/api/products/browse',
+      '/api/audio/transcribe','/api/products/compatibility','/api/products/preferences', '/api/products/similar', '/api/products/lookup', '/api/products/browse',
       '/api/catalog/categories/search', '/api/catalog/categories/list', '/api/catalog/categories/details',
       '/api/catalog/brands/search', '/api/catalog/brands/list', '/api/catalog/brands/details',
       '/api/conversations/turn', '/api/products/price-history',
@@ -231,13 +234,13 @@ export function createApp({ resolvePreference=resolveShoppingIntent,reviewPrefer
       const supplied = Buffer.from(String(req.headers['x-bopit-token'] || ''));
       const expected = Buffer.from(token || '');
       if ((!extensionOrigin && origin !== BASE) || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'Pair the extension using the local setup page first.' });
-      if (!channel3Key) return send(503, { code: 'KEY_MISSING', error: 'Add CHANNEL3_API_KEY to the server .env file, restart it, and try again.' });
+      if (!channel3Key&&!['/api/audio/transcribe'].includes(req.url)) return send(503, { code: 'KEY_MISSING', error: 'Add CHANNEL3_API_KEY to the server .env file, restart it, and try again.' });
       if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required.' });
       if (inFlight >= 2) return send(429, { error: 'Two catalog requests are running. Please wait.' });
       try {
         const chunks = [];
         let size = 0;
-        const maxRequestSize = req.url === '/api/conversations/turn' ? MAX_BODY : 128 * 1024;
+        const maxRequestSize = ['/api/conversations/turn','/api/audio/transcribe'].includes(req.url) ? MAX_BODY : 128 * 1024;
         for await (const chunk of req) {
           size += chunk.length;
           if (size > maxRequestSize) { send(413, { error: 'Catalog request too large.' }); req.destroy(); return; }
@@ -251,7 +254,13 @@ export function createApp({ resolvePreference=resolveShoppingIntent,reviewPrefer
         inFlight++;
         let data;
         try {
-          if(req.url==='/api/products/preferences'){
+          if(req.url==='/api/audio/transcribe'){if(!apiKey)throw new Error('Gemini is not configured.');data=await transcribe(body,{apiKey,model});
+          }else if(req.url==='/api/products/compatibility'){
+            if(!Array.isArray(body.others)||body.others.length>4)throw new Error('Compare up to four cart products.');
+            const lines=cartItems([body.item,...body.others]);const products=[];
+            for(const line of lines)products.push(await retrieve(line.id,{apiKey:channel3Key,config,selection:line.selection,websiteIds:line.websiteIds}));
+            data={advisories:compareCameraMounts(products[0],products.slice(1))};
+          }else if(req.url==='/api/products/preferences'){
             if(!apiKey)throw new Error('Gemini is not configured for understanding shopping preferences.');
             if(typeof body.query!=='string'||!body.query.trim()||body.query.length>2500)throw new Error('Describe your request in under 2500 characters.');
             if(!body.context||typeof body.context!=='object'||Array.isArray(body.context)||JSON.stringify(body.context).length>16000)throw new Error('Shopping context is too large or invalid.');
@@ -602,7 +611,7 @@ export function createApp({ resolvePreference=resolveShoppingIntent,reviewPrefer
       const supplied = Buffer.from(String(req.headers['x-bopit-token'] || ''));
       const expected = Buffer.from(token || '');
       if ((!extensionOrigin && origin !== BASE) || !expected.length || supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) return send(401, { error: 'Pair the extension using the local setup page first.' });
-      if (!channel3Key) return send(503, { code: 'KEY_MISSING', error: 'Add CHANNEL3_API_KEY to the server .env file, restart it, and try again.' });
+      if (!channel3Key&&!['/api/audio/transcribe'].includes(req.url)) return send(503, { code: 'KEY_MISSING', error: 'Add CHANNEL3_API_KEY to the server .env file, restart it, and try again.' });
       if (!req.headers['content-type']?.startsWith('application/json')) return send(415, { error: 'JSON required.' });
       let size = 0;
       try {

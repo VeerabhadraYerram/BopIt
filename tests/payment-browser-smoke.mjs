@@ -73,6 +73,9 @@ try {
   });
   const worker=context.serviceWorkers()[0]||await context.waitForEvent('serviceworker');
   await worker.evaluate(()=>chrome.storage.local.set({pairingToken:'payment-browser-token'}));
+  // Chrome-created popup navigations bypass Playwright routing on their first request.
+  // Keep the real popup, but route its external approval navigation through Playwright.
+  await worker.evaluate(()=>{const create=chrome.windows.create.bind(chrome.windows);chrome.windows.create=async options=>{if(options.url?.startsWith('https://www.sandbox.paypal.com/')){await chrome.storage.session.set({fixtureApprovalUrl:options.url});return create({...options,url:'about:blank'});}return create(options);};});
   const viewer=await context.newPage();await viewer.goto(`chrome-extension://${new URL(worker.url()).hostname}/viewer.html`);
   await viewer.locator('#app-menu > summary').click();await viewer.getByRole('button',{name:'Frame & editing tools',exact:true}).click();
   await viewer.locator('#example').click();await viewer.locator('#objects button').first().click();
@@ -95,32 +98,18 @@ try {
   await acceptPrices.waitFor();
   assert.equal(await viewer.locator('#pay-cart').isDisabled(), true, 'A changed price must be accepted first');
   await acceptPrices.click();
-  const popup=context.waitForEvent('page');await viewer.locator('#pay-cart').click();const checkout=await popup;
-  await checkout.waitForURL(`${base}/checkout?quote=*`);
-  const quotedCheckoutUrl=checkout.url();
-
-  await checkout.waitForFunction(() => !document.querySelector('#buy').disabled);
-  assert.equal(await checkout.locator('h1').innerText(),'2 items in your BopIt cart');
-  assert.equal(await checkout.locator('#checkout-items li').count(),2);
-  assert.match(await checkout.locator('.price').innerText(),/170\.95/);
-  await checkout.locator('#buy').click();
-  await checkout.waitForURL('https://www.sandbox.paypal.com/**');
-  const id = new URL(checkout.url()).searchParams.get('token');
-  orders.get(id).status = 'APPROVED';
-  await checkout.locator('#approve').click();
-  await checkout.waitForFunction(() => document.querySelector('#status').textContent.includes('Payment verified'));
-  assert.equal(new URL(checkout.url()).pathname, '/checkout');
-  assert.equal(captures, 1);
-  assert.match(await checkout.locator('.notice').innerText(),/Test payment only/);
-  assert.equal(await checkout.locator('#developer-help').isHidden(),true);
-  assert.equal(await viewer.locator('[data-action="sandbox-checkout"]').first().innerText(),'Pay with PayPal');
-  assert.equal(new URL(viewer.url()).protocol,'chrome-extension:');
-  await checkout.reload();
-  await checkout.waitForFunction(() => document.querySelector('#status').textContent.includes('Payment verified'));
-  assert.equal(captures, 1, 'Reload must never double capture');
-  await mkdir('test-results', { recursive: true });
-  await checkout.screenshot({ path: 'test-results/paypal-receipt.png', fullPage: true });
-
+  const pagesBeforeReview=context.pages().length;await viewer.locator('#pay-cart').click();await viewer.locator('#inline-checkout').waitFor({state:'visible'});
+  assert.equal(context.pages().length,pagesBeforeReview,'Quote review must not open a new tab');
+  assert.match(await viewer.locator('#inline-checkout').innerText(),/170\.95/);
+  const popup=context.waitForEvent('page');await viewer.getByRole('button',{name:'Continue with PayPal',exact:true}).last().click();const approval=await popup;const approvalUrl=await worker.evaluate(async()=> (await chrome.storage.session.get('fixtureApprovalUrl')).fixtureApprovalUrl);await approval.goto(approvalUrl);
+  const saved=await worker.evaluate(async()=> (await chrome.storage.session.get('bopitInlinePayment')).bopitInlinePayment);
+  const quotedCheckoutUrl=`${base}/checkout?quote=${encodeURIComponent(saved.quote)}`;
+  const id=new URL(approval.url()).searchParams.get('token');await viewer.reload();await viewer.locator('#inline-checkout').waitFor({state:'visible'});assert.equal(orders.size,1,'Reload recovers the pending order without creating another');await approval.locator('#approve').click();await approval.waitForURL(`${base}/approval-return?*`);orders.get(id).status='APPROVED';
+  await viewer.getByRole('button',{name:'Check payment status',exact:true}).click();await viewer.getByText(/Payment confirmed · Receipt/).waitFor();
+  assert.equal(captures,1);await viewer.getByRole('button',{name:'Check payment status',exact:true}).count();
+  assert.equal(await viewer.locator('#inline-checkout h2').textContent(),'Your receipt');
+  await mkdir('test-results',{recursive:true});await viewer.screenshot({path:'test-results/inline-paypal-receipt.png',fullPage:true});
+  const checkout=await context.newPage();
   await checkout.goto(`${quotedCheckoutUrl}&cancelled=1`);
   assert.equal(await checkout.locator('h1').innerText(),'Checkout cancelled');
   assert.equal(await checkout.locator('.price').isHidden(),true);
@@ -162,6 +151,7 @@ try {
   await checkout.waitForFunction(() => !document.querySelector('#buy').disabled);
   assert.deepEqual(errors, []);
   console.log('PASS: extension → two-item cart → canonical itemized quote → checkout → approval → verified receipt, reload protection, create failure retry, cancellation, pending retry after server restart, missing credentials and setup recovery. PayPal mocked; no real payment.');
+} catch(error) {console.log(JSON.stringify({error:error.message,pages:await Promise.all((context?.pages()||[]).map(async page=>({url:new URL(page.url()).origin+new URL(page.url()).pathname,body:(await page.locator('body').innerText().catch(()=>'' )).slice(0,700)})))}));throw error;
 } finally {
   await context?.close();
   if (server?.listening) await stop();

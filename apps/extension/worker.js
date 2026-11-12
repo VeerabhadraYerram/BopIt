@@ -1,5 +1,6 @@
 import {cartKey,cartSource} from './contracts/cart.mjs';
 let cartQueue=Promise.resolve();
+let audioBusy=false;
 const storageReady = Promise.all([
   chrome.storage.local.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' }),
   chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_CONTEXTS' })
@@ -72,6 +73,38 @@ let capturing = false;
 let lastCapture = 0;
 let inspectorFrame = null;
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if(message?.type==='BOPIT_RECORD_VIDEO_AUDIO'){
+    if(sender.url?.split(/[?#]/,1)[0]!==chrome.runtime.getURL('viewer.html')||!sender.tab||audioBusy){respond({error:'Open the source video panel and wait for any current recording to finish.'});return;}
+    audioBusy=true;
+    (async()=>{
+      try{
+        const {currentCapture}=await chrome.storage.session.get('currentCapture');const tab=await chrome.tabs.get(sender.tab.id);
+        if(currentCapture?.captureId!==message.captureId||currentCapture.source.tabId!==sender.tab.id||currentCapture.source.documentUrl!==tab.url)throw new Error('Return to the original video and scan this moment again.');
+        const prepared=await chrome.tabs.sendMessage(sender.tab.id,{type:'BOPIT_AUDIO_PREPARE',captureId:message.captureId});if(prepared?.error)throw new Error(prepared.error);
+        const direct=await chrome.tabs.sendMessage(sender.tab.id,{type:'BOPIT_AUDIO_DIRECT',captureId:message.captureId,duration:prepared.duration});if(direct?.audio)return {...direct,start:prepared.start,duration:prepared.duration};
+        if(direct?.error)throw new Error(direct.error);
+        if(!await chrome.offscreen.hasDocument())await chrome.offscreen.createDocument({url:'offscreen.html',reasons:['USER_MEDIA'],justification:'Record a short clip of the selected video after the viewer explicitly requests speech context.'});
+        const streamId=await chrome.tabCapture.getMediaStreamId({targetTabId:sender.tab.id});
+        const started=await chrome.runtime.sendMessage({target:'bopit-audio',type:'BOPIT_AUDIO_START',streamId,duration:prepared.duration});if(started?.error)throw new Error(started.error);
+        const playing=await chrome.tabs.sendMessage(sender.tab.id,{type:'BOPIT_AUDIO_PLAY',captureId:message.captureId});if(playing?.error)throw new Error(playing.error);
+        const audio=await chrome.runtime.sendMessage({target:'bopit-audio',type:'BOPIT_AUDIO_COLLECT'});if(audio?.error)throw new Error(audio.error);return {...audio,start:prepared.start,duration:prepared.duration};
+      }finally{try{await chrome.tabs.sendMessage(sender.tab.id,{type:'BOPIT_AUDIO_RESTORE'});}catch{}try{await chrome.offscreen.closeDocument();}catch{}audioBusy=false;}
+    })().then(respond).catch(e=>respond({error:e.message}));return true;
+  }
+  if(['BOPIT_APPROVE_PAYMENT','BOPIT_APPROVAL_STATE','BOPIT_CLOSE_APPROVAL'].includes(message?.type)){
+    if(sender.url?.split(/[?#]/,1)[0]!==chrome.runtime.getURL('viewer.html'))return;
+    (async()=>{
+      const owner=`${sender.tab?.id}:${sender.frameId}`;
+      const stored=(await chrome.storage.session.get('bopitApprovalWindows')).bopitApprovalWindows||{};
+      if(message.type==='BOPIT_APPROVE_PAYMENT'){
+        const url=new URL(message.url);if(url.origin!=='https://www.sandbox.paypal.com'||url.pathname!=='/checkoutnow'||!url.searchParams.get('token')||url.username||url.password)throw new Error('Invalid PayPal approval address.');
+        const popup=await chrome.windows.create({url:url.href,type:'popup',width:520,height:740});stored[popup.id]=owner;await chrome.storage.session.set({bopitApprovalWindows:stored});return {windowId:popup.id};
+      }
+      if(stored[message.windowId]!==owner)throw new Error('This approval belongs to another panel.');
+      if(message.type==='BOPIT_CLOSE_APPROVAL'){try{await chrome.windows.remove(message.windowId);}catch{}delete stored[message.windowId];await chrome.storage.session.set({bopitApprovalWindows:stored});return {closed:true};}
+      try{await chrome.windows.get(message.windowId);return {closed:false};}catch{return {closed:true};}
+    })().then(respond).catch(e=>respond({error:e.message}));return true;
+  }
   if (message?.type === 'BOPIT_OPEN_CHECKOUT') {
     if (sender.url?.split(/[?#]/, 1)[0] !== chrome.runtime.getURL('viewer.html')) {
       respond({ error: 'Open BopIt to continue to checkout.' });

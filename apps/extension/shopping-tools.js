@@ -1,11 +1,10 @@
 import { normalizeSavedProducts, toggleSavedProduct, compareSavedOffer, applySavedOffer, buildProductComparison, filterDiscoveryProducts, resolveBudgetMaximum, rankDiscoveryProducts } from './contracts/discovery.mjs';
 import { formatProductPrice, safeProductUrl } from './product-display.js';
 import { availableReplacementVariantValues, retrieveReplacementVariant, persistSavedOfferUpdate } from './saved-offer-recovery.mjs';
-import { openCheckoutTab } from './checkout-tab.js';
 import { CHECKOUT_OFFER_FIELDS } from './contracts/cart.mjs';
 const $=s=>document.querySelector(s);
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
-export function createShoppingTools(onChange, api, market, makeCheckoutAction, getCartContext = () => ({}),makePriceHistory) {
+export function createShoppingTools(onChange, api, market, makeCheckoutAction, getCartContext = () => ({}),makePriceHistory,showInlineCheckout) {
   let saved=[],ready=false,queue=Promise.resolve(),lastProducts=[],lastKey='';
   let cart=[],cartBusy=false;
   const catalog=new Map(),comparison=new Set(),pending=new Set();
@@ -64,7 +63,7 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
   const payCart=el('button','Continue with PayPal');payCart.id='pay-cart';payCart.onclick=async()=>{
     if(cartBusy||!cart.length)return;
     cartBusy=true;payCart.disabled=true;cartStatus.textContent='Preparing a fresh itemized quote…';
-    try{const data=await api('payments/quotes',{items:cartPayload(),config:market()});await openCheckoutTab(data.checkoutUrl);cartStatus.textContent='Review the fresh itemized quote before approving payment.';}
+    try{const data=await api('payments/quotes',{items:cartPayload(),config:market()});await showInlineCheckout(data);cartStatus.textContent='Review the fresh itemized quote before approving payment.';}
     catch(e){cartStatus.textContent=e.message||'Checkout unavailable. Try again.';}finally{cartBusy=false;payCart.disabled=false;}
   };
   cartPanel.append(el('h2','Your cart'),cartStatus,cartList,reviewCart,cartReview,payCart);$('main').prepend(cartPanel);
@@ -190,7 +189,7 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
     const body=el('tbody');for(const [label,value] of [['Price',p=>formatProductPrice(p.price,p.currency)],['Brand',p=>p.brand||'Not supplied'],['Retailer',p=>p.retailer||'Not supplied'],['Availability',p=>p.availability||'Not supplied'],['Category',p=>p.category||'Not supplied'],['Attributes',p=>p.attributes?.join(' · ')||p.condition||'Not supplied']]){const row=el('tr');row.append(el('th',label));products.forEach(p=>row.append(el('td',value(p))));body.append(row);}table.append(body);target.append(table);
   }
   function actions(product,getSelection=()=>({id:product.id,selection:product.variantSelection||Object.fromEntries((product.variants?.selected||[]).map(v=>[v.name,v.label])),websiteIds:product.retailer?[product.retailer]:[]})) {
-    catalog.set(product.id,product);const row=el('div',undefined,'product-actions');const add=el('button','Add to cart','secondary');add.dataset.action='add-to-cart';add.onclick=async()=>{try{const chosen={...getSelection()};if(!chosen.websiteIds?.length)delete chosen.expectedOffer;const snapshot=chosen.expectedOffer;await updateCart('add',{item:{...chosen,title:product.title,price:snapshot?.price??product.price,currency:snapshot?.currency??product.currency,retailer:snapshot?.retailer||product.retailer,source:getCartContext()}});add.textContent='Added ✓';}catch(e){cartStatus.textContent=e.message;}};row.append(add);const saveButton=el('button','Save product','save-product secondary');saveButton.dataset.saveProduct=product.id;saveButton.onclick=()=>save(product);
+    catalog.set(product.id,product);const row=el('div',undefined,'product-actions');const add=el('button','Add to cart','secondary');add.dataset.action='add-to-cart';add.onclick=async()=>{try{const chosen={...getSelection()};if(!chosen.websiteIds?.length)delete chosen.expectedOffer;const snapshot=chosen.expectedOffer;await updateCart('add',{item:{...chosen,title:product.title,price:snapshot?.price??product.price,currency:snapshot?.currency??product.currency,retailer:snapshot?.retailer||product.retailer,source:getCartContext()}});add.textContent='Added ✓';const advisory=row.querySelector('.compatibility-advisory')||el('p',undefined,'compatibility-advisory');row.append(advisory);const others=cart.filter(p=>p.id!==product.id&&/camera|lens/i.test(p.title)).slice(0,4).map(({id,selection,websiteIds})=>({id,selection,websiteIds}));if(others.length&&/camera|lens/i.test(product.title+' '+(product.category||''))){advisory.textContent='Checking camera and lens mount details…';try{const checked=await api('products/compatibility',{item:{id:product.id,selection:chosen.selection,websiteIds:chosen.websiteIds},others,config:market()});advisory.textContent=checked.advisories.map(a=>a.message).join(' ');}catch{advisory.textContent='Added to cart. Compatibility could not be checked; review manufacturer specifications.';}}}catch(e){cartStatus.textContent=e.message;}};row.append(add);const saveButton=el('button','Save product','save-product secondary');saveButton.dataset.saveProduct=product.id;saveButton.onclick=()=>save(product);
     const compareButton=el('button','Compare sellers','compare-product secondary');compareButton.dataset.compareProduct=product.id;compareButton.onclick=()=>{if(comparison.has(product.id))comparison.delete(product.id);else if(comparison.size<3)comparison.add(product.id);renderComparison();syncButtons();};row.append(saveButton,compareButton);queueMicrotask(syncButtons);return row;
   }
   function prepare(products,selection,mode,{ignoreListingFilters=false}={}) {

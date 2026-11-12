@@ -11,7 +11,9 @@ import { extractPaletteFromDataUrl } from './palette-image.mjs';
 import { prepareProfileImages } from './profile-images.mjs';
 import { searchAfterProfileFailure } from './profile-fallback.mjs';
 import { channel3ErrorMessage, profileErrorMessage, searchErrorMessage } from './ui-feedback.mjs';
-import { openCheckoutTab } from './checkout-tab.js';
+import { createInlineCheckout } from './inline-checkout.js';
+import { setupPersonalization } from './personalization.js';
+import {loadPersonalization,personalizationContext} from './personalization.mjs';
 const $ = s => document.querySelector(s);
 const node = (tag, text, className) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; };
 const logOrchestration = entry => console.info('[bopit-orchestration]', JSON.stringify(entry));
@@ -29,6 +31,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   let channel3UserIdPromise = null;
   let clickReport = null, transactionReport = null;
   let lastRendered = { products: [], assessments: [] };
+  let speechClip=null;
   let useObjectContext = true, previousRequest = '',appliedPreferenceFilters=null;
   const voice = attachVoiceInput({ input: $('#product-query'), button: $('#voice-search-btn'), status: $('#voice-search-status'), onTranscript: () => cancel({ keepResults: true }) });
   function updateSearchContext() {
@@ -64,13 +67,15 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     requestAnimationFrame(() => { window.scrollTo({ top: saved.scroll, behavior: 'instant' }); saved.trigger?.focus({ preventScroll: true }); });
     return true;
   }
+  const inlineCheckout=createInlineCheckout(api);setupPersonalization();
   const shopping = createShoppingTools(() => {
     if(activeSimilar?.nextPageToken)renderProducts(lastRendered.products,lastRendered.assessments,{keepNavigation:true,nextPageToken:activeSimilar.nextPageToken,loadMore:()=>loadMoreSimilar(activeSimilar)});
     else if(activeBrowse?.nextPageToken)renderProducts(lastRendered.products,lastRendered.assessments,{keepNavigation:true,nextPageToken:activeBrowse.nextPageToken,loadMore:loadMoreBrowse});
     else renderProducts(lastRendered.products,lastRendered.assessments,{keepNavigation:true,nextPageToken:activeSearch?.nextPageToken,loadMore:loadMoreSearch});
   },api,market,product=>checkoutAction(
     ()=>({id:product.id,selection:product.variantSelection||{},websiteIds:product.retailer?[product.retailer]:[],config:market(),expectedOffer:offerSnapshot(product)}),product),
-    ()=>({url:getCapture()?.source?.documentUrl,timestamp:getCapture()?.source?.timestamp||0,label:selected?.label||''}),priceHistoryControl);
+    ()=>({url:getCapture()?.source?.documentUrl,timestamp:getCapture()?.source?.timestamp||0,label:selected?.label||''}),priceHistoryControl,data=>inlineCheckout.show(data));
+  $('main').prepend($('#inline-checkout'));
   const cache = new Map(), searches = new Map(), views = new Map();
   const detailGenerations = new WeakMap();
   const historyRequests=new Map();
@@ -131,7 +136,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     return data;
   }
   function context() {
-    const c = getCapture(); const result = { timestamp: c?.source?.timestamp || 0, cues: c?.context?.cues || [], note: $('#context-note').value.trim() };
+    const c = getCapture(); const result = { timestamp: c?.source?.timestamp || 0, cues: [...(c?.context?.cues || []),...(speechClip?.captureId===c?.captureId?speechClip.cues:[])], note: $('#context-note').value.trim() };
     if ($('#use-youtube').checked) {
       try { const url = new URL(c.source.documentUrl); if (['www.youtube.com','youtube.com'].includes(url.hostname) && /^[\w-]{11}$/.test(url.searchParams.get('v') || '')) result.youtubeUrl = `https://www.youtube.com/watch?v=${url.searchParams.get('v')}`; } catch { /* Not a public watch page */ }
     }
@@ -260,9 +265,17 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     try { const u = new URL(c?.source?.documentUrl); supported = ['www.youtube.com','youtube.com'].includes(u.hostname) && /^[\w-]{11}$/.test(u.searchParams.get('v') || ''); } catch { /* Upload */ }
     $('#youtube-option').hidden = !supported;
   }
+  function audioContextControl(){
+    const details=node('details',undefined,'video-speech');details.append(node('summary','Use what the creator said'));
+    details.append(node('p','Replay up to 12 seconds before this moment and send that tab audio to Gemini. Your microphone is not recorded. The video returns to this moment.','muted'));
+    const listen=node('button','Listen to this moment','secondary'),status=node('p'),transcript=node('textarea'),use=node('button','Use transcript','secondary');transcript.setAttribute('aria-label','Video speech transcript');transcript.maxLength=4000;transcript.hidden=true;use.hidden=true;status.setAttribute('role','status');
+    listen.onclick=async()=>{listen.disabled=true;status.textContent='Replaying and capturing this video’s audio…';const captureId=getCapture()?.captureId;try{const clip=await chrome.runtime.sendMessage({type:'BOPIT_RECORD_VIDEO_AUDIO',captureId});if(clip?.error)throw new Error(clip.error);status.textContent='Transcribing speech…';const data=await api('audio/transcribe',clip);if(getCapture()?.captureId!==captureId)return;transcript.value=data.text;transcript.hidden=!data.text;use.hidden=!data.text;status.textContent=data.text?'Review the transcript, then apply it to this find.':'No clear speech was heard.';use.onclick=()=>{speechClip={captureId,cues:[{start:clip.start,end:clip.start+clip.duration,text:transcript.value.slice(0,1500),source:'video_speech'}]};select(selected,true);};}catch(error){status.textContent=error.message;}finally{listen.disabled=false;}};
+    details.append(listen,status,transcript,use);return details;
+  }
   function renderProfile(record) {
     $('#profile-summary').replaceChildren(); $('#profile-evidence').replaceChildren();
     const p = record.profile;
+    $('#profile-evidence').append(audioContextControl());
     if (record.contextWarning) $('#profile-summary').append(node('p',record.contextWarning,'variant-warning'));
     $('#profile-summary').append(node('div', profileIdentityLabel(p.identity), 'identity-status'));
 
@@ -746,7 +759,8 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     $('#investigation-status').textContent = 'Finding matching products on Channel3…';
     const plan = searchPlan(current.profile,intent,$('#budget').value), config = market();
     const filters = searchFilters(plan.filters);
-    const key = JSON.stringify([current.key,intent,$('#budget').value,config,filters]);
+    const preferences=personalizationContext(await loadPersonalization());
+    const key = JSON.stringify([current.key,intent,$('#budget').value,config,filters,preferences]);
     const request = { query:plan.query,image:plan.useImage ? crop(current.object.box) : undefined,limit:12,filters,config };
     $('#product-query').value = ''; $('#products-notice').textContent = `Searching ${intent === 'exact' ? 'identity candidates' : intent === 'look' ? 'similar appearances' : 'functional alternatives'}…`;
     $('#search-products-btn').disabled = true;
@@ -754,7 +768,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       let data = force ? null : searches.get(key);
       if (!data) {
         if (filters.colors) $('#products-notice').textContent = 'Searching with the optional Channel3 colour filter…';
-        const outcome = await discoverySearch(request, signal);
+        const outcome = preferences ? {data:await api('products/preferences',{query:plan.query,context:{object:{label:current.object.label,summary:current.profile.summary},personalization:preferences},filters,config},signal)} : await discoverySearch(request, signal);
         data = outcome.data;
         if (version !== generation) return;
         if (data._requestFilters) request.filters = data._requestFilters;
@@ -884,8 +898,8 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
       button.disabled=true;note.textContent='Checking the selected listing and current catalog price…';
       try {
         const data=await api('payments/quotes',selection());
-        await openCheckoutTab(data.checkoutUrl);
-        note.textContent='Quote ready in the checkout tab. Your video stays here.';
+        await inlineCheckout.show(data);
+        note.textContent='Review your order above. Your video stays here.';
       } catch(e){note.textContent=e.message||'Checkout unavailable. Try again.';}
       finally{button.disabled=!eligible;}
     };
@@ -905,6 +919,7 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
   const priceGraph=node('details',undefined,'product-price-history'),graphSummary=node('summary','Price history'),historyContent=node('div',undefined,'price-history-content');
   const period=node('select');period.setAttribute('aria-label',`Price history period for ${product.title}`);for(const days of [7,30,90])period.add(new Option(`${days} days`,String(days)));period.value='30';
   const reload=node('button','Load price history','secondary');reload.type='button';reload.onclick=()=>loadPriceHistory(product.id,Number(period.value),historyContent,reload);
+  priceGraph.dataset.productId=product.id;priceGraph.setAttribute('aria-label',`Price history for ${product.title}`);
   let loaded=false;priceGraph.ontoggle=()=>{if(priceGraph.open&&!loaded){loaded=true;loadPriceHistory(product.id,Number(period.value),historyContent,reload);}};
   period.onchange=()=>loadPriceHistory(product.id,Number(period.value),historyContent,reload);
   priceGraph.append(graphSummary,period,reload,historyContent,node('small','Recorded listing prices. Shipping and tax excluded; variant-specific history may be unavailable.'));return priceGraph;
@@ -1144,10 +1159,11 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     const visibleProducts=lastRendered.products;cancel();const version=generation;controller=new AbortController();const signal=controller.signal;
     activeSearch=null;activeBrowse=null;activeSimilar=null;
     voice.cancel(); $('#voice-search-status').textContent=''; $('#shopping-reply').textContent='';
-    if(!preserveProfile&&((useObjectContext&&selected)||previousRequest)){
+    const personalization=personalizationContext(await loadPersonalization());
+    if(!preserveProfile&&((useObjectContext&&selected)||previousRequest||personalization)){
       $('#search-products-btn').disabled=true;$('#products-notice').textContent='Understanding your request and checking matching products…';
       try{
-        const context={selectedProduct:visibleProducts.some(p=>p.id===selectedProductContext?.id)?{title:selectedProductContext.title,category:selectedProductContext.category}:null,object:useObjectContext?{label:selected?.label,summary:current?.profile?.summary,attributes:current?.profile?.attributes?.slice(0,20).map(a=>({name:a.name,value:a.value.slice(0,140),source:a.source}))}:null,previousRequest,visibleProducts:visibleProducts.slice(0,5).map(p=>({id:p.id,title:p.title,category:p.category}))};
+        const context={personalization,selectedProduct:visibleProducts.some(p=>p.id===selectedProductContext?.id)?{title:selectedProductContext.title,category:selectedProductContext.category}:null,object:useObjectContext?{label:selected?.label,summary:current?.profile?.summary,attributes:current?.profile?.attributes?.slice(0,20).map(a=>({name:a.name,value:a.value.slice(0,140),source:a.source}))}:null,previousRequest,visibleProducts:visibleProducts.slice(0,5).map(p=>({id:p.id,title:p.title,category:p.category}))};
         const data=await api('products/preferences',{query,context,filters:searchFilters(),config:market(),budget:$('#budget').value},signal);
         if(version!==generation)return;
         activeSearch=null;activeBrowse=null;activeSimilar=null;selectedProductContext=null;clearConversation();

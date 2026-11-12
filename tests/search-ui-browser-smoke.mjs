@@ -75,6 +75,7 @@ try {
   assert.equal(await page.locator('#brand-filter').count(), 1);
   await page.locator('.product-price-history > summary').first().click();
   await page.locator('.price-history-chart').waitFor();
+  assert.equal(await page.locator('.price-history-chart').evaluate(el=>Boolean(el.closest('.product-card'))),true,'Price chart belongs to its own item');
   assert.match(await page.locator('.price-history-chart').textContent(), /Price \(USD\).*Date \(UTC\)/s);
   await page.locator('.product-card').first().evaluate(el => el.dataset.retained = 'yes');
   await page.locator('.product-more > summary').first().click();
@@ -142,6 +143,12 @@ try {
   await page.locator('#accept-cart-prices').click();await page.waitForFunction(()=>document.querySelector('#cart-panel').textContent.includes('Updated prices saved'));
   const stored=await worker.evaluate(async()=> (await chrome.storage.local.get('bopitCart')).bopitCart);assert.equal(stored[0].expectedOffer.price,89);assert.equal(stored[0].quantity,1);assert.equal(stored[0].source.timestamp,42);
   assert.deepEqual(errors, []);
+  await page.locator('#app-menu > summary').click();await page.getByRole('button',{name:'Shopping preferences',exact:true}).click();
+  await page.locator('#remember-preferences').check();await page.locator('#remember-style').fill('Loose fit, dark colours');await page.locator('#remember-owned').fill('Canon EOS R6');await page.locator('#save-shopping-preferences').click();
+  const remembered=await worker.evaluate(async()=> (await chrome.storage.local.get('bopitPersonalization')).bopitPersonalization);assert.equal(remembered.preferences,'Loose fit, dark colours');assert.equal(remembered.enabled,true);
+  await page.getByRole('button',{name:'Discover',exact:true}).click();await page.locator('#objects button').first().click();await page.waitForFunction(()=>document.querySelector('#investigation-status').textContent.includes('results are ready'));await page.locator('#product-query').fill('similar but softer');await page.locator('#search-products-btn').click();await page.waitForFunction(()=>!document.querySelector('#search-products-btn').disabled);
+  assert.equal(calls.filter(c=>c.path.endsWith('/preferences')).at(-1).body.context.personalization.ownedProducts,'Canon EOS R6');
+  await page.locator('#app-menu > summary').click();await page.getByRole('button',{name:'Shopping preferences',exact:true}).click();await page.locator('#clear-shopping-preferences').click();assert.equal(await worker.evaluate(async()=> (await chrome.storage.local.get('bopitPersonalization')).bopitPersonalization),undefined);await page.getByRole('button',{name:'Close preferences',exact:true}).click();
   console.log('PASS: Discover/Saved/Alerts/Cart navigation, progressive controls, responsive embedded layout, contextual search, editable voice, labelled history, seller browsing, retained Back navigation, black-shirt voice regression, budget setup, cart source persistence and explicit price refresh. Providers mocked.');
 } finally {
   await browser?.close();
