@@ -114,7 +114,7 @@ export function CreatorOverviewPage() {
   const totalSearches = filteredCreators.reduce((sum, c) => sum + (c.shopperSearches || 0), 0);
   const totalClicks = filteredVideos.reduce((sum, v) => sum + (v.productClicks || 0), 0) || filteredCampaigns.reduce((sum, c) => sum + (c.trackedLinkClicks || 0), 0);
 
-  // AG Chart 1: Creator Engagement Comparison
+  // AG Chart 1: Creator Engagement Comparison (Horizontal Bar Chart)
   const engagementChartOptions = useMemo<AgChartOptions>(() => ({
     data: filteredCreators.map(c => ({
       creator: c.name.length > 15 ? c.name.split(' ')[0] : c.name,
@@ -124,54 +124,47 @@ export function CreatorOverviewPage() {
     series: [
       {
         type: 'bar',
-        xKey: 'creator',
-        yKey: 'engagement',
+        xKey: 'engagement',
+        yKey: 'creator',
         yName: 'Engagement %',
-        fill: '#2a715b',
+        fill: '#4a7c59',
         cornerRadius: 4
       }
     ],
     axes: [
-      { type: 'category', position: 'bottom' },
-      { type: 'number', position: 'left', title: { text: 'Engagement Rate (%)' } }
+      { type: 'category', position: 'left' },
+      { type: 'number', position: 'bottom', title: { text: 'Engagement Rate (%)' } }
     ],
     legend: { enabled: false }
   }), [filteredCreators]);
 
-  // AG Chart 2: Video Views vs Engagement Score
+  // AG Chart 2: Video Views vs Engagement Score (Scatter Plot)
   const videoChartOptions = useMemo<AgChartOptions>(() => ({
     data: filteredVideos.map(v => ({
       title: v.videoTitle.length > 20 ? v.videoTitle.slice(0, 18) + '…' : v.videoTitle,
       views: Math.round(v.publicViews / 1000),
       score: v.engagementScore
     })),
-    title: { text: 'Video Views (K) vs. Engagement Score' },
+    title: { text: 'Video Views vs. Engagement Score' },
     series: [
       {
-        type: 'bar',
-        xKey: 'title',
-        yKey: 'views',
-        yName: 'Views (Thousands)',
-        fill: '#3b82f6',
-        cornerRadius: 4
-      },
-      {
-        type: 'bar',
-        xKey: 'title',
+        type: 'scatter',
+        xKey: 'views',
         yKey: 'score',
-        yName: 'Engagement Score (0–100)',
-        fill: '#10b981',
-        cornerRadius: 4
+        size: 9,
+        fill: '#df744a',
+        stroke: '#b8542d',
+        title: 'Monitored Videos'
       }
     ],
     axes: [
-      { type: 'category', position: 'bottom' },
-      { type: 'number', position: 'left', title: { text: 'Count / Score' } }
+      { type: 'number', position: 'bottom', title: { text: 'Public Views (Thousands)' } },
+      { type: 'number', position: 'left', title: { text: 'Engagement Score (0–100)' } }
     ],
-    legend: { position: 'top' }
+    legend: { enabled: false }
   }), [filteredVideos]);
 
-  // AG Chart 3: Identified Products per Brand
+  // AG Chart 3: Identified Products per Brand (Donut Chart)
   const brandChartOptions = useMemo<AgChartOptions>(() => ({
     data: filteredBrands.map(b => ({
       brand: b.brandName,
@@ -180,22 +173,19 @@ export function CreatorOverviewPage() {
     title: { text: 'Identified Products per Brand' },
     series: [
       {
-        type: 'bar',
-        xKey: 'brand',
-        yKey: 'products',
-        yName: 'Detected Products',
-        fill: '#8b5cf6',
-        cornerRadius: 4
+        type: 'donut',
+        angleKey: 'products',
+        calloutLabelKey: 'brand',
+        sectorLabelKey: 'products',
+        innerRadiusRatio: 0.55,
+        fills: ['#4a7c59', '#df744a', '#6f927c', '#e8a87c', '#335c41', '#cb683e', '#88ad95', '#d49575'],
+        strokes: ['#faf7f2']
       }
     ],
-    axes: [
-      { type: 'category', position: 'bottom' },
-      { type: 'number', position: 'left', title: { text: 'Detected Items' } }
-    ],
-    legend: { enabled: false }
+    legend: { position: 'right' }
   }), [filteredBrands]);
 
-  // AG Chart 4: Product Searches and Clicks
+  // AG Chart 4: Product Searches and Clicks (Multi-Series Line Chart)
   const searchesVsClicksChartOptions = useMemo<AgChartOptions>(() => ({
     data: filteredCreators.map(c => {
       const creatorVideos = videosData.filter(v => v.creator === c.name);
@@ -206,23 +196,23 @@ export function CreatorOverviewPage() {
         clicks
       };
     }),
-    title: { text: 'Product Searches and Inbound Clicks' },
+    title: { text: 'Product Searches & Inbound Clicks' },
     series: [
       {
-        type: 'bar',
+        type: 'line',
         xKey: 'creator',
         yKey: 'searches',
         yName: 'Shopper Searches',
-        fill: '#0284c7',
-        cornerRadius: 4
+        stroke: '#4a7c59',
+        marker: { fill: '#4a7c59', size: 6 }
       },
       {
-        type: 'bar',
+        type: 'line',
         xKey: 'creator',
         yKey: 'clicks',
         yName: 'Offer Clicks',
-        fill: '#f59e0b',
-        cornerRadius: 4
+        stroke: '#df744a',
+        marker: { fill: '#df744a', size: 6 }
       }
     ],
     axes: [
@@ -232,51 +222,62 @@ export function CreatorOverviewPage() {
     legend: { position: 'top' }
   }), [filteredCreators]);
 
-  // AG Chart 5: Attributed Sales by Creator
-  const salesByCreatorChartOptions = useMemo<AgChartOptions>(() => ({
-    data: filteredCreators.map(c => ({
-      creator: c.name.split(' ')[0],
-      sales: c.attributedSales || 0
-    })),
-    title: { text: 'Attributed Sales GMV by Creator ($)' },
-    series: [
-      {
-        type: 'bar',
-        xKey: 'creator',
-        yKey: 'sales',
-        yName: 'Attributed GMV ($)',
-        fill: '#059669',
-        cornerRadius: 4
-      }
-    ],
-    axes: [
-      { type: 'category', position: 'bottom' },
-      { type: 'number', position: 'left', title: { text: 'Gross Sales ($)' } }
-    ],
-    legend: { enabled: false }
-  }), [filteredCreators]);
+  // AG Chart 5: Attributed Sales by Creator (Ranked Horizontal Bar Chart)
+  const salesByCreatorChartOptions = useMemo<AgChartOptions>(() => {
+    const sorted = [...filteredCreators]
+      .map(c => ({
+        creator: c.name.split(' ')[0],
+        sales: c.attributedSales || 0
+      }))
+      .sort((a, b) => a.sales - b.sales); // ascending so highest appears at top of horizontal chart
 
-  // AG Chart 6: Creator Commerce Conversion Funnel
+    return {
+      data: sorted,
+      title: { text: 'Attributed Sales GMV by Creator ($)' },
+      series: [
+        {
+          type: 'bar',
+          xKey: 'sales',
+          yKey: 'creator',
+          yName: 'Attributed GMV ($)',
+          fill: '#366144',
+          cornerRadius: 4
+        }
+      ],
+      axes: [
+        { type: 'category', position: 'left' },
+        {
+          type: 'number',
+          position: 'bottom',
+          title: { text: 'Gross Sales ($)' },
+          label: { formatter: ({ value }) => `$${Math.round(Number(value) / 1000)}k` }
+        }
+      ],
+      legend: { enabled: false }
+    };
+  }, [filteredCreators]);
+
+  // AG Chart 6: Creator Commerce Conversion Funnel (Horizontal Stage Funnel Chart)
   const conversionFunnelChartOptions = useMemo<AgChartOptions>(() => ({
     data: [
       { stage: '1. Visual Searches', count: totalSearches || 71400 },
-      { stage: '2. Product Clicks', count: totalClicks || 19850 },
+      { stage: '2. Offer Clicks', count: totalClicks || 19850 },
       { stage: '3. Orders Placed', count: totalOrders || 1961 }
     ],
     title: { text: 'Creator Commerce Conversion Funnel' },
     series: [
       {
         type: 'bar',
-        xKey: 'stage',
-        yKey: 'count',
+        xKey: 'count',
+        yKey: 'stage',
         yName: 'Funnel Stage Volume',
-        fill: '#0d9488',
+        fill: '#df744a',
         cornerRadius: 4
       }
     ],
     axes: [
-      { type: 'category', position: 'bottom' },
-      { type: 'number', position: 'left', title: { text: 'Volume' } }
+      { type: 'category', position: 'left' },
+      { type: 'number', position: 'bottom', title: { text: 'Volume' } }
     ],
     legend: { enabled: false }
   }), [totalSearches, totalClicks, totalOrders]);
@@ -293,8 +294,8 @@ export function CreatorOverviewPage() {
       {inboundVideoUrl && (
         <aside
           style={{
-            background: '#f0fdf4',
-            border: '1px solid #bbf7d0',
+            background: 'var(--sage-light, #e8f1eb)',
+            border: '1px solid var(--border, #e3eae5)',
             borderRadius: '10px',
             padding: '12px 16px',
             marginBottom: '18px',
@@ -307,11 +308,14 @@ export function CreatorOverviewPage() {
           aria-label="Extension video context"
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '1.25rem' }}>📺</span>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#2e523a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="7" width="20" height="15" rx="2" ry="2" />
+              <polyline points="17 2 12 7 7 2" />
+            </svg>
             <div>
-              <strong style={{ color: '#166534', fontSize: '0.85rem' }}>Active Extension Session Context</strong>
-              <div style={{ color: '#15803d', fontSize: '0.78rem', marginTop: '2px' }}>
-                Source Video: <a href={inboundVideoUrl} target="_blank" rel="noreferrer" style={{ color: '#166534', fontWeight: 600 }}>{inboundVideoId ? `YouTube [${inboundVideoId}]` : inboundVideoUrl}</a>
+              <strong style={{ color: '#2e523a', fontSize: '0.85rem' }}>Active Extension Session Context</strong>
+              <div style={{ color: '#4a7c59', fontSize: '0.78rem', marginTop: '2px' }}>
+                Source Video: <a href={inboundVideoUrl} target="_blank" rel="noreferrer" style={{ color: '#2e523a', fontWeight: 600 }}>{inboundVideoId ? `YouTube [${inboundVideoId}]` : inboundVideoUrl}</a>
                 {inboundTimestamp && ` · Timestamp: ${Math.floor(Number(inboundTimestamp)/60)}:${String(Math.floor(Number(inboundTimestamp)%60)).padStart(2, '0')}`}
                 {inboundQuery && <span> · Identified Item: <em>"{inboundQuery}"</em></span>}
               </div>
@@ -319,14 +323,14 @@ export function CreatorOverviewPage() {
           </div>
           <span style={{
             fontSize: '0.72rem',
-            background: '#dcfce7',
-            color: '#15803d',
+            background: '#ffffff',
+            color: '#2e523a',
             padding: '3px 9px',
             borderRadius: '12px',
             fontWeight: 700,
-            border: '1px solid #86efac'
+            border: '1px solid #c9d8cd'
           }}>
-            ✓ Context Handoff Active
+            Context Handoff Active
           </span>
         </aside>
       )}
@@ -491,10 +495,6 @@ export function CreatorOverviewPage() {
             <strong style={{ fontSize: '0.9rem' }}>Brand Intelligence →</strong>
             <small style={{ color: '#64748b' }}>VLM-detected brands, detection certainty, and reach</small>
           </Link>
-          <Link to="/creator/products" className="metric-card-compact" style={{ textDecoration: 'none', color: 'inherit' }}>
-            <strong style={{ fontSize: '0.9rem' }}>Product Intelligence →</strong>
-            <small style={{ color: '#64748b' }}>Video timestamps linked to Channel3 benchmarks</small>
-          </Link>
           <Link to="/creator/matching" className="metric-card-compact" style={{ textDecoration: 'none', color: 'inherit' }}>
             <strong style={{ fontSize: '0.9rem' }}>Brand–Creator Matching →</strong>
             <small style={{ color: '#64748b' }}>Explainable match scores and collaboration formats</small>
@@ -503,9 +503,9 @@ export function CreatorOverviewPage() {
             <strong style={{ fontSize: '0.9rem' }}>Campaign Analytics →</strong>
             <small style={{ color: '#64748b' }}>Attributed orders, commissions, and conversion rates</small>
           </Link>
-          <Link to="/creator/studio" className="metric-card-compact" style={{ textDecoration: 'none', color: 'inherit', borderColor: '#2a715b', background: '#f0fdf4' }}>
-            <strong style={{ fontSize: '0.9rem', color: '#065f46' }}>Creator AG Studio 3.1 →</strong>
-            <small style={{ color: '#047857' }}>Interactive studio with custom widgets and AI Agent</small>
+          <Link to="/creator/studio" className="metric-card-compact" style={{ textDecoration: 'none', color: 'inherit', borderColor: 'var(--sage, #4a7c59)', background: 'var(--sage-light, #e8f1eb)' }}>
+            <strong style={{ fontSize: '0.9rem', color: '#1f2e26' }}>Creator AG Studio 3.1 →</strong>
+            <small style={{ color: '#366144' }}>Interactive studio with custom widgets and AI Agent</small>
           </Link>
         </div>
       </section>

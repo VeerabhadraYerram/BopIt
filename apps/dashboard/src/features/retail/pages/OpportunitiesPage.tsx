@@ -271,9 +271,9 @@ export function OpportunitiesPage() {
       minWidth: 160,
       flex: 0.9,
       cellRenderer: (p: { value: 'High' | 'Medium' | 'Low' }) => {
-        if (p.value === 'High') return <span className="grid-status out-of-stock"><i />🔥 Urgent Stock</span>;
-        if (p.value === 'Medium') return <span className="grid-status low-stock"><i />⚡ Low Buffer</span>;
-        return <span className="grid-status in-stock"><i />⏳ Monitor</span>;
+        if (p.value === 'High') return <span className="grid-status out-of-stock"><i />Urgent Stock</span>;
+        if (p.value === 'Medium') return <span className="grid-status low-stock"><i />Low Buffer</span>;
+        return <span className="grid-status in-stock"><i />Monitor</span>;
       }
     },
     {
@@ -347,9 +347,9 @@ export function OpportunitiesPage() {
               Priority
               <select value={priorityFilter} onChange={e => setPriorityFilter(e.target.value)} aria-label="Priority filter">
                 <option value="">All Priorities</option>
-                <option value="High">🔥 High Priority</option>
-                <option value="Medium">⚡ Medium Priority</option>
-                <option value="Low">⏳ Low Priority</option>
+                <option value="High">High Priority</option>
+                <option value="Medium">Medium Priority</option>
+                <option value="Low">Low Priority</option>
               </select>
             </label>
           </div>

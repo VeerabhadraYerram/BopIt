@@ -38,19 +38,21 @@ export function CreatorDiscoveryPage() {
       cellClass: 'product-cell',
       headerTooltip: 'YouTube channel name and verification badge',
       cellRenderer: (p: { value: string; data: CreatorRow }) => (
-        <span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
           <strong>{p.value}</strong>
           {p.data?.verified && (
             <span
               title="Verified YouTube Partner"
               style={{
-                marginLeft: '6px',
-                fontSize: '0.75rem',
-                color: '#10b981',
+                fontSize: '0.68rem',
+                color: 'var(--sage, #4a7c59)',
+                background: 'var(--sage-light, #e8f1eb)',
+                padding: '1px 6px',
+                borderRadius: '10px',
                 fontWeight: 700
               }}
             >
-              ✓
+              Verified
             </span>
           )}
         </span>

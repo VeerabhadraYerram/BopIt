@@ -111,8 +111,8 @@ export function BrandMatchingPage() {
       cellRenderer: (p: { value: number }) => {
         const score = Number(p.value);
         const label = score >= 94 ? 'Exceptional' : score >= 90 ? 'High Fit' : 'Solid';
-        const color = score >= 94 ? '#059669' : score >= 90 ? '#2a715b' : '#d97706';
-        const bg = score >= 94 ? '#ecfdf5' : score >= 90 ? '#f0fdf4' : '#fffbeb';
+        const color = score >= 90 ? 'var(--sage, #4a7c59)' : '#df744a';
+        const bg = score >= 90 ? 'var(--sage-light, #e8f1eb)' : 'var(--peach-tint, #fef8f4)';
         return (
           <span
             style={{
@@ -143,7 +143,7 @@ export function BrandMatchingPage() {
       filter: 'agTextColumnFilter',
       headerTooltip: 'Projected conversion rate multiplier vs. benchmark display ads',
       cellRenderer: (p: { value: string }) => (
-        <span style={{ fontWeight: 700, color: '#047857', backgroundColor: '#f0fdf4', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}>
+        <span style={{ fontWeight: 700, color: 'var(--sage, #4a7c59)', backgroundColor: 'var(--sage-light, #e8f1eb)', padding: '2px 6px', borderRadius: '4px', fontSize: '0.75rem' }}>
           {p.value}
         </span>
       )

@@ -92,17 +92,105 @@ export function ProductPulsePage() {
       cellRenderer: (params: { data: Channel3Product }) => {
         if (!params.data) return null;
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            {params.data.image && (
+          <div
+            className="grid-cell-media"
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '10px',
+              minWidth: 0,
+              maxWidth: '100%',
+              width: '100%',
+              overflow: 'hidden',
+              flex: '1 1 0%'
+            }}
+          >
+            {params.data.image ? (
               <img
                 src={params.data.image}
                 alt=""
-                style={{ width: '32px', height: '32px', objectFit: 'contain', borderRadius: '4px', background: '#f8fafc' }}
+                className="grid-cell-thumb"
+                style={{
+                  width: '30px',
+                  height: '30px',
+                  objectFit: 'contain',
+                  borderRadius: '6px',
+                  flexShrink: 0,
+                  background: '#f6f8f6',
+                  border: '1px solid #e2eae5'
+                }}
               />
+            ) : (
+              <div
+                className="grid-cell-thumb"
+                style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '6px',
+                  flexShrink: 0,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'var(--sage-light, #e8f1eb)',
+                  color: 'var(--sage, #4a7c59)',
+                  fontSize: '10px',
+                  fontWeight: 700,
+                  border: '1px solid #e2eae5'
+                }}
+              >
+                {params.data.brand?.[0] || 'P'}
+              </div>
             )}
-            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              <div style={{ fontWeight: 600, color: '#1e293b' }}>{params.data.title}</div>
-              <small style={{ color: '#7c3aed', fontWeight: 600 }}>{params.data.brand || 'Channel3'}</small>
+            <div
+              className="grid-cell-stacked"
+              title={params.data.title}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                minWidth: 0,
+                maxWidth: '100%',
+                width: '100%',
+                flex: '1 1 0%',
+                overflow: 'hidden',
+                lineHeight: 1.3,
+                gap: '2px'
+              }}
+            >
+              <span
+                className="grid-cell-title"
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  maxWidth: '100%',
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  fontWeight: 600,
+                  fontSize: '11.5px',
+                  color: '#1e2e26'
+                }}
+              >
+                {params.data.title}
+              </span>
+              <span
+                className="grid-cell-subtitle"
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  maxWidth: '100%',
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  color: 'var(--sage, #4a7c59)',
+                  fontWeight: 600,
+                  fontSize: '10px'
+                }}
+              >
+                {params.data.brand || 'Commerce'}
+              </span>
             </div>
           </div>
         );
@@ -191,9 +279,9 @@ export function ProductPulsePage() {
   return (
     <div>
       <PageHeader
-        eyebrow="PRODUCT PULSE INTELLIGENCE"
-        title="Product Pulse — Catalog & Price Tracker"
-        description="Master-Detail view of Channel3 catalog products, current stock availability and 90-day AG Charts price fluctuations."
+        eyebrow="COMMERCE INTELLIGENCE"
+        title="Product Intelligence — Catalog & Price Tracker"
+        description="Master-Detail view of verified product catalog, current stock availability and 90-day AG Charts price fluctuations."
       />
 
       {/* Metric Cards */}
@@ -201,15 +289,23 @@ export function ProductPulsePage() {
         <Channel3MetricCard
           label="MONITORED PRODUCTS"
           value={filteredProducts.length}
-          icon="📦"
-          tone="purple"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+            </svg>
+          }
+          tone="sage"
           caption="Channel3 normalized items"
           trend="Live synced"
         />
         <Channel3MetricCard
           label="IN-STOCK RATIO"
           value={`${inStockRatio}%`}
-          icon="✓"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          }
           tone="green"
           caption={`${inStockCount} of ${filteredProducts.length} ready to buy`}
           trend="Healthy supply"
@@ -217,15 +313,25 @@ export function ProductPulsePage() {
         <Channel3MetricCard
           label="AVG PRICE DISCOUNT"
           value={`${avgDiscount}%`}
-          icon="🏷"
-          tone="amber"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="19" y1="5" x2="5" y2="19" />
+              <circle cx="6.5" cy="6.5" r="2.5" />
+              <circle cx="17.5" cy="17.5" r="2.5" />
+            </svg>
+          }
+          tone="peach"
           caption="Compared to manufacturer MSRP"
           trend="Best merchant deals"
         />
         <Channel3MetricCard
           label="ACTIVE WEBHOOK WATCHES"
           value="12"
-          icon="⚡"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+          }
           tone="blue"
           caption="Channel3 price & stock alerts"
           trend="Instant notifications"

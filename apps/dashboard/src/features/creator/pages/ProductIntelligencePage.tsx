@@ -81,7 +81,7 @@ export function ProductIntelligencePage() {
       headerTooltip: 'Frame timestamp where item appears (MM:SS)',
       cellRenderer: (p: { value: string }) => (
         <span style={{ fontFamily: 'monospace', fontSize: '0.78rem', color: '#475569' }}>
-          ⏱ {p.value}
+          {p.value}
         </span>
       )
     },

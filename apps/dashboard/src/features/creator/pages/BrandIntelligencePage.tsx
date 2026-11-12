@@ -83,7 +83,7 @@ export function BrandIntelligencePage() {
       filter: 'agNumberColumnFilter',
       headerTooltip: 'Completed purchases driven for this brand',
       cellRenderer: (p: { value: number }) => (
-        <span style={{ fontWeight: 600, color: p.value > 0 ? '#047857' : '#94a3b8' }}>
+        <span style={{ fontWeight: 600, color: p.value > 0 ? 'var(--sage, #4a7c59)' : 'var(--muted, #667e71)' }}>
           {p.value > 0 ? `${numFormat.format(Number(p.value))} orders` : '—'}
         </span>
       )
@@ -98,7 +98,7 @@ export function BrandIntelligencePage() {
       filter: 'agNumberColumnFilter',
       headerTooltip: 'Total attributed gross sales value generated across creator placements',
       cellRenderer: (p: { value: number }) => (
-        <span style={{ fontWeight: 700, color: p.value > 0 ? '#2a715b' : '#94a3b8' }}>
+        <span style={{ fontWeight: 700, color: p.value > 0 ? 'var(--sage, #4a7c59)' : 'var(--muted, #667e71)' }}>
           {p.value > 0 ? currencyFormat.format(Number(p.value)) : '—'}
         </span>
       )
@@ -113,7 +113,7 @@ export function BrandIntelligencePage() {
       headerTooltip: 'Visual model identification certainty level',
       cellRenderer: (p: { value: number }) => {
         const val = Number(p.value);
-        const color = val >= 92 ? '#059669' : val >= 85 ? '#2a715b' : '#d97706';
+        const color = val >= 90 ? 'var(--sage, #4a7c59)' : '#df744a';
         return (
           <span style={{ fontWeight: 600, color }}>
             {val}%

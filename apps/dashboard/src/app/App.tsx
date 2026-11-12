@@ -25,54 +25,154 @@ const BrandMatchingPage = lazy(() => import('../features/creator/pages/BrandMatc
 const CampaignAnalyticsPage = lazy(() => import('../features/creator/pages/CampaignAnalyticsPage').then(module => ({ default: module.CampaignAnalyticsPage })));
 const CreatorStudioPage = lazy(() => import('../features/creator/pages/CreatorStudioPage').then(module => ({ default: module.CreatorStudioPage })));
 
-// Channel3 Pages (NEW)
+// Commerce Pages
 const Channel3OverviewPage = lazy(() => import('../features/channel3/pages/Channel3OverviewPage').then(module => ({ default: module.Channel3OverviewPage })));
-const MomentsSellPage = lazy(() => import('../features/channel3/pages/MomentsSellPage').then(module => ({ default: module.MomentsSellPage })));
 const ProductPulsePage = lazy(() => import('../features/channel3/pages/ProductPulsePage').then(module => ({ default: module.ProductPulsePage })));
-const InterestDropoffPage = lazy(() => import('../features/channel3/pages/InterestDropoffPage').then(module => ({ default: module.InterestDropoffPage })));
-const SellerComparisonPage = lazy(() => import('../features/channel3/pages/SellerComparisonPage').then(module => ({ default: module.SellerComparisonPage })));
+const ShoppingInsightsPage = lazy(() => import('../features/channel3/pages/ShoppingInsightsPage').then(module => ({ default: module.ShoppingInsightsPage })));
+
+function NavIcon({ name }: { name: string }) {
+  switch (name) {
+    case 'overview':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="7" height="7" />
+          <rect x="14" y="3" width="7" height="7" />
+          <rect x="14" y="14" width="7" height="7" />
+          <rect x="3" y="14" width="7" height="7" />
+        </svg>
+      );
+    case 'inventory':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
+          <path d="m3.3 7 8.7 5 8.7-5" />
+          <path d="M12 22V12" />
+        </svg>
+      );
+    case 'products':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M16.5 9.4 7.55 4.24" />
+          <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7 4A2 2 0 0 0 21 16z" />
+          <polyline points="3.29 7 12 12 20.71 7" />
+          <line x1="12" y1="22" x2="12" y2="12" />
+        </svg>
+      );
+    case 'opportunities':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+          <polyline points="17 6 23 6 23 12" />
+        </svg>
+      );
+    case 'market':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="2" y1="12" x2="22" y2="12" />
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        </svg>
+      );
+    case 'creators':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+          <circle cx="9" cy="7" r="4" />
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+          <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+        </svg>
+      );
+    case 'video':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <polygon points="5 3 19 12 5 21 5 3" />
+        </svg>
+      );
+    case 'brand':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="8" r="6" />
+          <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />
+        </svg>
+      );
+    case 'matching':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+          <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+        </svg>
+      );
+    case 'campaigns':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <line x1="18" y1="20" x2="18" y2="10" />
+          <line x1="12" y1="20" x2="12" y2="4" />
+          <line x1="6" y1="20" x2="6" y2="14" />
+        </svg>
+      );
+    case 'insights':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10" />
+          <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+        </svg>
+      );
+    case 'studio':
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
+        </svg>
+      );
+    default:
+      return (
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+      );
+  }
+}
 
 const retailNavLinks = [
-  { to: '/retail', label: 'Overview', icon: '◫', end: true },
-  { to: '/retail/inventory', label: 'Inventory tracker', icon: '▦' },
-  { to: '/retail/products', label: 'Product catalogue', icon: '▥' },
-  { to: '/retail/opportunities', label: 'Product opportunities', icon: '↗' },
-  { to: '/retail/market', label: 'Market intelligence', icon: '◉' }
+  { to: '/retail', label: 'Overview', icon: 'overview', end: true },
+  { to: '/retail/inventory', label: 'Inventory tracker', icon: 'inventory' },
+  { to: '/retail/products', label: 'Product catalogue', icon: 'products' },
+  { to: '/retail/opportunities', label: 'Product opportunities', icon: 'opportunities' },
+  { to: '/retail/market', label: 'Market intelligence', icon: 'market' }
 ];
 
 const creatorNavLinks = [
-  { to: '/creator', label: 'Overview', icon: '◫', end: true },
-  { to: '/creator/discovery', label: 'Creator discovery', icon: '▷' },
-  { to: '/creator/videos', label: 'Video performance', icon: '▶' },
-  { to: '/creator/brands', label: 'Brand intelligence', icon: '◈' }
+  { to: '/creator', label: 'Overview', icon: 'overview', end: true },
+  { to: '/creator/discovery', label: 'Creator discovery', icon: 'creators' },
+  { to: '/creator/videos', label: 'Video performance', icon: 'video' },
+  { to: '/creator/brands', label: 'Brand intelligence', icon: 'brand' },
+  { to: '/creator/matching', label: 'Brand–creator matches', icon: 'matching' },
+  { to: '/creator/campaigns', label: 'Campaign analytics', icon: 'campaigns' }
 ];
 
-const channel3NavLinks = [
-  { to: '/channel3', label: 'Overview', icon: '◫', end: true },
-  { to: '/channel3/moments', label: 'Moments that sell', icon: '▶' },
-  { to: '/channel3/products', label: 'Product pulse', icon: '▥' },
-  { to: '/channel3/interest', label: 'Interest & drop-off', icon: '↘' },
-  { to: '/channel3/sellers', label: 'Seller comparison', icon: '⚖' }
+const commerceNavLinks = [
+  { to: '/commerce', label: 'Overview', icon: 'overview', end: true },
+  { to: '/commerce/products', label: 'Product Intelligence', icon: 'products' },
+  { to: '/commerce/insights', label: 'Shopping Insights', icon: 'insights' }
 ];
 
 function Shell() {
   const location = useLocation();
   const isCreatorWorkspace = location.pathname.startsWith('/creator');
-  const isChannel3Workspace = location.pathname.startsWith('/channel3');
-  const activeWorkspace = isCreatorWorkspace ? 'creator' : isChannel3Workspace ? 'channel3' : 'retail';
+  const isCommerceWorkspace = location.pathname.startsWith('/commerce') || location.pathname.startsWith('/channel3');
+  const activeWorkspace = isCreatorWorkspace ? 'creator' : isCommerceWorkspace ? 'commerce' : 'retail';
 
-  const brandColor = activeWorkspace === 'creator' ? '#2563eb' : activeWorkspace === 'channel3' ? '#7c3aed' : '#2a715b';
-  const brandSymbol = activeWorkspace === 'creator' ? 'C' : activeWorkspace === 'channel3' ? '3' : 'B';
+  const brandColor = activeWorkspace === 'creator' ? '#df744a' : activeWorkspace === 'commerce' ? '#3a6953' : '#4a7c59';
+  const brandSymbol = activeWorkspace === 'creator' ? 'C' : activeWorkspace === 'commerce' ? 'C' : 'B';
   const brandSubtitle = activeWorkspace === 'creator'
     ? 'CREATOR INTELLIGENCE'
-    : activeWorkspace === 'channel3'
-    ? 'CHANNEL3 INTELLIGENCE'
+    : activeWorkspace === 'commerce'
+    ? 'COMMERCE INTELLIGENCE'
     : 'RETAIL INTELLIGENCE';
 
   return (
     <div className="application-shell">
       <aside className="sidebar">
-        <a className="brand-lockup" href={`/${activeWorkspace}`} aria-label="BopIt home">
+        <a className="brand-lockup" href={`/${activeWorkspace === 'commerce' ? 'commerce' : activeWorkspace}`} aria-label="BopIt home">
           <span className="brand-symbol" style={{ background: brandColor }}>
             {brandSymbol}
           </span>
@@ -101,61 +201,48 @@ function Shell() {
             Creator
           </NavLink>
           <NavLink
-            to="/channel3"
-            className={({ isActive }) => (activeWorkspace === 'channel3' || isActive ? 'active' : '')}
+            to="/commerce"
+            className={({ isActive }) => (activeWorkspace === 'commerce' || isActive ? 'active' : '')}
             role="tab"
-            aria-selected={activeWorkspace === 'channel3'}
+            aria-selected={activeWorkspace === 'commerce'}
           >
-            Channel3
+            Commerce
           </NavLink>
         </div>
 
         <div className="workspace-label">
-          {activeWorkspace === 'creator' ? 'CREATOR WORKSPACE' : activeWorkspace === 'channel3' ? 'CHANNEL3 WORKSPACE' : 'RETAIL WORKSPACE'}
+          {activeWorkspace === 'creator' ? 'CREATOR WORKSPACE' : activeWorkspace === 'commerce' ? 'COMMERCE WORKSPACE' : 'RETAIL WORKSPACE'}
         </div>
 
         <nav className="primary-nav" aria-label="Main navigation">
-          {(activeWorkspace === 'creator' ? creatorNavLinks : activeWorkspace === 'channel3' ? channel3NavLinks : retailNavLinks).map(link => (
+          {(activeWorkspace === 'creator' ? creatorNavLinks : activeWorkspace === 'commerce' ? commerceNavLinks : retailNavLinks).map(link => (
             <NavLink
               key={link.to}
               to={link.to}
               end={link.end}
               className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}
             >
-              <span className="nav-icon" aria-hidden="true">{link.icon}</span>
+              <span className="nav-icon" aria-hidden="true"><NavIcon name={link.icon} /></span>
               {link.label}
             </NavLink>
           ))}
         </nav>
 
-        <div className="workspace-label future-label">
-          {activeWorkspace === 'creator' ? 'CREATOR DATA GRIDS' : activeWorkspace === 'channel3' ? 'CHANNEL3 DATA GRIDS' : 'RETAIL DATA GRIDS'}
-        </div>
+        {activeWorkspace === 'retail' && (
+          <>
+            <div className="workspace-label future-label">
+              RETAIL DATA GRIDS
+            </div>
 
-        <div className="future-links">
-          {activeWorkspace === 'creator' ? (
-            <>
-              <NavLink to="/creator/products"><i>▦</i> Product intelligence</NavLink>
-              <NavLink to="/creator/matching"><i>⚡</i> Brand–creator matches</NavLink>
-              <NavLink to="/creator/campaigns"><i>📈</i> Campaign analytics</NavLink>
-            </>
-          ) : activeWorkspace === 'channel3' ? (
-            <>
-              <NavLink to="/channel3/moments"><i>▶</i> Video moments</NavLink>
-              <NavLink to="/channel3/products"><i>▥</i> Product pulse</NavLink>
-              <NavLink to="/channel3/interest"><i>⚠️</i> Conversion drop-off</NavLink>
-              <NavLink to="/channel3/sellers"><i>⚖</i> Seller comparison</NavLink>
-            </>
-          ) : (
-            <>
-              <NavLink to="/retail/transactions"><i>▤</i> Sales transactions</NavLink>
-              <NavLink to="/retail/products/performance"><i>↗</i> Product performance</NavLink>
-              <NavLink to="/retail/customers/analytics"><i>⌁</i> Customer analytics <b>EMPTY</b></NavLink>
-              <NavLink to="/retail/imports/preview"><i>⇧</i> CSV imports</NavLink>
-              <NavLink to="/retail/imports/history"><i>◷</i> Import history</NavLink>
-            </>
-          )}
-        </div>
+            <div className="future-links">
+              <NavLink to="/retail/transactions"><span className="nav-icon"><NavIcon name="products" /></span> Sales transactions</NavLink>
+              <NavLink to="/retail/products/performance"><span className="nav-icon"><NavIcon name="opportunities" /></span> Product performance</NavLink>
+              <NavLink to="/retail/customers/analytics"><span className="nav-icon"><NavIcon name="creators" /></span> Customer analytics</NavLink>
+              <NavLink to="/retail/imports/preview"><span className="nav-icon"><NavIcon name="inventory" /></span> CSV imports</NavLink>
+              <NavLink to="/retail/imports/history"><span className="nav-icon"><NavIcon name="overview" /></span> Import history</NavLink>
+            </div>
+          </>
+        )}
 
         <div className="workspace-label" style={{ marginTop: '24px' }}>
           AG STUDIO 3.1
@@ -165,17 +252,17 @@ function Shell() {
             to={activeWorkspace === 'creator' ? '/creator/studio' : '/retail/studio'}
             className="studio-nav-highlight"
           >
-            <i>✦</i> {activeWorkspace === 'creator' ? 'Creator AG Studio' : 'Retail AG Studio'} <b>3.1 AI</b>
+            <span className="nav-icon"><NavIcon name="studio" /></span> {activeWorkspace === 'creator' ? 'Creator AG Studio' : 'Retail AG Studio'} <b>3.1 AI</b>
           </NavLink>
         </div>
 
         <div className="sidebar-bottom">
-          <div className="avatar" style={{ color: brandColor }}>
-            {activeWorkspace === 'creator' ? 'CI' : activeWorkspace === 'channel3' ? 'C3' : 'RI'}
+          <div className="avatar" style={{ color: brandColor, background: '#f0f5f1' }}>
+            {activeWorkspace === 'creator' ? 'CI' : activeWorkspace === 'commerce' ? 'CI' : 'RI'}
           </div>
           <div>
-            <strong>{activeWorkspace === 'creator' ? 'Creator workspace' : activeWorkspace === 'channel3' ? 'Channel3 workspace' : 'Retail workspace'}</strong>
-            <small>{activeWorkspace === 'creator' ? 'VLM & Social Analytics' : activeWorkspace === 'channel3' ? 'Commerce Engine & Discovery' : 'Inventory & Commerce'}</small>
+            <strong>{activeWorkspace === 'creator' ? 'Creator workspace' : activeWorkspace === 'commerce' ? 'Commerce workspace' : 'Retail workspace'}</strong>
+            <small>{activeWorkspace === 'creator' ? 'VLM & Social Analytics' : activeWorkspace === 'commerce' ? 'Commerce Engine & Discovery' : 'Inventory & Commerce'}</small>
           </div>
           <span className="more-mark">···</span>
         </div>
@@ -184,15 +271,15 @@ function Shell() {
       <div className="main-column">
         <header className="topbar">
           <div className="breadcrumb">
-            BopIt <span>/</span> <strong>{activeWorkspace === 'creator' ? 'Creator Intelligence' : activeWorkspace === 'channel3' ? 'Channel3 Intelligence' : 'Retail Intelligence'}</strong>
+            BopIt <span>/</span> <strong>{activeWorkspace === 'creator' ? 'Creator Intelligence' : activeWorkspace === 'commerce' ? 'Commerce Intelligence' : 'Retail Intelligence'}</strong>
           </div>
           <div className="topbar-actions">
             <span className="connection-pill"><i /> Local dashboard</span>
             <span style={{ fontSize: '0.78rem', color: '#64748b', fontWeight: 600 }}>
-              {activeWorkspace === 'channel3' ? 'Channel3 Engine + AG Grid' : 'AG Studio 3.1 + AG Grid'}
+              {activeWorkspace === 'commerce' ? 'Commerce Engine + AG Grid' : 'AG Studio 3.1 + AG Grid'}
             </span>
-            <div className="avatar avatar-small" style={{ color: brandColor }}>
-              {activeWorkspace === 'creator' ? 'CI' : activeWorkspace === 'channel3' ? 'C3' : 'RI'}
+            <div className="avatar avatar-small" style={{ color: brandColor, background: '#f0f5f1' }}>
+              {activeWorkspace === 'creator' ? 'CI' : activeWorkspace === 'commerce' ? 'CI' : 'RI'}
             </div>
           </div>
         </header>
@@ -226,12 +313,20 @@ function Shell() {
               <Route path="/creator/campaigns" element={<CampaignAnalyticsPage />} />
               <Route path="/creator/studio" element={<CreatorStudioPage />} />
 
-              {/* Channel3 Intelligence Routes (NEW) */}
-              <Route path="/channel3" element={<Channel3OverviewPage />} />
-              <Route path="/channel3/moments" element={<MomentsSellPage />} />
-              <Route path="/channel3/products" element={<ProductPulsePage />} />
-              <Route path="/channel3/interest" element={<InterestDropoffPage />} />
-              <Route path="/channel3/sellers" element={<SellerComparisonPage />} />
+              {/* Commerce Intelligence Routes */}
+              <Route path="/commerce" element={<Channel3OverviewPage />} />
+              <Route path="/commerce/products" element={<ProductPulsePage />} />
+              <Route path="/commerce/insights" element={<ShoppingInsightsPage />} />
+              <Route path="/commerce/moments" element={<Navigate to="/commerce/insights?tab=moments" replace />} />
+              <Route path="/commerce/interest" element={<Navigate to="/commerce/insights?tab=interest" replace />} />
+              <Route path="/commerce/sellers" element={<Navigate to="/commerce/insights?tab=sellers" replace />} />
+
+              {/* Backward compatibility aliases */}
+              <Route path="/channel3" element={<Navigate to="/commerce" replace />} />
+              <Route path="/channel3/moments" element={<Navigate to="/commerce/insights?tab=moments" replace />} />
+              <Route path="/channel3/products" element={<Navigate to="/commerce/products" replace />} />
+              <Route path="/channel3/interest" element={<Navigate to="/commerce/insights?tab=interest" replace />} />
+              <Route path="/channel3/sellers" element={<Navigate to="/commerce/insights?tab=sellers" replace />} />
 
               {/* Defaults and fallback */}
               <Route path="/" element={<Navigate to="/retail" replace />} />

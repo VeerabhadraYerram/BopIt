@@ -83,16 +83,16 @@ export function VideoPerformancePage() {
       headerTooltip: 'Composite audience interest and interaction score (0–100)',
       cellRenderer: (p: { value: number }) => {
         const score = Number(p.value);
-        const color = score >= 90 ? '#059669' : score >= 80 ? '#2a715b' : '#d97706';
-        const bg = score >= 90 ? '#ecfdf5' : score >= 80 ? '#f0fdf4' : '#fffbeb';
+        const color = score >= 85 ? 'var(--sage, #4a7c59)' : '#df744a';
+        const bg = score >= 85 ? 'var(--sage-light, #e8f1eb)' : 'var(--peach-tint, #fef8f4)';
         return (
           <span
             style={{
               fontWeight: 700,
               color,
               backgroundColor: bg,
-              padding: '2px 8px',
-              borderRadius: '4px',
+              padding: '3px 8px',
+              borderRadius: '6px',
               fontSize: '0.8rem'
             }}
           >
@@ -130,7 +130,7 @@ export function VideoPerformancePage() {
       filter: 'agNumberColumnFilter',
       headerTooltip: 'Verified checkout conversions driven by this video',
       cellRenderer: (p: { value: number }) => (
-        <span style={{ fontWeight: 600, color: p.value > 0 ? '#047857' : '#94a3b8' }}>
+        <span style={{ fontWeight: 600, color: p.value > 0 ? 'var(--sage, #4a7c59)' : 'var(--muted, #667e71)' }}>
           {p.value > 0 ? `${numFormat.format(Number(p.value))}` : '0'}
         </span>
       )
@@ -145,7 +145,7 @@ export function VideoPerformancePage() {
       filter: 'agNumberColumnFilter',
       headerTooltip: 'Total gross merchandise sales value originated from this video',
       cellRenderer: (p: { value: number }) => (
-        <span style={{ fontWeight: 700, color: p.value > 0 ? '#2a715b' : '#94a3b8' }}>
+        <span style={{ fontWeight: 700, color: p.value > 0 ? 'var(--sage, #4a7c59)' : 'var(--muted, #667e71)' }}>
           {p.value > 0 ? currencyFormat.format(Number(p.value)) : '—'}
         </span>
       )

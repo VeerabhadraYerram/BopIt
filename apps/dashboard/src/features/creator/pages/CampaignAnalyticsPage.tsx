@@ -93,7 +93,7 @@ export function CampaignAnalyticsPage() {
       filter: 'agNumberColumnFilter',
       headerTooltip: 'Completed checkout orders attributed to this creator campaign',
       cellRenderer: (p: { value: number }) => (
-        <span style={{ fontWeight: 600, color: p.value > 0 ? '#047857' : '#94a3b8' }}>
+        <span style={{ fontWeight: 600, color: p.value > 0 ? 'var(--sage, #4a7c59)' : 'var(--muted, #667e71)' }}>
           {p.value > 0 ? numFormat.format(Number(p.value)) : '0'}
         </span>
       )
@@ -109,7 +109,7 @@ export function CampaignAnalyticsPage() {
       headerTooltip: 'Checkout order conversion percentage from inbound clicks',
       cellRenderer: (p: { value: number }) => {
         const val = Number(p.value);
-        const color = val >= 8.5 ? '#059669' : val >= 6.0 ? '#2a715b' : '#64748b';
+        const color = val >= 7.0 ? 'var(--sage, #4a7c59)' : '#df744a';
         return (
           <span style={{ fontWeight: 700, color }}>
             {val > 0 ? `${percentFormat.format(val)}%` : '—'}
@@ -127,7 +127,7 @@ export function CampaignAnalyticsPage() {
       filter: 'agNumberColumnFilter',
       headerTooltip: 'Total gross merchandise sales value originated from this campaign',
       cellRenderer: (p: { value: number }) => (
-        <span style={{ fontWeight: 700, color: p.value > 0 ? '#2a715b' : '#94a3b8' }}>
+        <span style={{ fontWeight: 700, color: p.value > 0 ? 'var(--sage, #4a7c59)' : 'var(--muted, #667e71)' }}>
           {p.value > 0 ? currencyFormat.format(Number(p.value)) : '—'}
         </span>
       )
@@ -142,7 +142,7 @@ export function CampaignAnalyticsPage() {
       filter: 'agNumberColumnFilter',
       headerTooltip: 'Affiliate referral revenue earned by the creator partner',
       cellRenderer: (p: { value: number }) => (
-        <span style={{ fontWeight: 600, color: p.value > 0 ? '#047857' : '#94a3b8' }}>
+        <span style={{ fontWeight: 600, color: p.value > 0 ? 'var(--sage, #4a7c59)' : 'var(--muted, #667e71)' }}>
           {p.value > 0 ? currencyFormat.format(Number(p.value)) : '—'}
         </span>
       )

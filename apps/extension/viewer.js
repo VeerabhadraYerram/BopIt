@@ -66,31 +66,6 @@ function render() {
   document.querySelectorAll('.object-box.active').forEach(positionLabel);
   publish();
 }
-function updateCreatorLinks(extraParams = {}) {
-  const base = 'http://127.0.0.1:5173/creator';
-  try {
-    const url = new URL(base);
-    const docUrl = capture?.source?.documentUrl;
-    if (docUrl) {
-      url.searchParams.set('videoUrl', docUrl);
-      const ytMatch = docUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-      if (ytMatch) url.searchParams.set('videoId', ytMatch[1]);
-    }
-    if (capture?.source?.timestamp) {
-      url.searchParams.set('t', Math.floor(capture.source.timestamp).toString());
-    }
-    for (const [key, val] of Object.entries(extraParams)) {
-      if (val) url.searchParams.set(key, val);
-    }
-    const href = url.toString();
-    const navLink = $('#creator-insights-nav');
-    if (navLink) navLink.href = href;
-    const ctaLink = $('#creator-insights-cta');
-    if (ctaLink) ctaLink.href = href;
-  } catch {
-    // Keep standard fallback
-  }
-}
 
 function select(id) {
   cancelProductSearch();
@@ -100,7 +75,6 @@ function select(id) {
   const object = objects.find(o => o.id === id);
   $('#detail').hidden = !object;
   if (!object) return;
-  updateCreatorLinks(object.label ? { query: object.label } : {});
   $('#label').textContent = object.label;
   $('#object-origin').textContent = object.manual ? `Your correction${object.predictedLabel ? ' · originally '+object.predictedLabel : ''}` : 'Detected in your video · identity not verified';
   $('#attributes').textContent = object.visibleAttributes.join(' · ') || 'No specific visual attributes established.';
@@ -118,7 +92,6 @@ async function loadFrame(record) {
   drawing = false; start = null; $('#stage').classList.remove('drawing'); $('#draw').textContent = 'Select an area'; $('#draft').hidden = true;
   investigator.reset();
   capture = record; objects = []; result = null; selectedId = null; $('#detail').hidden = true;
-  updateCreatorLinks();
   const image = $('#frame'); image.loading = 'eager'; image.hidden = false;
   await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = () => reject(new Error('Captured image could not load.')); image.src = record.image; });
   sizeStage(); $('#empty').hidden = true;
@@ -251,7 +224,6 @@ $('#return').addEventListener('click', async () => {
 });
 function showAll() {
   selectedId = null; document.body.dataset.view = 'all'; $('#back-to-items').hidden = true;
-  updateCreatorLinks();
   window.scrollTo({ top: 0, behavior: 'instant' }); render();
 }
 $('#back-to-items').onclick = showAll;

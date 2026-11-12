@@ -52,6 +52,17 @@ export default defineConfig({
         target: 'http://127.0.0.1:4317',
         changeOrigin: true,
         configure: (proxy) => {
+          proxy.on('error', (_err, _req, res) => {
+            if (res && !('headersSent' in res && res.headersSent)) {
+              try {
+                (res as any).writeHead(503, { 'Content-Type': 'application/json' });
+                (res as any).end(JSON.stringify({
+                  error: 'Recognition server offline (127.0.0.1:4317)',
+                  message: 'Recognition server not running on port 4317. Start with npm start in another terminal.'
+                }));
+              } catch {}
+            }
+          });
           proxy.on('proxyReq', (proxyReq) => {
             const token = getPairingToken();
             if (token && !proxyReq.getHeader('x-bopit-token')) {
@@ -64,6 +75,17 @@ export default defineConfig({
         target: 'http://127.0.0.1:4317',
         changeOrigin: true,
         configure: (proxy) => {
+          proxy.on('error', (_err, _req, res) => {
+            if (res && !('headersSent' in res && res.headersSent)) {
+              try {
+                (res as any).writeHead(503, { 'Content-Type': 'application/json' });
+                (res as any).end(JSON.stringify({
+                  error: 'Recognition server offline (127.0.0.1:4317)',
+                  message: 'Recognition server not running on port 4317. Start with npm start in another terminal.'
+                }));
+              } catch {}
+            }
+          });
           proxy.on('proxyReq', (proxyReq) => {
             const token = getPairingToken();
             if (token && !proxyReq.getHeader('x-bopit-token')) {

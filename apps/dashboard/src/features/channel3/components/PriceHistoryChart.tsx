@@ -38,11 +38,11 @@ export function PriceHistoryChart({
           xKey: 'date',
           yKey: 'price',
           yName: `Price (${currency})`,
-          stroke: '#7c3aed',
+          stroke: '#4a7c59',
           strokeWidth: 2.5,
           marker: {
             size: 5,
-            fill: '#7c3aed',
+            fill: '#4a7c59',
             stroke: '#ffffff',
             strokeWidth: 1.5
           }

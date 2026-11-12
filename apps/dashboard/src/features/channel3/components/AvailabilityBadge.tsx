@@ -34,7 +34,9 @@ export function AvailabilityBadge({ status }: AvailabilityBadgeProps) {
         fontSize: '11px',
         fontWeight: 600,
         backgroundColor: bg,
-        color
+        color,
+        whiteSpace: 'nowrap',
+        flexShrink: 0
       }}
     >
       <span

@@ -7,7 +7,13 @@ import { GridEmptyState } from './GridEmptyState';
 import { GridLoadingState } from './GridLoadingState';
 import { GridToolbar, type ServerPage } from './GridToolbar';
 
-const gridTheme = themeQuartz.withParams({ accentColor: '#2a715b', browserColorScheme: 'inherit', spacing: 8 });
+const gridTheme = themeQuartz.withParams({
+  accentColor: '#4a7c59',
+  browserColorScheme: 'inherit',
+  spacing: 8,
+  headerHeight: 44,
+  rowHeight: 52
+});
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 export interface DataGridProps<T> {
@@ -47,9 +53,9 @@ function DataGridView<T>({
     filter: true,
     floatingFilter,
     resizable: true,
-    minWidth: 105,
-    wrapHeaderText: true,
-    autoHeaderHeight: true
+    minWidth: 115,
+    wrapHeaderText: false,
+    autoHeaderHeight: false
   }), [floatingFilter]);
   const handleGridReady = useCallback((event: GridReadyEvent<T>) => setApi(event.api), []);
   const handleGridDestroy = useCallback(() => setApi(null), []);
@@ -73,6 +79,9 @@ function DataGridView<T>({
                 rowData={rows}
                 columnDefs={columns}
                 defaultColDef={defaultColDef}
+                rowHeight={52}
+                headerHeight={44}
+                floatingFiltersHeight={36}
                 getRowId={stableRowId}
                 quickFilterText={searchValue}
                 rowSelection={rowSelection}

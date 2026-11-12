@@ -232,11 +232,15 @@ export function ImportPage() {
         eyebrow="DATA MANAGEMENT"
         title="Import retailer data"
         description="Map a retailer CSV, review every row, then confirm the records to persist."
-        action={result ? <button className="button button-secondary" onClick={resetImport}>＋ New import</button> : undefined}
+        action={result ? <button className="button button-secondary" onClick={resetImport}>New import</button> : undefined}
       />
       {result ? (
         <section className="panel import-result" aria-live="polite">
-          <div className="import-result-icon">✓</div>
+          <div className="import-result-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </div>
           <div>
             <p className="eyebrow">IMPORT {result.status.toLocaleUpperCase()}</p>
             <h2>{result.fileName}</h2>

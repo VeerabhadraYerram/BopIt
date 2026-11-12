@@ -81,18 +81,62 @@ export function OverviewPage() {
       <PageHeader eyebrow="RETAIL OVERVIEW" title="Good morning" description="A clear view of your owned product and inventory data." />
       {error && <ConnectionState message={error} retry={load} />}
       <div className="metrics-grid">
-        <MetricCard label="Total products" value={loading ? '—' : display(overview?.total_products)} icon="▦" tone="blue" />
-        <MetricCard label="Units in stock" value={loading ? '—' : display(overview?.units_in_stock)} icon="▤" tone="green" />
-        <MetricCard label="Low stock" value={loading ? '—' : display(overview?.low_stock_products)} icon="⌁" tone="amber" />
-        <MetricCard label="Out of stock" value={loading ? '—' : display(overview?.out_of_stock_products)} icon="◌" tone="red" />
+        <MetricCard
+          label="Total products"
+          value={loading ? '—' : display(overview?.total_products)}
+          icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>}
+          tone="blue"
+        />
+        <MetricCard
+          label="Units in stock"
+          value={loading ? '—' : display(overview?.units_in_stock)}
+          icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /></svg>}
+          tone="green"
+        />
+        <MetricCard
+          label="Low stock"
+          value={loading ? '—' : display(overview?.low_stock_products)}
+          icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>}
+          tone="amber"
+        />
+        <MetricCard
+          label="Out of stock"
+          value={loading ? '—' : display(overview?.out_of_stock_products)}
+          icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><line x1="4.93" y1="4.93" x2="19.07" y2="19.07" /></svg>}
+          tone="red"
+        />
       </div>
       <section className="sales-summary">
         <div className="section-title"><h2>Imported sales</h2><p>Revenue includes only completed, paid, settled or succeeded transaction statuses.</p></div>
         <div className="metrics-grid sales-metrics">
-          <MetricCard label="Revenue by currency" value={loading ? '—' : error ? 'Not connected' : sales ? currencySummary(sales.revenue_by_currency) : 'Not connected'} icon="$" tone="green" caption="No currency conversion" />
-          <MetricCard label="Transactions" value={loading ? '—' : error ? 'Not connected' : display(sales?.transaction_count)} icon="▤" tone="blue" caption="Imported source records" />
-          <MetricCard label="Completed units sold" value={loading ? '—' : error ? 'Not connected' : display(sales?.units_sold)} icon="↗" tone="amber" caption="Recognized completed statuses" />
-          <MetricCard label="Average order value" value={loading ? '—' : error ? 'Not connected' : sales ? currencySummary(sales.average_order_value_by_currency) : 'Not connected'} icon="⌁" tone="blue" caption="Calculated per currency" />
+          <MetricCard
+            label="Revenue by currency"
+            value={loading ? '—' : error ? 'Not connected' : sales ? currencySummary(sales.revenue_by_currency) : 'Not connected'}
+            icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23" /><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" /></svg>}
+            tone="green"
+            caption="No currency conversion"
+          />
+          <MetricCard
+            label="Transactions"
+            value={loading ? '—' : error ? 'Not connected' : display(sales?.transaction_count)}
+            icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" /></svg>}
+            tone="blue"
+            caption="Imported source records"
+          />
+          <MetricCard
+            label="Completed units sold"
+            value={loading ? '—' : error ? 'Not connected' : display(sales?.units_sold)}
+            icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="7" y1="17" x2="17" y2="7" /><polyline points="7 7 17 7 17 17" /></svg>}
+            tone="amber"
+            caption="Recognized completed statuses"
+          />
+          <MetricCard
+            label="Average order value"
+            value={loading ? '—' : error ? 'Not connected' : sales ? currencySummary(sales.average_order_value_by_currency) : 'Not connected'}
+            icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10" /><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" /></svg>}
+            tone="blue"
+            caption="Calculated per currency"
+          />
         </div>
       </section>
       <div className="dashboard-grid">

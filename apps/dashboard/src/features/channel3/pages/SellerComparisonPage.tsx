@@ -145,9 +145,55 @@ export function SellerComparisonPage() {
       cellRenderer: (params: { data: SellerComparisonRow }) => {
         if (!params.data) return null;
         return (
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <div style={{ fontWeight: 600, color: '#1e293b' }}>{params.data.productTitle}</div>
-            <small style={{ color: '#64748b' }}>Brand: {params.data.brand}</small>
+          <div
+            className="grid-cell-stacked"
+            title={params.data.productTitle}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              minWidth: 0,
+              maxWidth: '100%',
+              width: '100%',
+              flex: '1 1 0%',
+              overflow: 'hidden',
+              lineHeight: 1.3,
+              gap: '2px'
+            }}
+          >
+            <span
+              className="grid-cell-title"
+              style={{
+                display: 'block',
+                width: '100%',
+                maxWidth: '100%',
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                fontWeight: 600,
+                fontSize: '11.5px',
+                color: '#1e2e26'
+              }}
+            >
+              {params.data.productTitle}
+            </span>
+            <span
+              className="grid-cell-subtitle"
+              style={{
+                display: 'block',
+                width: '100%',
+                maxWidth: '100%',
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: '#64756b',
+                fontSize: '10px'
+              }}
+            >
+              Brand: {params.data.brand}
+            </span>
           </div>
         );
       }
@@ -160,20 +206,11 @@ export function SellerComparisonPage() {
       cellRenderer: (params: { data: SellerComparisonRow }) => {
         if (!params.data) return null;
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontWeight: 600, color: '#0f172a' }}>{params.data.sellerName}</span>
+          <div className="grid-cell-retailer" title={params.data.sellerName}>
+            <span className="grid-retailer-name">{params.data.sellerName}</span>
             {params.data.isLowestPrice && (
-              <span
-                style={{
-                  background: '#dcfce7',
-                  color: '#15803d',
-                  padding: '1px 6px',
-                  borderRadius: '4px',
-                  fontSize: '9.5px',
-                  fontWeight: 700
-                }}
-              >
-                BEST PRICE
+              <span className="grid-badge-best-price">
+                Best Price
               </span>
             )}
           </div>
@@ -265,15 +302,27 @@ export function SellerComparisonPage() {
         <Channel3MetricCard
           label="ACTIVE RETAILERS"
           value={uniqueSellersCount}
-          icon="🏪"
-          tone="purple"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+              <polyline points="9 22 9 12 15 12 15 22" />
+            </svg>
+          }
+          tone="sage"
           caption="Amazon, B&H, Best Buy, Target & direct"
           trend="Diverse merchant network"
         />
         <Channel3MetricCard
           label="TOTAL LISTINGS"
           value={filteredRows.length}
-          icon="📋"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+              <polyline points="14 2 14 8 20 8" />
+              <line x1="16" y1="13" x2="8" y2="13" />
+              <line x1="16" y1="17" x2="8" y2="17" />
+            </svg>
+          }
           tone="blue"
           caption={`${inStockOffers} offers in stock`}
           trend="Aggregated offers"
@@ -281,16 +330,25 @@ export function SellerComparisonPage() {
         <Channel3MetricCard
           label="AVG COMMISSION"
           value={`${avgCommission}%`}
-          icon="💰"
-          tone="green"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="12" y1="1" x2="12" y2="23" />
+              <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
+            </svg>
+          }
+          tone="sage"
           caption="Creator/platform affiliate yield"
           trend="Monetizable volume"
         />
         <Channel3MetricCard
           label="PRICE ARBITRAGE"
           value="Enabled"
-          icon="⚡"
-          tone="amber"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+          }
+          tone="peach"
           caption="Identifies lowest price merchant"
           trend="Auto-tagged Best Price"
         />

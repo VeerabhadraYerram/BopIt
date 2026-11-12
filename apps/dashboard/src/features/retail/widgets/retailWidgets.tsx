@@ -28,7 +28,7 @@ export function RetailOpportunityScorecardWidget(_props: AgWidgetParams) {
           borderRadius: '12px',
           border: '1px solid #fecaca'
         }}>
-          🔥 7 Active Gaps
+          7 Active Gaps
         </span>
       </div>
 

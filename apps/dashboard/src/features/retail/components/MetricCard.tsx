@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react';
+
 export function MetricCard({ label, value, icon, tone, caption = 'Owned inventory' }: {
   label: string;
   value: string;
-  icon: string;
+  icon: ReactNode;
   tone: string;
   caption?: string;
 }) {

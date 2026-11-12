@@ -218,34 +218,59 @@ export function MomentsSellPage() {
         if (!params.data) return null;
         const watchUrl = `${params.data.videoUrl}&t=${Math.floor(params.data.timestamp)}s`;
         return (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span
+          <div
+            className="grid-cell-stacked"
+            title={params.data.videoTitle}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              minWidth: 0,
+              maxWidth: '100%',
+              width: '100%',
+              flex: '1 1 0%',
+              overflow: 'hidden',
+              lineHeight: 1.3,
+              gap: '2px'
+            }}
+          >
+            <a
+              href={watchUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="grid-cell-title"
               style={{
-                background: '#ede9fe',
-                color: '#6d28d9',
-                padding: '2px 6px',
-                borderRadius: '4px',
-                fontSize: '10px',
-                fontWeight: 700,
-                fontFamily: 'monospace'
+                display: 'block',
+                width: '100%',
+                maxWidth: '100%',
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                fontWeight: 600,
+                fontSize: '11.5px',
+                color: '#1e2e26',
+                textDecoration: 'none'
               }}
             >
-              ▶
+              {params.data.videoTitle}
+            </a>
+            <span
+              className="grid-cell-subtitle"
+              style={{
+                display: 'block',
+                width: '100%',
+                maxWidth: '100%',
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: '#64756b',
+                fontSize: '10px'
+              }}
+            >
+              ID: {params.data.videoId}
             </span>
-            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              <a
-                href={watchUrl}
-                target="_blank"
-                rel="noreferrer"
-                style={{ fontWeight: 600, color: '#1e293b', textDecoration: 'none' }}
-                title="Open YouTube video at timestamp"
-              >
-                {params.data.videoTitle} ↗
-              </a>
-              <div style={{ fontSize: '10.5px', color: '#64748b' }}>
-                ID: {params.data.videoId}
-              </div>
-            </div>
           </div>
         );
       }
@@ -267,15 +292,16 @@ export function MomentsSellPage() {
               alignItems: 'center',
               padding: '2px 8px',
               borderRadius: '6px',
-              background: '#f1f5f9',
-              color: '#334155',
+              background: 'var(--sage-light, #e8f1eb)',
+              color: 'var(--sage, #4a7c59)',
               fontWeight: 700,
               fontSize: '11px',
               textDecoration: 'none',
-              fontFamily: 'monospace'
+              fontFamily: 'monospace',
+              whiteSpace: 'nowrap'
             }}
           >
-            ⏱ {params.value}
+            {params.value}
           </a>
         );
       }
@@ -286,10 +312,56 @@ export function MomentsSellPage() {
       minWidth: 160,
       flex: 1,
       cellRenderer: (params: { data: VideoMomentRow; value: string }) => (
-        <div>
-          <div style={{ fontWeight: 600, color: '#0f172a' }}>{params.value}</div>
+        <div
+          className="grid-cell-stacked"
+          title={params.value}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            minWidth: 0,
+            maxWidth: '100%',
+            width: '100%',
+            flex: '1 1 0%',
+            overflow: 'hidden',
+            lineHeight: 1.3,
+            gap: '2px'
+          }}
+        >
+          <span
+            className="grid-cell-title"
+            style={{
+              display: 'block',
+              width: '100%',
+              maxWidth: '100%',
+              minWidth: 0,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              fontWeight: 600,
+              fontSize: '11.5px',
+              color: '#1e2e26'
+            }}
+          >
+            {params.value}
+          </span>
           {params.data.objectId && (
-            <small style={{ color: '#94a3b8', fontSize: '10px' }}>ID: {params.data.objectId}</small>
+            <span
+              className="grid-cell-subtitle"
+              style={{
+                display: 'block',
+                width: '100%',
+                maxWidth: '100%',
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                color: '#64756b',
+                fontSize: '10px'
+              }}
+            >
+              ID: {params.data.objectId}
+            </span>
           )}
         </div>
       )
@@ -303,12 +375,57 @@ export function MomentsSellPage() {
         if (!params.data) return null;
         const isResolved = params.data.matchedProduct !== 'Awaiting search';
         return (
-          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            <div style={{ fontWeight: 500, color: isResolved ? '#1e293b' : '#94a3b8' }}>
+          <div
+            className="grid-cell-stacked"
+            title={params.data.matchedProduct}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'center',
+              minWidth: 0,
+              maxWidth: '100%',
+              width: '100%',
+              flex: '1 1 0%',
+              overflow: 'hidden',
+              lineHeight: 1.3,
+              gap: '2px'
+            }}
+          >
+            <span
+              className="grid-cell-title"
+              style={{
+                display: 'block',
+                width: '100%',
+                maxWidth: '100%',
+                minWidth: 0,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                fontWeight: 600,
+                fontSize: '11.5px',
+                color: isResolved ? 'var(--ink, #1f2e26)' : 'var(--muted, #667e71)'
+              }}
+            >
               {params.data.matchedProduct}
-            </div>
+            </span>
             {isResolved && (
-              <small style={{ color: '#7c3aed', fontWeight: 600 }}>{params.data.matchedBrand}</small>
+              <span
+                className="grid-cell-subtitle"
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  maxWidth: '100%',
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  color: 'var(--sage, #4a7c59)',
+                  fontWeight: 600,
+                  fontSize: '10px'
+                }}
+              >
+                {params.data.matchedBrand}
+              </span>
             )}
           </div>
         );
@@ -319,21 +436,21 @@ export function MomentsSellPage() {
       field: 'selections',
       minWidth: 110,
       valueFormatter: params => Number(params.value).toLocaleString(),
-      cellStyle: () => ({ fontWeight: '700', color: '#7c3aed', textAlign: 'center' })
+      cellStyle: () => ({ fontWeight: '700', color: 'var(--sage, #4a7c59)', textAlign: 'center' })
     },
     {
       headerName: 'Product Opens',
       field: 'productOpens',
       minWidth: 125,
       valueFormatter: params => Number(params.value).toLocaleString(),
-      cellStyle: () => ({ fontWeight: '600', color: '#2563eb', textAlign: 'center' })
+      cellStyle: () => ({ fontWeight: '600', color: '#366144', textAlign: 'center' })
     },
     {
       headerName: 'Product Clicks',
       field: 'productClicks',
       minWidth: 125,
       valueFormatter: params => Number(params.value).toLocaleString(),
-      cellStyle: () => ({ fontWeight: '600', color: '#d97706', textAlign: 'center' })
+      cellStyle: () => ({ fontWeight: '600', color: '#df744a', textAlign: 'center' })
     },
     {
       headerName: 'Cart Additions',
@@ -346,16 +463,17 @@ export function MomentsSellPage() {
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '4px',
+              justifyContent: 'center',
               padding: '2px 8px',
               borderRadius: '10px',
               fontSize: '11px',
               fontWeight: 700,
               backgroundColor: count > 0 ? '#dcfce7' : '#f1f5f9',
-              color: count > 0 ? '#15803d' : '#64748b'
+              color: count > 0 ? '#15803d' : '#64748b',
+              minWidth: '28px'
             }}
           >
-            {count > 0 ? `🛒 ${count}` : '0'}
+            {count}
           </span>
         );
       }
@@ -420,31 +538,52 @@ export function MomentsSellPage() {
         <Channel3MetricCard
           label="CAPTURED VIDEO MOMENTS"
           value={totalMoments}
-          icon="⏱"
-          tone="purple"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <polyline points="12 6 12 12 16 14" />
+            </svg>
+          }
+          tone="sage"
           caption="Explicitly selected video items"
           trend={`${totalMoments} active moments`}
         />
         <Channel3MetricCard
           label="OBJECT SELECTIONS"
           value={totalSelections.toLocaleString()}
-          icon="🔍"
-          tone="blue"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" />
+              <line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+          }
+          tone="sage"
           caption="Viewer clicks on detected items"
           trend="Intent captured"
         />
         <Channel3MetricCard
           label="PRODUCT OPENS"
           value={totalOpens.toLocaleString()}
-          icon="👁"
-          tone="amber"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
+          }
+          tone="peach"
           caption="Specifications & variants inspected"
           trend={`${totalSelections > 0 ? Math.round((totalOpens / totalSelections) * 100) : 0}% open rate`}
         />
         <Channel3MetricCard
           label="STORE CLICKS & CARTS"
           value={`${totalClicks} clicks · ${totalCartAdditions} carts`}
-          icon="🛒"
+          icon={
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="9" cy="21" r="1" />
+              <circle cx="20" cy="21" r="1" />
+              <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6" />
+            </svg>
+          }
           tone="green"
           caption="Merchant redirects & cart adds"
           trend="Real-time conversions"
