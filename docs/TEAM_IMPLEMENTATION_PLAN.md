@@ -1,7 +1,7 @@
 # BopIt: four-person asynchronous implementation plan
 
 **Date:** 29 October 2026
-**Current runnable implementation:** [README](README.md) and [extension run guide](docs/RUN_EXTENSION.md).
+**Current runnable implementation:** [README](../README.md) and [extension run guide](RUN_EXTENSION.md).
 **Purpose:** Historical allocation of the broader product into four independently buildable workstreams. The previous master specification has been removed from this repository. Numbered section and use-case references below describe that earlier planning baseline, not files required to run the prototype. Commerce and other future workstreams are not implemented by the recognition slice; use the README for current behavior.
 
 The current visual-shopping enhancement adds evidence-labeled object attributes and Channel3 exact/similar/cheaper discovery to the recognition slice. This remains product discovery only: it does not implement checkout, inventory authority, or PayPal payment flows. SAM segmentation is deferred pending an evaluation set and a practical lightweight inference option; see the current README for the extension point and next step.

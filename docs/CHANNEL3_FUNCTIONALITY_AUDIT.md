@@ -14,7 +14,7 @@ The existing Chromium extension smoke test now passes with the built extension l
 
 Channel3's public developer surface describes search and lookup; advanced route contract assertions below rely on repository adapters, contracts, and deterministic local fixtures. Account permissions and provider behavior for advanced operations still require representative live checks. See [Channel3 developer overview](https://www.trychannel3.com/developers/) and [Channel3 color-filter Beta overview](https://www.trychannel3.com/blog).
 
-The extension's Channel3 traffic uses the paired recognition backend and shared adapter. The repository also contains an explicitly opt-in developer CLI at [channel3-search.mjs](./scripts/channel3-search.mjs) that invokes the same adapter directly with a server-side environment key; it is not part of the extension UI path.
+The extension's Channel3 traffic uses the paired recognition backend and shared adapter. The repository also contains an explicitly opt-in developer CLI at [channel3-search.mjs](../scripts/channel3-search.mjs) that invokes the same adapter directly with a server-side environment key; it is not part of the extension UI path.
 
 ## Validation and evidence
 
@@ -35,10 +35,10 @@ The extension's Channel3 traffic uses the paired recognition backend and shared 
 
 Tests most relevant to this audit:
 
-- [channel3-enhancements.test.mjs](./tests/channel3-enhancements.test.mjs): direct adapter tests, paired-server route mocks for selected features, response normalization, pagination and strategy selection.
-- [discovery.test.mjs](./tests/discovery.test.mjs): search adapter, normalization, filtering, and `/api/products/search` tests.
-- [subscriptions-scene.test.mjs](./tests/subscriptions-scene.test.mjs): subscription backend, webhook verification/persistence and scene-plan helper tests.
-- [checkout-quotes.test.mjs](./tests/checkout-quotes.test.mjs): quote pinning, seller/variant validation and PayPal Sandbox mocked checkout.
+- [channel3-enhancements.test.mjs](../tests/channel3-enhancements.test.mjs): direct adapter tests, paired-server route mocks for selected features, response normalization, pagination and strategy selection.
+- [discovery.test.mjs](../tests/discovery.test.mjs): search adapter, normalization, filtering, and `/api/products/search` tests.
+- [subscriptions-scene.test.mjs](../tests/subscriptions-scene.test.mjs): subscription backend, webhook verification/persistence and scene-plan helper tests.
+- [checkout-quotes.test.mjs](../tests/checkout-quotes.test.mjs): quote pinning, seller/variant validation and PayPal Sandbox mocked checkout.
 
 Most Channel3 tests use deterministic provider fixtures. They check request contracts, route authentication and validation, normalization, cursor flow, empty results, ownership, provider errors and selected retry behavior. They do not prove every provider permission or full UI-to-backend behavior in Chrome.
 
@@ -48,8 +48,8 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 1. Rich image + text search
 
-- **Frontend UI entry point:** `viewer.html` — search field, intent buttons, market/price/brand controls, image crop and palette; wired in `viewer.js` and [investigation.js](./apps/extension/investigation.js).
-- **Backend route / Channel3 integration:** `POST /api/products/search` in [server.mjs](./apps/recognition-server/server.mjs) → `searchChannel3()` in [channel3.mjs](./apps/recognition-server/channel3.mjs) → `POST /v1/search`.
+- **Frontend UI entry point:** `viewer.html` — search field, intent buttons, market/price/brand controls, image crop and palette; wired in `viewer.js` and [investigation.js](../apps/extension/investigation.js).
+- **Backend route / Channel3 integration:** `POST /api/products/search` in [server.mjs](../apps/recognition-server/server.mjs) → `searchChannel3()` in [channel3.mjs](../apps/recognition-server/channel3.mjs) → `POST /v1/search`.
 - **Request/response flow:** Object investigation creates an intent-specific text query and optional object crop. UI sends query, optional image, filters, market and page token through the paired API. Adapter maps the image to `base64_image`, continuation to `page_token`, and normalizes Channel3 `next_page_token` into BopIt's `pageToken`/`nextPageToken`. UI renders returned cards and requests subsequent pages when the user selects **Load more products**.
 - **UI connection:** Connected and exercised by the mocked Chromium extension smoke test for object selection, hybrid image search, intent changes, pagination controls and result display. Live provider UI results remain unverified.
 - **Test coverage:** Adapter test covers combined query/image, structured filters, locale and pagination. Paired route test covers image-only search and continuation. The Chromium smoke drives the core UI handlers against intercepted fixtures, while the actual server-to-Channel3 adapter path is covered separately by mocks.
@@ -59,7 +59,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 2. Native similar-product discovery
 
-- **Frontend UI entry point:** Product card's **Find similar products** action in [investigation.js](./apps/extension/investigation.js); results use the existing product-card renderer.
+- **Frontend UI entry point:** Product card's **Find similar products** action in [investigation.js](../apps/extension/investigation.js); results use the existing product-card renderer.
 - **Backend route / Channel3 integration:** `POST /api/products/similar` → `similarChannel3()` → `POST /v1/similar`.
 - **Request/response flow:** Selected product's canonical ID, filters, locale and limit go to the paired backend. Adapter sends `product_id`, filter/config and page token, normalizes products and continuation token; the UI renders cards and can request more.
 - **UI connection:** Connected. A 404 is presented as an unavailable canonical ID rather than falling back to ordinary image search.
@@ -70,8 +70,8 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 3. Category-aware filters
 
-- **Frontend UI entry point:** **More search options → Browse Channel3 catalog** in `viewer.html`; category selection and dynamic attribute controls are wired in [investigation.js](./apps/extension/investigation.js).
-- **Backend route / Channel3 integration:** Paired POST routes for category search/list/detail and product browsing in [server.mjs](./apps/recognition-server/server.mjs). Adapter calls `/v1/categories/search`, `/v1/categories`, `/v1/categories/{slug}`, then `/v1/browse` or `/v1/search`.
+- **Frontend UI entry point:** **More search options → Browse Channel3 catalog** in `viewer.html`; category selection and dynamic attribute controls are wired in [investigation.js](../apps/extension/investigation.js).
+- **Backend route / Channel3 integration:** Paired POST routes for category search/list/detail and product browsing in [server.mjs](../apps/recognition-server/server.mjs). Adapter calls `/v1/categories/search`, `/v1/categories`, `/v1/categories/{slug}`, then `/v1/browse` or `/v1/search`.
 - **Request/response flow:** Category lookup returns categories; selecting one fetches details and renders returned `attributes` using their returned slug/handle and values. Selected category and attribute values are sent as structured filters. The OpenAPI describes `category_ids` as accepting category slugs, so this use is consistent. Browse requires at least one real category, brand or retailer selector.
 - **UI connection:** Connected by code. Attribute controls trigger a new search; browsing uses selected catalog filters. A category selection starts a search while category details are fetched, so the first refresh may occur before dynamic attribute controls have loaded; changing an attribute afterward triggers another search.
 - **Test coverage:** Adapter tests and paired-server tests cover category search/list/detail, brand search/list/detail, browse, returned attribute shape and filter validation. No browser test verifies that selected dynamic category attributes persist into the next provider filter payload.
@@ -81,7 +81,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 4. Colour-palette matching
 
-- **Frontend UI entry point:** **Match the object's colours (Beta)** in `viewer.html`; crop sampling, HEX controls and filter construction are in [investigation.js](./apps/extension/investigation.js).
+- **Frontend UI entry point:** **Match the object's colours (Beta)** in `viewer.html`; crop sampling, HEX controls and filter construction are in [investigation.js](../apps/extension/investigation.js).
 - **Backend route / Channel3 integration:** Uses `POST /api/products/search` and `POST /v1/search` with `filters.colors.palette`.
 - **Request/response flow:** The selected crop is downsampled and passed to `extractColorPalette()`, which returns dominant HEX colors and prominence. User can enable/adjust colors; selected palette values become structured search filters. Backend normalizes/validates HEX and prominence. If Channel3 rejects the experimental color filter with 400/422, BopIt retries once without it and tells the user.
 - **UI connection:** Connected by source trace. It depends on a selected crop for automatic suggestions; a manual query without a selected crop can still use ordinary search.
@@ -92,7 +92,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 5. Variant-aware seller comparison
 
-- **Frontend UI entry point:** Product card **Specifications & variants** in [investigation.js](./apps/extension/investigation.js), plus existing comparison controls in [shopping-tools.js](./apps/extension/shopping-tools.js).
+- **Frontend UI entry point:** Product card **Specifications & variants** in [investigation.js](../apps/extension/investigation.js), plus existing comparison controls in [shopping-tools.js](../apps/extension/shopping-tools.js).
 - **Backend route / Channel3 integration:** `POST /api/products/details` → `retrieveChannel3()` → `GET /v1/products/{id}` with `option_<OptionName>=<Label>`, locale, and optional seller selection. Checkout quote route re-fetches the product before checkout.
 - **Request/response flow:** Opening details fetches the selected product; changing a variant issues a new request. Server compares requested options to returned effective selection, exposes substitutions, and disables checkout for substituted variants. Seller offers display seller, price/currency, condition, availability and safe HTTPS purchase URL. A seller can be selected explicitly for a quote.
 - **UI connection:** Connected by code. Offers are presented as belonging to the displayed selected configuration; unavailable/substituted selections are disclosed.
@@ -103,7 +103,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 6. Product URL lookup
 
-- **Frontend UI entry point:** Retailer URL field and **Look up URL** button in `viewer.html`, handled in [investigation.js](./apps/extension/investigation.js).
+- **Frontend UI entry point:** Retailer URL field and **Look up URL** button in `viewer.html`, handled in [investigation.js](../apps/extension/investigation.js).
 - **Backend route / Channel3 integration:** `POST /api/products/lookup` → `lookupChannel3()` → `POST /v1/lookup`.
 - **Request/response flow:** UI submits URL with `maxStalenessHours` and `realtimeFetch`. Backend/adapter restrict to public HTTPS URLs and reject credentials, nonstandard ports, IP literals and local/reserved suffixes. BopIt itself does not fetch submitted retailer URLs; only the Channel3 API request is made. Returned product is normalized and rendered with its canonical ID.
 - **UI connection:** Connected. Invalid, unsupported and provider errors are presented; a missing canonical product record is rejected.
@@ -114,7 +114,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 7. Category and brand browsing
 
-- **Frontend UI entry point:** Category/brand search/list/details controls and **Browse selected category or brand** in `viewer.html`; event handlers are in [investigation.js](./apps/extension/investigation.js).
+- **Frontend UI entry point:** Category/brand search/list/details controls and **Browse selected category or brand** in `viewer.html`; event handlers are in [investigation.js](../apps/extension/investigation.js).
 - **Backend route / Channel3 integration:** `POST /api/catalog/categories/{search,list,details}`, `POST /api/catalog/brands/{search,list,details}` and `POST /api/products/browse` → matching `/v1/categories...`, `/v1/brands...` and `POST /v1/browse` adapter calls.
 - **Request/response flow:** Category and brand options are populated from provider results; category details load returned attributes; brand details display returned description/rate data. Browse sends selected category slug/brand ID, price and other structured filters, locale, and page token; product cards and product pagination are reused.
 - **UI connection:** Connected by source trace. The API describes category slugs as the valid values for `category_ids`; the UI passes those returned slugs. Brand results use returned IDs. Category and brand list pagination controls exist.
@@ -125,7 +125,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 8. Conversational product refinement
 
-- **Frontend UI entry point:** **Refine these results**, transcript, suggestion buttons and **Start fresh** in `viewer.html`; session/context and turn handling in [investigation.js](./apps/extension/investigation.js).
+- **Frontend UI entry point:** **Refine these results**, transcript, suggestion buttons and **Start fresh** in `viewer.html`; session/context and turn handling in [investigation.js](../apps/extension/investigation.js).
 - **Backend route / Channel3 integration:** `POST /api/conversations/turn` → `converseChannel3()` → `POST /v1/conversations`.
 - **Request/response flow:** First turn sends user text, current selected-object/product/filter/market context and optional crop. Returned `conversation_id` and transcript are stored in `chrome.storage.session`; subsequent turns send the ID without re-sending initial context. Channel3 text, suggestions and tool product results are normalized; returned products reuse existing cards. A 404/410 clears expired conversation state and prompts the user to start fresh.
 - **UI connection:** Connected by code. Product results replace the current result set when supplied. If a conversation returns text but no products, the transcript is shown and the user is told no new product matches were returned.
@@ -136,7 +136,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 9. Product price history
 
-- **Frontend UI entry point:** Product details → **Price history** period selector and **Load price history** in [investigation.js](./apps/extension/investigation.js).
+- **Frontend UI entry point:** Product details → **Price history** period selector and **Load price history** in [investigation.js](../apps/extension/investigation.js).
 - **Backend route / Channel3 integration:** `POST /api/products/price-history` → `priceHistoryChannel3()` → `GET /v0/price-tracking/history/{canonical_product_id}?days=...`.
 - **Request/response flow:** History is fetched only when explicitly requested. Backend validates canonical IDs and days 1–90, caches by product ID and period for 10 minutes, checks response ID, then normalizes `history` and supplied statistics. UI shows loading, no-history, errors and a currency-consistent chart; mixed currencies are not plotted together.
 - **UI connection:** Connected by code. It is product-level and does not identify a selected variant; that limitation is disclosed.
@@ -147,7 +147,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 10. Price and availability subscriptions
 
-- **Frontend UI entry point:** Product details → **Price & availability alerts**, event checkboxes, create/list/cancel actions in [investigation.js](./apps/extension/investigation.js); pull-based Product alert inbox in [viewer.js](./apps/extension/viewer.js).
+- **Frontend UI entry point:** Product details → **Price & availability alerts**, event checkboxes, create/list/cancel actions in [investigation.js](../apps/extension/investigation.js); pull-based Product alert inbox in [viewer.js](../apps/extension/viewer.js).
 - **Backend route / Channel3 integration:** Authenticated create/list/get/cancel routes → `POST /v1/product-subscriptions`, paginated `GET /v1/product-subscriptions`, `GET`/`DELETE /v1/product-subscriptions/{subscription_id}`. `POST /webhooks/channel3` is BopIt's receiver for dashboard-configured Channel3 webhooks, not a Channel3 registration API.
 - **Request/response flow:** Extension sends canonical product, selected event types and complete variant selection. Backend scopes local ownership to the opaque installation ID, reuses matching subscriptions, validates provider responses and protects shared subscriptions on cancellation. Webhook receiver enforces body limits, HTTPS-forwarded-proto, Svix HMAC/timestamp and event shape, persists before acknowledging, de-duplicates, and makes matching events available through the inbox.
 - **UI connection:** Product controls and inbox handlers are present. Inbox is pull-to-refresh; there is no browser push. Channel3 subscriptions use English/US/USD and priority daily refresh as documented.
@@ -158,7 +158,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 11. Click and transaction reporting
 
-- **Frontend UI entry point:** **Shopping performance** panel, period selector, **Load report**, and next-page controls in [viewer.html](./apps/extension/viewer.html) and [investigation.js](./apps/extension/investigation.js).
+- **Frontend UI entry point:** **Shopping performance** panel, period selector, **Load report**, and next-page controls in [viewer.html](../apps/extension/viewer.html) and [investigation.js](../apps/extension/investigation.js).
 - **Backend route / Channel3 integration:** `POST /api/reporting/clicks` and `/api/reporting/transactions` → `reportingChannel3()` → `GET /v1/reporting/clicks` and `GET /v1/reporting/transactions`.
 - **Request/response flow:** UI requests date range and page; backend validates the installation ID and dates/page size, then passes `user_id` as the documented reporting query parameter. Response normalizers preserve supplied counts, transactions, statuses, dates and amounts. UI shows click/attributed transaction totals, conversion only when counts exist, a simple bars display, rows and pagination.
 - **UI connection:** Connected by source trace. A stable random opaque `bopit_<uuid>` installation ID is stored locally; it is not an email/password. It is supplied on supported catalog requests and the report query.
@@ -169,7 +169,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 12. Automatic offer recovery
 
-- **Frontend UI entry point:** Saved finds → **Refresh offers** and explicit **Confirm and use [seller]** in [shopping-tools.js](./apps/extension/shopping-tools.js); product detail variant/seller choices and PayPal quote action in [investigation.js](./apps/extension/investigation.js).
+- **Frontend UI entry point:** Saved finds → **Refresh offers** and explicit **Confirm and use [seller]** in [shopping-tools.js](../apps/extension/shopping-tools.js); product detail variant/seller choices and PayPal quote action in [investigation.js](../apps/extension/investigation.js).
 - **Backend route / Channel3 integration:** Refresh calls `POST /api/products/details` → `GET /v1/products/{id}` with the saved variant and current market. Checkout calls `/api/payments/quotes`, re-fetches the listing, pins seller/variant/locale and rejects changed offers. This feature is BopIt logic; there is no Channel3 offer-recovery endpoint.
 - **Request/response flow:** Saved offer is compared to current seller offers. Changed/disappeared offers are shown; switching seller requires explicit confirmation. Quote revalidates the selected listing and refuses changed seller, price, variant or availability.
 - **UI connection:** Seller recovery is connected. When Channel3 substitutes the saved variant, the saved card lists available replacement values, re-fetches a complete explicit selection, and requires a seller confirmation before persistence.
@@ -180,7 +180,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 13. Multi-product scene planning
 
-- **Frontend UI entry point:** **Plan this scene**, object checkboxes, remove/rebuild, per-object rerun and grouped product results in `viewer.html` and [viewer.js](./apps/extension/viewer.js).
+- **Frontend UI entry point:** **Plan this scene**, object checkboxes, remove/rebuild, per-object rerun and grouped product results in `viewer.html` and [viewer.js](../apps/extension/viewer.js).
 - **Backend route / Channel3 integration:** Scene runner reuses existing `POST /api/products/search` → `POST /v1/search` for each selected detected crop and query. Each request carries current market and filters.
 - **Request/response flow:** Gemini detections/crops form a scene plan; at most two searches run concurrently, repeated/context-identical requests are deduplicated/cached, each result remains attached to its object, and an individual failure does not erase successful results. Relationship groupings require explicit model-supplied evidence and are not compatibility assertions.
 - **UI connection:** Connected by source trace; uses existing product cards/details/comparison rather than a separate catalog. No multiple-object UI interaction was run in Chrome.
@@ -191,7 +191,7 @@ Statuses: **Verified** means automated and live verification completed; **Automa
 
 ### 14. Context-aware agent orchestration
 
-- **Frontend UI entry point:** Existing selected-object search, similar product, catalog browse, URL lookup, details, conversation and filters in `viewer.html` and [investigation.js](./apps/extension/investigation.js). Strategy selector and bounded fallback are in [search-orchestration.mjs](./apps/extension/search-orchestration.mjs).
+- **Frontend UI entry point:** Existing selected-object search, similar product, catalog browse, URL lookup, details, conversation and filters in `viewer.html` and [investigation.js](../apps/extension/investigation.js). Strategy selector and bounded fallback are in [search-orchestration.mjs](../apps/extension/search-orchestration.mjs).
 - **Backend route / Channel3 integration:** Search route forwards `config.mode`; `searchChannel3()` passes it to `POST /v1/search`. Explicit UI actions dispatch to native similar, category/brand browse, URL lookup, product details or conversation routes rather than guessing extra tools.
 - **Request/response flow:** Simple searches remain default/deterministic. Long/multi-constraint natural-language requests may select `config.mode = "agentic"`; only eligible failures retry once in default mode. Extension logs strategy, reason, operation, fallback and outcome without query text, image, user ID or key.
 - **UI connection:** Connected, understandable and bounded. This is context-aware routing plus Channel3 agentic search, not an autonomous multi-agent system. Tool choices such as product URL lookup or similar discovery are explicitly user-triggered actions.

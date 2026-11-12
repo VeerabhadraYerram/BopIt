@@ -8,6 +8,6 @@ Start with the [README](../README.md) for quick verification, or [watch the BopI
 - [Current shopping and checkout behavior](qa/SHOPPING_UX_UPDATE_2026-11-12.md) records the changes to inline checkout, audio context, preferences, and compatibility.
 - [Advanced extension features](ADVANCED_EXTENSION.md) covers offer alerts, webhook setup, and shopping for multiple objects in a scene.
 - [Developer guide](DEVELOPER_GUIDE.md) covers capture and privacy, model warmup, and verification commands.
-- [Channel3 integration audit](../CHANNEL3_FUNCTIONALITY_AUDIT.md) describes catalog, reporting, subscriptions, and webhook internals.
+- [Channel3 integration audit](CHANNEL3_FUNCTIONALITY_AUDIT.md) describes catalog, reporting, subscriptions, and webhook internals.
 - [UX decisions](UX_DECISIONS.md) and [recognition evaluation](RECOGNITION_EVALUATION.md) explain the interface choices and what the recognition checks measure.
-- [QA notes](qa) and the [implementation plan](../TEAM_IMPLEMENTATION_PLAN.md) record earlier development and verification. Use the current run guides for setup.
+- [QA notes](qa) and the [implementation plan](TEAM_IMPLEMENTATION_PLAN.md) record earlier development and verification. Use the current run guides for setup.

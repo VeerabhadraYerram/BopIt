@@ -34,4 +34,4 @@ Use one currency per cart. Sandbox checkout supports valid catalog prices in USD
 | A quote is rejected | Review the cart for a changed seller, price, variant, availability, or mixed currencies. The panel displays the reason and opens approval only after a quote succeeds. |
 | PayPal does not show a receipt | Check that the app credentials are Sandbox credentials and that approval used a Personal Sandbox buyer. Use **Check payment status** to reconcile an interrupted approval. |
 
-For optional audio context, in-card price history, compatibility advisories, and shopping preferences, see the [current feature notes](qa/SHOPPING_UX_UPDATE_2026-11-12.md). For catalog and alert internals, see the [Channel3 audit](../CHANNEL3_FUNCTIONALITY_AUDIT.md).
+For optional audio context, in-card price history, compatibility advisories, and shopping preferences, see the [current feature notes](qa/SHOPPING_UX_UPDATE_2026-11-12.md). For catalog and alert internals, see the [Channel3 audit](CHANNEL3_FUNCTIONALITY_AUDIT.md).

@@ -6,6 +6,8 @@ You pause Iron Man and think, “I need those glasses.” A new tab and a few gu
 
 Built for the PayPal AI Hackathon. **[Watch the BopIt demo on YouTube](https://www.youtube.com/watch?v=LPZSawMPDkE)**
 
+[![Play the BopIt demo on YouTube](https://i.ytimg.com/vi/LPZSawMPDkE/hqdefault.jpg)](https://www.youtube.com/watch?v=LPZSawMPDkE)
+
 ## Follow the demo
 
 | Step | What to look for |
