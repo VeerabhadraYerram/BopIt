@@ -55,14 +55,14 @@ test('selected Channel3 variant → signed server quote → approved PayPal orde
  });
 });
 
- test('checkout quote pins the selected seller, variant and locale and refuses a changed offer',async()=>{
+ test('checkout quote pins the selected seller, variant and locale despite rotated retailer links',async()=>{
   const product={...listing,retailer:'shop.example',offers:[
    {retailer:'shop.example',price:149.95,currency:'USD',condition:'new',availability:'InStock',purchaseUrl:'https://shop.example/item'},
    {retailer:'store.example',price:129.95,currency:'USD',condition:'new',availability:'InStock',purchaseUrl:'https://store.example/item'}
   ]};
   let options;
   await start({retrieve:async(_id,request)=>{options=request;return product;}},async call=>{
-   const expectedOffer={retailer:'shop.example',price:149.95,currency:'USD',condition:'new',availability:'InStock',purchaseUrl:'https://shop.example/item'};
+   const expectedOffer={...product.offers[0],purchaseUrl:'https://shop.example/item?source=search'};
    const quoted=await call('/api/payments/quotes',{body:{id:'lens-1',selection:{Mount:'E'},websiteIds:['shop.example'],config:{country:'GB',currency:'GBP'},expectedOffer}});
    assert.equal(quoted.status,201);
    assert.deepEqual(options.selection,{Mount:'E'});
@@ -70,6 +70,7 @@ test('selected Channel3 variant → signed server quote → approved PayPal orde
    assert.deepEqual(options.config,{country:'GB',currency:'GBP'});
    assert.equal(quoted.body.product.retailer,'shop.example');
    assert.equal(quoted.body.product.price,'149.95');
+   assert.equal(quoted.body.product.purchaseUrl,'https://shop.example/item');
    const changed=await call('/api/payments/quotes',{body:{id:'lens-1',selection:{Mount:'E'},websiteIds:['shop.example'],expectedOffer:{...expectedOffer,price:139.95}}});
    assert.equal(changed.status,409);
    assert.match(changed.body.error,/changed since it was displayed/);

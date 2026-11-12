@@ -72,6 +72,24 @@ let capturing = false;
 let lastCapture = 0;
 let inspectorFrame = null;
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (message?.type === 'BOPIT_OPEN_CHECKOUT') {
+    if (sender.url?.split(/[?#]/, 1)[0] !== chrome.runtime.getURL('viewer.html')) {
+      respond({ error: 'Open BopIt to continue to checkout.' });
+      return;
+    }
+    let url;
+    try { url = new URL(message.url); } catch { /* Handled below. */ }
+    if (url?.origin !== 'http://127.0.0.1:4317' || url.pathname !== '/checkout'
+      || url.username || url.password || !url.searchParams.get('quote')) {
+      respond({ error: 'Invalid checkout address.' });
+      return;
+    }
+    chrome.tabs.create({ url: url.href }).then(
+      () => respond({ opened: true }),
+      () => respond({ error: 'Could not open checkout. Try again.' })
+    );
+    return true;
+  }
   if(message?.type==='BOPIT_TRACKING_ENABLE'){
     if(!sender.url?.startsWith(chrome.runtime.getURL('viewer.html'))){respond({error:'Open BopIt to enable desktop alerts.'});return;}
     chrome.alarms.create('bopit-subscription-events',{periodInMinutes:1});respond({enabled:true});return;

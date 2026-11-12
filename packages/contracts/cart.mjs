@@ -1,3 +1,5 @@
+export const CHECKOUT_OFFER_FIELDS = Object.freeze(['retailer', 'price', 'currency', 'condition', 'availability']);
+
 export function cartItems(value) {
   if (!Array.isArray(value) || !value.length || value.length > 12) throw new Error('Choose between one and twelve cart lines.');
   const seen = new Set();

@@ -11,8 +11,15 @@ const { chromium } = require(process.env.BOPIT_PLAYWRIGHT_MODULE || 'playwright'
 const profile = await mkdtemp(join(tmpdir(), 'bopit-payment-browser-'));
 const base = 'http://127.0.0.1:4317';
 const orders = new Map(), requestIds = new Map();
-let captures = 0, deferCapture = false, failCreate = false;
-const product = { retailer:'example.com',condition:'new',purchaseUrl:'https://example.com/headphones',offers:[{retailer:'example.com',price:149.95,currency:'USD',condition:'new',availability:'InStock',purchaseUrl:'https://example.com/headphones'}], id: 'fixture-headphones', title: 'Fixture headphones', price: 149.95, currency: 'USD', availability: 'InStock', variants: { selected: [{ name: 'Color', label: 'Black' }] } };
+let captures = 0, deferCapture = false, failCreate = false, priceChanged = false;
+function listing(id, title, price, source) {
+  const offer = { retailer: 'shop.example', price, currency: 'USD', condition: 'new', availability: 'InStock', purchaseUrl: `https://shop.example/${id}?source=${source}` };
+  return { id, title, ...offer, offers: [offer], variants: { selected: [{ name: 'Color', label: 'Black' }] } };
+}
+const products = [
+  listing('fixture-headphones', 'Fixture headphones', 149.95, 'search'),
+  listing('fixture-stand', 'Fixture stand', 20, 'search')
+];
 const paypal = {
   async createOrder(body, key) {
     if (failCreate) { failCreate = false; throw new Error('simulated network error'); }
@@ -36,7 +43,14 @@ const paypal = {
 };
 let server, context;
 async function start(configured = true) {
-  server = createApp({ token: 'payment-browser-token', channel3Key: 'fixture-key', searchProducts: async()=>({products:[product,{...product,id:'fixture-stand',title:'Fixture stand',price:20,offers:[{...product.offers[0],price:20}]}]}), retrieve: async id=>id==='fixture-stand'?{...product,id:'fixture-stand',title:'Fixture stand',price:20,offers:[{...product.offers[0],price:20}]}:product, paypal, paypalClientId: configured ? 'test-id' : '', paypalClientSecret: configured ? 'test-secret' : '' });
+  server = createApp({
+    token: 'payment-browser-token', channel3Key: 'fixture-key', searchProducts: async () => ({ products }),
+    retrieve: async id => {
+      const product = products.find(product => product.id === id);
+      return listing(id, product.title, product.price + (priceChanged && id === 'fixture-stand' ? 1 : 0), 'retrieve');
+    },
+    paypal, paypalClientId: configured ? 'test-id' : '', paypalClientSecret: configured ? 'test-secret' : ''
+  });
   await new Promise((resolve, reject) => { server.once('error', reject); server.listen(4317, '127.0.0.1', resolve); });
 }
 async function stop() { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
@@ -67,6 +81,20 @@ try {
   await viewer.locator('[data-action="sandbox-checkout"]').first().waitFor({state:'attached'});
   await viewer.locator('[data-action="add-to-cart"]').first().click();await viewer.locator('[data-action="add-to-cart"]').nth(1).click();
   await viewer.locator('#cart-toggle').click();await viewer.locator('#review-cart').click();await viewer.locator('#cart-review p').first().waitFor();
+  assert.equal(await viewer.locator('#pay-cart').isEnabled(), true, 'A rotated retailer link should not require a price review');
+  priceChanged = true;
+  let failedCheckoutTabs = 0;
+  const countPage = () => { failedCheckoutTabs++; };
+  context.on('page', countPage);
+  await viewer.locator('#pay-cart').click();
+  await viewer.getByText('A cart seller offer changed.', { exact: false }).waitFor();
+  context.off('page', countPage);
+  assert.equal(failedCheckoutTabs, 0, 'A rejected quote should show an error in the cart without opening a tab');
+  await viewer.locator('#review-cart').click();
+  const acceptPrices = viewer.locator('#accept-cart-prices');
+  await acceptPrices.waitFor();
+  assert.equal(await viewer.locator('#pay-cart').isDisabled(), true, 'A changed price must be accepted first');
+  await acceptPrices.click();
   const popup=context.waitForEvent('page');await viewer.locator('#pay-cart').click();const checkout=await popup;
   await checkout.waitForURL(`${base}/checkout?quote=*`);
   const quotedCheckoutUrl=checkout.url();
@@ -74,7 +102,7 @@ try {
   await checkout.waitForFunction(() => !document.querySelector('#buy').disabled);
   assert.equal(await checkout.locator('h1').innerText(),'2 items in your BopIt cart');
   assert.equal(await checkout.locator('#checkout-items li').count(),2);
-  assert.match(await checkout.locator('.price').innerText(),/169.95/);
+  assert.match(await checkout.locator('.price').innerText(),/170\.95/);
   await checkout.locator('#buy').click();
   await checkout.waitForURL('https://www.sandbox.paypal.com/**');
   const id = new URL(checkout.url()).searchParams.get('token');

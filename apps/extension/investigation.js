@@ -11,6 +11,7 @@ import { extractPaletteFromDataUrl } from './palette-image.mjs';
 import { prepareProfileImages } from './profile-images.mjs';
 import { searchAfterProfileFailure } from './profile-fallback.mjs';
 import { channel3ErrorMessage, profileErrorMessage, searchErrorMessage } from './ui-feedback.mjs';
+import { openCheckoutTab } from './checkout-tab.js';
 const $ = s => document.querySelector(s);
 const node = (tag, text, className) => { const el = document.createElement(tag); if (text !== undefined) el.textContent = text; if (className) el.className = className; return el; };
 const logOrchestration = entry => console.info('[bopit-orchestration]', JSON.stringify(entry));
@@ -880,17 +881,12 @@ export function createInvestigator({ getCapture, crop, getSelected }) {
     group.updateOffer(product);
     button.dataset.action='sandbox-checkout';
     button.onclick=async()=>{
-      // Open synchronously from the click; browsers block popups after await.
-      const checkout=window.open('about:blank','_blank');
-      if(!checkout){note.textContent='Allow this checkout tab to open, then try again.';return;}
-      checkout.opener=null;button.disabled=true;note.textContent='Checking the selected listing and current catalog price…';
+      button.disabled=true;note.textContent='Checking the selected listing and current catalog price…';
       try {
         const data=await api('payments/quotes',selection());
-        const url=new URL(data.checkoutUrl);
-        if(url.origin!=='http://127.0.0.1:4317'||url.pathname!=='/checkout')throw new Error('Invalid checkout address.');
-        checkout.location.replace(url.href);
+        await openCheckoutTab(data.checkoutUrl);
         note.textContent='Quote ready in the checkout tab. Your video stays here.';
-      } catch(e){checkout.close();note.textContent=e.message||'Checkout unavailable. Try again.';}
+      } catch(e){note.textContent=e.message||'Checkout unavailable. Try again.';}
       finally{button.disabled=!eligible;}
     };
     group.append(button,note);return group;

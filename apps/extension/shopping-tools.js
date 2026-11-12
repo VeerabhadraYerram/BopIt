@@ -1,6 +1,8 @@
 import { normalizeSavedProducts, toggleSavedProduct, compareSavedOffer, applySavedOffer, buildProductComparison, filterDiscoveryProducts, resolveBudgetMaximum, rankDiscoveryProducts } from './contracts/discovery.mjs';
 import { formatProductPrice, safeProductUrl } from './product-display.js';
 import { availableReplacementVariantValues, retrieveReplacementVariant, persistSavedOfferUpdate } from './saved-offer-recovery.mjs';
+import { openCheckoutTab } from './checkout-tab.js';
+import { CHECKOUT_OFFER_FIELDS } from './contracts/cart.mjs';
 const $=s=>document.querySelector(s);
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 export function createShoppingTools(onChange, api, market, makeCheckoutAction, getCartContext = () => ({}),makePriceHistory) {
@@ -50,8 +52,8 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
         const offer=line.product.offers?.find(offer=>line.item.websiteIds?.includes(offer.retailer));
         if(!offer||line.product.selectionChanges?.length){blocked=true;cartReview.append(el('p',`${line.product.title}: the selected seller or variant changed. Remove and re-add your intended option.`,'variant-warning'));continue;}
         cartReview.append(el('p',`${line.product.title} × ${line.item.quantity}: ${formatProductPrice(offer.price,offer.currency)} · ${offer.retailer} · ${offer.availability||'Availability unknown'}`));
-        const snapshot=Object.fromEntries(['retailer','price','currency','condition','availability','purchaseUrl'].map(key=>[key,offer[key]??null]));
-        if(Object.keys(snapshot).some(key=>snapshot[key]!==((line.item.expectedOffer||{})[key]??null)))updates.push({key:line.item.key,offer:snapshot});
+        const snapshot=Object.fromEntries([...CHECKOUT_OFFER_FIELDS,'purchaseUrl'].map(key=>[key,offer[key]??null]));
+        if(CHECKOUT_OFFER_FIELDS.some(key=>snapshot[key]!==(line.item.expectedOffer?.[key]??null)))updates.push({key:line.item.key,offer:snapshot});
         if(['OutOfStock','out_of_stock'].includes(offer.availability))blocked=true;
       }
       if(updates.length&&!blocked){const accept=el('button','Use these updated prices','secondary');accept.id='accept-cart-prices';accept.onclick=async()=>{accept.disabled=true;try{await updateCart('refresh-offers',{items:updates});cartStatus.textContent='Updated prices saved. Your quantities and video links are unchanged. Checkout will verify them again.';}catch(error){cartStatus.textContent=error.message;accept.disabled=false;}};cartReview.append(accept);}
@@ -60,10 +62,10 @@ export function createShoppingTools(onChange, api, market, makeCheckoutAction, g
     }catch(e){cartStatus.textContent=e.message;}finally{cartBusy=false;reviewCart.disabled=false;}
   };
   const payCart=el('button','Continue with PayPal');payCart.id='pay-cart';payCart.onclick=async()=>{
-    if(cartBusy||!cart.length)return;const page=window.open('about:blank','_blank');if(!page){cartStatus.textContent='Allow the checkout tab, then try again.';return;}
-    page.opener=null;cartBusy=true;payCart.disabled=true;cartStatus.textContent='Preparing a fresh itemized quote…';
-    try{const data=await api('payments/quotes',{items:cartPayload(),config:market()});const url=new URL(data.checkoutUrl);if(url.origin!=='http://127.0.0.1:4317'||url.pathname!=='/checkout')throw new Error('Invalid checkout address.');page.location.replace(url.href);cartStatus.textContent='Review the fresh itemized quote before approving payment.';}
-    catch(e){page.close();cartStatus.textContent=e.message;}finally{cartBusy=false;payCart.disabled=false;}
+    if(cartBusy||!cart.length)return;
+    cartBusy=true;payCart.disabled=true;cartStatus.textContent='Preparing a fresh itemized quote…';
+    try{const data=await api('payments/quotes',{items:cartPayload(),config:market()});await openCheckoutTab(data.checkoutUrl);cartStatus.textContent='Review the fresh itemized quote before approving payment.';}
+    catch(e){cartStatus.textContent=e.message||'Checkout unavailable. Try again.';}finally{cartBusy=false;payCart.disabled=false;}
   };
   cartPanel.append(el('h2','Your cart'),cartStatus,cartList,reviewCart,cartReview,payCart);$('main').prepend(cartPanel);
   updateCart('read').catch(e=>cartStatus.textContent=e.message);

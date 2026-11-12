@@ -2,10 +2,29 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 import { signQuote, readQuote, catalogQuote, cartQuote } from './checkout-quotes.mjs';
-import { cartItems } from '../../packages/contracts/cart.mjs';
+import { cartItems, CHECKOUT_OFFER_FIELDS } from '../../packages/contracts/cart.mjs';
 
 const BASE = 'http://127.0.0.1:4317';
 export const DEMO_PRODUCT = Object.freeze({ id: 'bopit-demo-mug', name: 'BopIt Sandbox Demo Mug', price: '12.00', currency: 'USD' });
+
+const OFFER_SNAPSHOT_FIELDS = [...CHECKOUT_OFFER_FIELDS, 'purchaseUrl'];
+
+function validOfferSnapshot(offer) {
+  return offer && typeof offer === 'object' && !Array.isArray(offer)
+    && Object.keys(offer).length === OFFER_SNAPSHOT_FIELDS.length
+    && Object.keys(offer).every(key => OFFER_SNAPSHOT_FIELDS.includes(key))
+    && typeof offer.retailer === 'string'
+    && (offer.price === null || Number.isFinite(offer.price))
+    && OFFER_SNAPSHOT_FIELDS.slice(2).every(key => offer[key] === null || typeof offer[key] === 'string');
+}
+
+function offerChanged(product, websiteIds, expected) {
+  const fresh = websiteIds.length
+    ? product.offers?.find(offer => websiteIds.includes(offer.retailer))
+    : product.offers?.[0];
+  // Channel3 can rotate retailer links between requests. PayPal uses the quoted item and price.
+  return !fresh || CHECKOUT_OFFER_FIELDS.some(key => (fresh[key] ?? null) !== expected[key]);
+}
 
 export async function handlePayment(req, res, { paypal, paymentOrders, paymentsConfigured, send, token, extensionOrigin, retrieve, channel3Key }) {
   let pathname;
@@ -28,10 +47,12 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
         for(const item of items){
           const product=await retrieve(item.id,{apiKey:channel3Key,selection:item.selection,websiteIds:item.websiteIds,config,userId});
           if(item.expectedOffer){
-            const expected=item.expectedOffer, keys=['retailer','price','currency','condition','availability','purchaseUrl'];
-            if(!expected||typeof expected!=='object'||Array.isArray(expected)||Object.keys(expected).length!==keys.length||Object.keys(expected).some(key=>!keys.includes(key))||typeof expected.retailer!=='string'||(expected.price!==null&&(typeof expected.price!=='number'||!Number.isFinite(expected.price)))||keys.slice(2).some(key=>expected[key]!==null&&typeof expected[key]!=='string'))throw new Error('Invalid expected seller offer.');
-            const fresh=item.websiteIds.length?product.offers?.find(offer=>item.websiteIds.includes(offer.retailer)):product.offers?.[0];
-            if(!fresh||keys.some(key=>(fresh[key]??null)!==(expected[key]??null))) {const error=new Error('A cart seller offer changed. Refresh product details and review the current offer before checkout.');error.status=409;throw error;}
+            if(!validOfferSnapshot(item.expectedOffer))throw new Error('Invalid expected seller offer.');
+            if(offerChanged(product,item.websiteIds,item.expectedOffer)){
+              const error=new Error('A cart seller offer changed. Select Review current prices before continuing.');
+              error.status=409;
+              throw error;
+            }
           }
           lines.push({product,quantity:item.quantity,websiteIds:item.websiteIds});
         }
@@ -50,26 +71,15 @@ export async function handlePayment(req, res, { paypal, paymentOrders, paymentsC
               : key === 'currency' ? typeof value !== 'string' || !/^[A-Z]{3}$/.test(value)
                 : key === 'language' ? typeof value !== 'string' || !/^[a-z]{2}$/.test(value)
                   : true)))
-          || (body.expectedOffer !== undefined && (!body.expectedOffer || typeof body.expectedOffer !== 'object' || Array.isArray(body.expectedOffer)
-            || Object.keys(body.expectedOffer).length !== 6
-            || Object.keys(body.expectedOffer).some(key => !['retailer', 'price', 'currency', 'condition', 'availability', 'purchaseUrl'].includes(key))
-            || typeof body.expectedOffer.retailer !== 'string'
-            || (body.expectedOffer.price !== null && (typeof body.expectedOffer.price !== 'number' || !Number.isFinite(body.expectedOffer.price)))
-            || ['currency','condition','availability','purchaseUrl'].some(key => body.expectedOffer[key] !== null && typeof body.expectedOffer[key] !== 'string')))) {
+          || (body.expectedOffer !== undefined && !validOfferSnapshot(body.expectedOffer))) {
         throw new Error('Invalid catalog selection.');
       }
       const websiteIds = body.websiteIds || [];
       const product = await retrieve(body.id, { apiKey: channel3Key, selection: body.selection || {}, websiteIds, config: body.config || {}, userId });
-      if (body.expectedOffer) {
-        const freshOffer = websiteIds.length
-          ? product.offers?.find(item => websiteIds.includes(item.retailer))
-          : product.offers?.[0];
-        const expected = body.expectedOffer;
-        if (!freshOffer || ['retailer', 'price', 'currency', 'condition', 'availability', 'purchaseUrl'].some(key => (freshOffer[key] ?? null) !== (expected[key] ?? null))) {
-          const error = new Error('This seller offer changed since it was displayed. Refresh the product details and explicitly review the current offer before checkout.');
-          error.status = 409;
-          throw error;
-        }
+      if (body.expectedOffer && offerChanged(product, websiteIds, body.expectedOffer)) {
+        const error = new Error('This seller offer changed since it was displayed. Refresh the product details and explicitly review the current offer before checkout.');
+        error.status = 409;
+        throw error;
       }
       const quote = catalogQuote(product, { websiteIds });
       const signedQuote = signQuote(quote, token);
