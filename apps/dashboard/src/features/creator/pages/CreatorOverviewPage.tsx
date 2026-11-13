@@ -114,29 +114,39 @@ export function CreatorOverviewPage() {
   const totalSearches = filteredCreators.reduce((sum, c) => sum + (c.shopperSearches || 0), 0);
   const totalClicks = filteredVideos.reduce((sum, v) => sum + (v.productClicks || 0), 0) || filteredCampaigns.reduce((sum, c) => sum + (c.trackedLinkClicks || 0), 0);
 
-  // AG Chart 1: Creator Engagement Comparison (Horizontal Bar Chart)
-  const engagementChartOptions = useMemo<AgChartOptions>(() => ({
-    data: filteredCreators.map(c => ({
-      creator: c.name.length > 15 ? c.name.split(' ')[0] : c.name,
+  // AG Chart 1: Creator Engagement Comparison
+  const engagementChartOptions = useMemo<AgChartOptions>(() => {
+    const list = filteredCreators.length > 0 ? filteredCreators : creatorsData;
+    const data = list.slice(0, 8).map(c => ({
+      creator: c.name.length > 14 ? c.name.split(' ')[0] : c.name,
       engagement: c.engagementRate
-    })),
-    title: { text: 'Creator Engagement Comparison (%)' },
-    series: [
-      {
-        type: 'bar',
-        xKey: 'engagement',
-        yKey: 'creator',
-        yName: 'Engagement %',
-        fill: '#4a7c59',
-        cornerRadius: 4
-      }
-    ],
-    axes: [
-      { type: 'category', position: 'left' },
-      { type: 'number', position: 'bottom', title: { text: 'Engagement Rate (%)' } }
-    ],
-    legend: { enabled: false }
-  }), [filteredCreators]);
+    }));
+
+    return {
+      data,
+      title: { text: 'Creator Engagement Comparison (%)' },
+      series: [
+        {
+          type: 'bar',
+          xKey: 'creator',
+          yKey: 'engagement',
+          yName: 'Engagement %',
+          fill: '#4a7c59',
+          cornerRadius: 4
+        }
+      ],
+      axes: [
+        { type: 'category', position: 'bottom', label: { rotation: -18, fontSize: 10 } },
+        {
+          type: 'number',
+          position: 'left',
+          title: { text: 'Engagement Rate (%)' },
+          label: { formatter: params => `${params.value}%` }
+        }
+      ],
+      legend: { enabled: false }
+    };
+  }, [filteredCreators]);
 
   // AG Chart 2: Video Views vs Engagement Score (Scatter Plot)
   const videoChartOptions = useMemo<AgChartOptions>(() => ({
@@ -222,14 +232,16 @@ export function CreatorOverviewPage() {
     legend: { position: 'top' }
   }), [filteredCreators]);
 
-  // AG Chart 5: Attributed Sales by Creator (Ranked Horizontal Bar Chart)
+  // AG Chart 5: Attributed Sales by Creator
   const salesByCreatorChartOptions = useMemo<AgChartOptions>(() => {
-    const sorted = [...filteredCreators]
+    const list = filteredCreators.length > 0 ? filteredCreators : creatorsData;
+    const sorted = [...list]
       .map(c => ({
-        creator: c.name.split(' ')[0],
-        sales: c.attributedSales || 0
+        creator: c.name.length > 14 ? c.name.split(' ')[0] : c.name,
+        sales: Math.round(c.attributedSales || 0)
       }))
-      .sort((a, b) => a.sales - b.sales); // ascending so highest appears at top of horizontal chart
+      .sort((a, b) => b.sales - a.sales)
+      .slice(0, 8);
 
     return {
       data: sorted,
@@ -237,27 +249,27 @@ export function CreatorOverviewPage() {
       series: [
         {
           type: 'bar',
-          xKey: 'sales',
-          yKey: 'creator',
+          xKey: 'creator',
+          yKey: 'sales',
           yName: 'Attributed GMV ($)',
           fill: '#366144',
           cornerRadius: 4
         }
       ],
       axes: [
-        { type: 'category', position: 'left' },
+        { type: 'category', position: 'bottom', label: { rotation: -18, fontSize: 10 } },
         {
           type: 'number',
-          position: 'bottom',
+          position: 'left',
           title: { text: 'Gross Sales ($)' },
-          label: { formatter: ({ value }) => `$${Math.round(Number(value) / 1000)}k` }
+          label: { formatter: params => `$${Math.round(Number(params.value) / 1000)}k` }
         }
       ],
       legend: { enabled: false }
     };
   }, [filteredCreators]);
 
-  // AG Chart 6: Creator Commerce Conversion Funnel (Horizontal Stage Funnel Chart)
+  // AG Chart 6: Creator Commerce Conversion Funnel
   const conversionFunnelChartOptions = useMemo<AgChartOptions>(() => ({
     data: [
       { stage: '1. Visual Searches', count: totalSearches || 71400 },
@@ -268,16 +280,16 @@ export function CreatorOverviewPage() {
     series: [
       {
         type: 'bar',
-        xKey: 'count',
-        yKey: 'stage',
+        xKey: 'stage',
+        yKey: 'count',
         yName: 'Funnel Stage Volume',
         fill: '#df744a',
         cornerRadius: 4
       }
     ],
     axes: [
-      { type: 'category', position: 'left' },
-      { type: 'number', position: 'bottom', title: { text: 'Volume' } }
+      { type: 'category', position: 'bottom', label: { fontSize: 10 } },
+      { type: 'number', position: 'left', title: { text: 'Volume' } }
     ],
     legend: { enabled: false }
   }), [totalSearches, totalClicks, totalOrders]);
@@ -432,43 +444,23 @@ export function CreatorOverviewPage() {
       {/* Six Balanced AG Charts in 2x3 Grid */}
       <div className="charts-grid-2x3">
         <section className="panel" style={{ height: '340px', padding: '1rem' }}>
-          {filteredCreators.length > 0 ? (
-            <AgCharts options={engagementChartOptions} />
-          ) : (
-            <div className="chart-placeholder">No creator data matches the active filters.</div>
-          )}
+          <AgCharts options={engagementChartOptions} />
         </section>
 
         <section className="panel" style={{ height: '340px', padding: '1rem' }}>
-          {filteredVideos.length > 0 ? (
-            <AgCharts options={videoChartOptions} />
-          ) : (
-            <div className="chart-placeholder">No video data matches the active filters.</div>
-          )}
+          <AgCharts options={videoChartOptions} />
         </section>
 
         <section className="panel" style={{ height: '340px', padding: '1rem' }}>
-          {filteredBrands.length > 0 ? (
-            <AgCharts options={brandChartOptions} />
-          ) : (
-            <div className="chart-placeholder">No brand data matches the active filters.</div>
-          )}
+          <AgCharts options={brandChartOptions} />
         </section>
 
         <section className="panel" style={{ height: '340px', padding: '1rem' }}>
-          {filteredCreators.length > 0 ? (
-            <AgCharts options={searchesVsClicksChartOptions} />
-          ) : (
-            <div className="chart-placeholder">No search or click data matches the active filters.</div>
-          )}
+          <AgCharts options={searchesVsClicksChartOptions} />
         </section>
 
         <section className="panel" style={{ height: '340px', padding: '1rem' }}>
-          {filteredCreators.length > 0 ? (
-            <AgCharts options={salesByCreatorChartOptions} />
-          ) : (
-            <div className="chart-placeholder">No sales data matches the active filters.</div>
-          )}
+          <AgCharts options={salesByCreatorChartOptions} />
         </section>
 
         <section className="panel" style={{ height: '340px', padding: '1rem' }}>

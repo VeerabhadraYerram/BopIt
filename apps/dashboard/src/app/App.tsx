@@ -1,19 +1,6 @@
 import { Suspense, lazy } from 'react';
 import { BrowserRouter, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom';
 
-// Retail Pages
-const OverviewPage = lazy(() => import('../features/retail/pages/OverviewPage').then(module => ({ default: module.OverviewPage })));
-const InventoryPage = lazy(() => import('../features/retail/pages/InventoryPage').then(module => ({ default: module.InventoryPage })));
-const ProductsPage = lazy(() => import('../features/retail/pages/ProductsPage').then(module => ({ default: module.ProductsPage })));
-const MarketPage = lazy(() => import('../features/retail/pages/MarketPage').then(module => ({ default: module.MarketPage })));
-const OpportunitiesPage = lazy(() => import('../features/retail/pages/OpportunitiesPage').then(module => ({ default: module.OpportunitiesPage })));
-const FuturePage = lazy(() => import('../features/retail/pages/FuturePage').then(module => ({ default: module.FuturePage })));
-const SalesTransactionsPage = lazy(() => import('../features/retail/pages/TableDataPages').then(module => ({ default: module.SalesTransactionsPage })));
-const ProductPerformancePage = lazy(() => import('../features/retail/pages/TableDataPages').then(module => ({ default: module.ProductPerformancePage })));
-const CustomerAnalyticsPage = lazy(() => import('../features/retail/pages/TableDataPages').then(module => ({ default: module.CustomerAnalyticsPage })));
-const ImportPage = lazy(() => import('../features/retail/pages/ImportPage').then(module => ({ default: module.ImportPage })));
-const ImportHistoryPage = lazy(() => import('../features/retail/pages/TableDataPages').then(module => ({ default: module.ImportHistoryPage })));
-const RetailStudioPage = lazy(() => import('../features/retail/pages/RetailStudioPage').then(module => ({ default: module.RetailStudioPage })));
 
 // Creator Pages
 const CreatorOverviewPage = lazy(() => import('../features/creator/pages/CreatorOverviewPage').then(module => ({ default: module.CreatorOverviewPage })));
@@ -132,14 +119,6 @@ function NavIcon({ name }: { name: string }) {
   }
 }
 
-const retailNavLinks = [
-  { to: '/retail', label: 'Overview', icon: 'overview', end: true },
-  { to: '/retail/inventory', label: 'Inventory tracker', icon: 'inventory' },
-  { to: '/retail/products', label: 'Product catalogue', icon: 'products' },
-  { to: '/retail/opportunities', label: 'Product opportunities', icon: 'opportunities' },
-  { to: '/retail/market', label: 'Market intelligence', icon: 'market' }
-];
-
 const creatorNavLinks = [
   { to: '/creator', label: 'Overview', icon: 'overview', end: true },
   { to: '/creator/discovery', label: 'Creator discovery', icon: 'creators' },
@@ -157,22 +136,19 @@ const commerceNavLinks = [
 
 function Shell() {
   const location = useLocation();
-  const isCreatorWorkspace = location.pathname.startsWith('/creator');
   const isCommerceWorkspace = location.pathname.startsWith('/commerce') || location.pathname.startsWith('/channel3');
-  const activeWorkspace = isCreatorWorkspace ? 'creator' : isCommerceWorkspace ? 'commerce' : 'retail';
+  const activeWorkspace = isCommerceWorkspace ? 'commerce' : 'creator';
 
-  const brandColor = activeWorkspace === 'creator' ? '#df744a' : activeWorkspace === 'commerce' ? '#3a6953' : '#4a7c59';
-  const brandSymbol = activeWorkspace === 'creator' ? 'C' : activeWorkspace === 'commerce' ? 'C' : 'B';
+  const brandColor = activeWorkspace === 'creator' ? '#df744a' : '#3a6953';
+  const brandSymbol = activeWorkspace === 'creator' ? 'C' : 'C';
   const brandSubtitle = activeWorkspace === 'creator'
     ? 'CREATOR INTELLIGENCE'
-    : activeWorkspace === 'commerce'
-    ? 'COMMERCE INTELLIGENCE'
-    : 'RETAIL INTELLIGENCE';
+    : 'COMMERCE INTELLIGENCE';
 
   return (
     <div className="application-shell">
       <aside className="sidebar">
-        <a className="brand-lockup" href={`/${activeWorkspace === 'commerce' ? 'commerce' : activeWorkspace}`} aria-label="BopIt home">
+        <a className="brand-lockup" href={`/${activeWorkspace}`} aria-label="BopIt home">
           <span className="brand-symbol" style={{ background: brandColor }}>
             {brandSymbol}
           </span>
@@ -182,16 +158,8 @@ function Shell() {
           </span>
         </a>
 
-        {/* Top Workspace Mode Switcher (3-way) */}
+        {/* Top Workspace Mode Switcher (Creator & Commerce) */}
         <div className="workspace-switcher" role="tablist" aria-label="Workspace switcher">
-          <NavLink
-            to="/retail"
-            className={({ isActive }) => (activeWorkspace === 'retail' || isActive ? 'active' : '')}
-            role="tab"
-            aria-selected={activeWorkspace === 'retail'}
-          >
-            Retail
-          </NavLink>
           <NavLink
             to="/creator"
             className={({ isActive }) => (activeWorkspace === 'creator' || isActive ? 'active' : '')}
@@ -211,11 +179,11 @@ function Shell() {
         </div>
 
         <div className="workspace-label">
-          {activeWorkspace === 'creator' ? 'CREATOR WORKSPACE' : activeWorkspace === 'commerce' ? 'COMMERCE WORKSPACE' : 'RETAIL WORKSPACE'}
+          {activeWorkspace === 'creator' ? 'CREATOR WORKSPACE' : 'COMMERCE WORKSPACE'}
         </div>
 
         <nav className="primary-nav" aria-label="Main navigation">
-          {(activeWorkspace === 'creator' ? creatorNavLinks : activeWorkspace === 'commerce' ? commerceNavLinks : retailNavLinks).map(link => (
+          {(activeWorkspace === 'creator' ? creatorNavLinks : commerceNavLinks).map(link => (
             <NavLink
               key={link.to}
               to={link.to}
@@ -228,41 +196,25 @@ function Shell() {
           ))}
         </nav>
 
-        {activeWorkspace === 'retail' && (
-          <>
-            <div className="workspace-label future-label">
-              RETAIL DATA GRIDS
-            </div>
-
-            <div className="future-links">
-              <NavLink to="/retail/transactions"><span className="nav-icon"><NavIcon name="products" /></span> Sales transactions</NavLink>
-              <NavLink to="/retail/products/performance"><span className="nav-icon"><NavIcon name="opportunities" /></span> Product performance</NavLink>
-              <NavLink to="/retail/customers/analytics"><span className="nav-icon"><NavIcon name="creators" /></span> Customer analytics</NavLink>
-              <NavLink to="/retail/imports/preview"><span className="nav-icon"><NavIcon name="inventory" /></span> CSV imports</NavLink>
-              <NavLink to="/retail/imports/history"><span className="nav-icon"><NavIcon name="overview" /></span> Import history</NavLink>
-            </div>
-          </>
-        )}
-
         <div className="workspace-label" style={{ marginTop: '24px' }}>
           AG STUDIO 3.1
         </div>
         <div className="future-links">
           <NavLink
-            to={activeWorkspace === 'creator' ? '/creator/studio' : '/retail/studio'}
+            to="/creator/studio"
             className="studio-nav-highlight"
           >
-            <span className="nav-icon"><NavIcon name="studio" /></span> {activeWorkspace === 'creator' ? 'Creator AG Studio' : 'Retail AG Studio'} <b>3.1 AI</b>
+            <span className="nav-icon"><NavIcon name="studio" /></span> Creator AG Studio <b>3.1 AI</b>
           </NavLink>
         </div>
 
         <div className="sidebar-bottom">
           <div className="avatar" style={{ color: brandColor, background: '#f0f5f1' }}>
-            {activeWorkspace === 'creator' ? 'CI' : activeWorkspace === 'commerce' ? 'CI' : 'RI'}
+            CI
           </div>
           <div>
-            <strong>{activeWorkspace === 'creator' ? 'Creator workspace' : activeWorkspace === 'commerce' ? 'Commerce workspace' : 'Retail workspace'}</strong>
-            <small>{activeWorkspace === 'creator' ? 'VLM & Social Analytics' : activeWorkspace === 'commerce' ? 'Commerce Engine & Discovery' : 'Inventory & Commerce'}</small>
+            <strong>{activeWorkspace === 'creator' ? 'Creator workspace' : 'Commerce workspace'}</strong>
+            <small>{activeWorkspace === 'creator' ? 'VLM & Social Analytics' : 'Commerce Engine & Discovery'}</small>
           </div>
           <span className="more-mark">···</span>
         </div>
@@ -271,7 +223,7 @@ function Shell() {
       <div className="main-column">
         <header className="topbar">
           <div className="breadcrumb">
-            BopIt <span>/</span> <strong>{activeWorkspace === 'creator' ? 'Creator Intelligence' : activeWorkspace === 'commerce' ? 'Commerce Intelligence' : 'Retail Intelligence'}</strong>
+            BopIt <span>/</span> <strong>{activeWorkspace === 'creator' ? 'Creator Intelligence' : 'Commerce Intelligence'}</strong>
           </div>
           <div className="topbar-actions">
             <span className="connection-pill"><i /> Local dashboard</span>
@@ -279,7 +231,7 @@ function Shell() {
               {activeWorkspace === 'commerce' ? 'Commerce Engine + AG Grid' : 'AG Studio 3.1 + AG Grid'}
             </span>
             <div className="avatar avatar-small" style={{ color: brandColor, background: '#f0f5f1' }}>
-              {activeWorkspace === 'creator' ? 'CI' : activeWorkspace === 'commerce' ? 'CI' : 'RI'}
+              CI
             </div>
           </div>
         </header>
@@ -287,22 +239,6 @@ function Shell() {
         <main className="main-content">
           <Suspense fallback={<div className="table-loading">Loading dashboard module…</div>}>
             <Routes>
-              {/* Retail Intelligence Routes */}
-              <Route path="/retail" element={<OverviewPage />} />
-              <Route path="/retail/inventory" element={<InventoryPage />} />
-              <Route path="/retail/products" element={<ProductsPage />} />
-              <Route path="/retail/market" element={<MarketPage />} />
-              <Route path="/retail/opportunities" element={<OpportunitiesPage />} />
-              <Route path="/retail/transactions" element={<SalesTransactionsPage />} />
-              <Route path="/retail/products/performance" element={<ProductPerformancePage />} />
-              <Route path="/retail/customers" element={<Navigate to="/retail/customers/analytics" replace />} />
-              <Route path="/retail/customers/analytics" element={<CustomerAnalyticsPage />} />
-              <Route path="/retail/imports/preview" element={<ImportPage />} />
-              <Route path="/retail/imports/history" element={<ImportHistoryPage />} />
-              <Route path="/retail/payments" element={<FuturePage title="Payments" />} />
-              <Route path="/retail/assistant" element={<FuturePage title="AI Retail Assistant" />} />
-              <Route path="/retail/studio" element={<RetailStudioPage />} />
-
               {/* Creator Intelligence Routes */}
               <Route path="/creator" element={<CreatorOverviewPage />} />
               <Route path="/creator/discovery" element={<CreatorDiscoveryPage />} />
@@ -328,9 +264,13 @@ function Shell() {
               <Route path="/channel3/interest" element={<Navigate to="/commerce/insights?tab=interest" replace />} />
               <Route path="/channel3/sellers" element={<Navigate to="/commerce/insights?tab=sellers" replace />} />
 
+              {/* Redirect old retail routes to creator */}
+              <Route path="/retail/*" element={<Navigate to="/creator" replace />} />
+              <Route path="/retail" element={<Navigate to="/creator" replace />} />
+
               {/* Defaults and fallback */}
-              <Route path="/" element={<Navigate to="/retail" replace />} />
-              <Route path="*" element={<Navigate to="/retail" replace />} />
+              <Route path="/" element={<Navigate to="/creator" replace />} />
+              <Route path="*" element={<Navigate to="/creator" replace />} />
             </Routes>
           </Suspense>
         </main>
